@@ -20,64 +20,64 @@ services:
     networks:
       - devsolve
     restart: unless-stopped
-  devsolve-kc:
-    image: quay.io/keycloak/keycloak:26.6.4
-    container_name: devsolve-kc
-    environment:
-      # Database Configuration
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://devsolve-db:5432/keycloak_db
-      KC_DB_USERNAME: ${POSTGRES_USER}
-      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
-
-      # Admin User
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-
-      # Production Settings
-      KC_HOSTNAME: ${KC_HOSTNAME}
-      #      KC_HOSTNAME_PORT: ${KC_HOSTNAME_PORT}
-      KC_HOSTNAME_STRICT: false               # set to true if HTTPS
-      KC_HOSTNAME_STRICT_HTTPS: false         # set to true if HTTPS
-      #      KC_HOSTNAME_URL: http://${KC_HOSTNAME}:${KC_HOSTNAME_PORT}
-      #      KC_HOSTNAME_ADMIN_URL: http://${KC_HOSTNAME}:${KC_HOSTNAME_PORT}
-      KC_PROXY: edge
-      KC_HTTP_ENABLED: true
-      #KC_HTTPS_PORT: 443
-      KC_PROXY_HEADERS: xforwarded
-      KC_CACHE: ispn
-      KC_LOG_LEVEL: INFO
-      KC_METRICS_ENABLED: true
-      KC_HEALTH_ENABLED: true
-      JAVA_OPTS_APPEND: "-Xms512m -Xmx2048m"
-    command: start               # use in production mode
-    #command: start-dev                        # use in development mode
-    ports:
-      - "7878:8080"
-    volumes:
-      - devsolve-kc-vol:/opt/keycloak/data
-      - ./keycloak/themes:/opt/keycloak/themes
-      - ./keycloak/conf:/opt/keycloak/conf
-    networks:
-      - devsolve
-    depends_on:
-      - devsolve-db
-    restart: unless-stopped
-  minio:
-    image: minio/minio
-    container_name: devsolve-minio
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
-    volumes:
-      - devsolve-minio-data:/data
-    networks:
-      - devsolve
-    restart: unless-stopped
+#  devsolve-kc:
+#    image: quay.io/keycloak/keycloak:26.6.4
+#    container_name: devsolve-kc
+#    environment:
+#      # Database Configuration
+#      KC_DB: postgres
+#      KC_DB_URL: jdbc:postgresql://devsolve-db:5432/keycloak_db
+#      KC_DB_USERNAME: ${POSTGRES_USER}
+#      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+#
+#      # Admin User
+#      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+#      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+#
+#      # Production Settings
+#      KC_HOSTNAME: ${KC_HOSTNAME}
+#      #      KC_HOSTNAME_PORT: ${KC_HOSTNAME_PORT}
+#      KC_HOSTNAME_STRICT: false               # set to true if HTTPS
+#      KC_HOSTNAME_STRICT_HTTPS: false         # set to true if HTTPS
+#      #      KC_HOSTNAME_URL: http://${KC_HOSTNAME}:${KC_HOSTNAME_PORT}
+#      #      KC_HOSTNAME_ADMIN_URL: http://${KC_HOSTNAME}:${KC_HOSTNAME_PORT}
+#      KC_PROXY: edge
+#      KC_HTTP_ENABLED: true
+#      #KC_HTTPS_PORT: 443
+#      KC_PROXY_HEADERS: xforwarded
+#      KC_CACHE: ispn
+#      KC_LOG_LEVEL: INFO
+#      KC_METRICS_ENABLED: true
+#      KC_HEALTH_ENABLED: true
+#      JAVA_OPTS_APPEND: "-Xms512m -Xmx2048m"
+#    command: start               # use in production mode
+#    #command: start-dev                        # use in development mode
+#    ports:
+#      - "7878:8080"
+#    volumes:
+#      - devsolve-kc-vol:/opt/keycloak/data
+#      - ./keycloak/themes:/opt/keycloak/themes
+#      - ./keycloak/conf:/opt/keycloak/conf
+#    networks:
+#      - devsolve
+#    depends_on:
+#      - devsolve-db
+#    restart: unless-stopped
+#  minio:
+#    image: minio/minio
+#    container_name: devsolve-minio
+#    command: server /data --console-address ":9001"
+#    ports:
+#      - "9000:9000"
+#      - "9001:9001"
+#    environment:
+#      MINIO_ROOT_USER: ${MINIO_USER}
+#      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+#    volumes:
+#      - devsolve-minio-data:/data
+#    networks:
+#      - devsolve
+#    restart: unless-stopped
 #  nginx-proxy-manager:
 #    image: 'jc21/nginx-proxy-manager:latest'
 #    container_name: nginx-proxy-manager
