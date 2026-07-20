@@ -59,7 +59,7 @@ public class Report {
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @ColumnDefault("'new'")
+    @ColumnDefault("'NEW'")
     @Column(name = "state", columnDefinition = "report_state_enum", nullable = false)
     private ReportState state;
 
@@ -68,7 +68,7 @@ public class Report {
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @ColumnDefault("'not_disclosed'")
+    @ColumnDefault("'NOT_DISCLOSED'")
     @Column(name = "disclosure_status", columnDefinition = "disclosure_status_enum", nullable = false)
     private DisclosureStatus disclosureStatus;
 
