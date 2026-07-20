@@ -1,33 +1,40 @@
-minio:
-  url: https://file.quizzy.it.com/
-  access-key: admin
-  secret-key: admin123
-  bucket: products
 spring:
   application:
     name: devsolve-api
+
   jpa:
     hibernate:
       ddl-auto: create
+
   servlet:
     multipart:
       max-file-size: 20MB
       max-request-size: 200MB
+
   datasource:
-    username: devsolve
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
-    password: qwer
-    url: jdbc:postgresql://localhost:8989/devsolve
+
   security:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: https://auth.quizzy.it.com/realms/devsolve
+          issuer-uri: ${JWT_ISSUER_URI}
+
 server:
   port: 8999
+
+minio:
+  url: ${MINIO_URL}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  bucket: ${MINIO_BUCKET}
+
 keycloak:
-  server-url: https://auth.quizzy.it.com/
-  realm: devsolve
-  client-id: devsolve-admin
-  client-secret: 9eYFasE8u0SlhhkF7cqCZs8on1fAmUlY
-  target-realm: devsolve
+  server-url: ${KEYCLOAK_SERVER_URL}
+  realm: ${KEYCLOAK_REALM}
+  client-id: ${KEYCLOAK_CLIENT_ID}
+  client-secret: ${KEYCLOAK_CLIENT_SECRET}
+  target-realm: ${KEYCLOAK_TARGET_REALM}
