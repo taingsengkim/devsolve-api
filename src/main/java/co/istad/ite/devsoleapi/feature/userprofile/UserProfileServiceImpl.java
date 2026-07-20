@@ -12,7 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
-public class UserProfileServiceImpl implements UserProfileService{
+public class UserProfileServiceImpl implements UserProfileService {
     private final Keycloak keycloak;
     private final KeycloakAdminProps props;
     private final UserProfileRepository userProfileRepository;
