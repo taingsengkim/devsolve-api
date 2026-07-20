@@ -3,7 +3,6 @@ package co.istad.ite.devsoleapi.feature.auth;
 import co.istad.ite.devsoleapi.feature.auth.dto.RegisterRequest;
 import co.istad.ite.devsoleapi.feature.auth.dto.RegisterResponse;
 import co.istad.ite.devsoleapi.feature.userprofile.UserProfileService;
-import co.istad.ite.devsoleapi.feature.userprofile.UserProfileServiceImpl;
 import co.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
