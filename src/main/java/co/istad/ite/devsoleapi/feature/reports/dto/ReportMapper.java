@@ -9,5 +9,5 @@ public interface ReportMapper {
 
     Report toEntity(CreateReportRequest request);
 
-    CreateReportResponse toCreateResponse(Report report);
+    ReportResponse toResponse(Report report);
 }

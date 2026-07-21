@@ -13,7 +13,7 @@ import java.util.UUID;
 
 @Getter
 @Builder
-public class CreateReportResponse {
+public class ReportResponse {
 
     private UUID id;
 

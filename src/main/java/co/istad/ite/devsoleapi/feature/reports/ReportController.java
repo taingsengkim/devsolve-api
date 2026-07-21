@@ -1,7 +1,8 @@
 package co.istad.ite.devsoleapi.feature.reports;
 
 import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
-import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportResponse;
+import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -19,7 +20,7 @@ public class ReportController {
 
     @PostMapping("/programs/{programId}/reports")
     @ResponseStatus(HttpStatus.CREATED)
-    public CreateReportResponse createNew(
+    public ReportResponse createNew(
             @PathVariable UUID programId,
             @Valid @RequestBody CreateReportRequest request
     ) {
@@ -27,7 +28,15 @@ public class ReportController {
     }
 
     @GetMapping("/reports/{id}")
-    public CreateReportResponse findById(@PathVariable UUID id) {
+    public ReportResponse findById(@PathVariable UUID id) {
         return reportService.findById(id);
     }
-}
+
+    @PatchMapping("/reports/{id}/triage")
+    public ReportResponse triage(
+            @PathVariable UUID id,
+            @Valid @RequestBody(required = false) TriageReportRequest request
+    ) {
+        return reportService.triage(id, request);
+    }
+}
