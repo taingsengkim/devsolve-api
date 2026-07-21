@@ -19,9 +19,11 @@ public class ReportServiceImpl implements ReportService {
     private final ReportRepository reportRepository;
     private final ReportMapper reportMapper;
     @Override
-    public CreateReportResponse createNew(CreateReportRequest request) {
+    public CreateReportResponse createNew(UUID programId, CreateReportRequest request) {
 
         Report report = reportMapper.toEntity(request);
+
+        report.setProgramId(programId);
 
         Report savedReport = reportRepository.save(report);
 

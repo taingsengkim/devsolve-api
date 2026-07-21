@@ -29,6 +29,10 @@ public class Report {
     @Column(nullable = false)
     private UUID id;
 
+    @NotNull
+    @Column(name = "program_id", nullable = false)
+    private UUID programId;
+
     @NotBlank
     @Size(max = 255)
     @Column(nullable = false)
