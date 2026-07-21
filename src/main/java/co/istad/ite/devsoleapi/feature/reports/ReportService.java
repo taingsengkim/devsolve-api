@@ -6,5 +6,7 @@ import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportResponse;
 import java.util.UUID;
 
 public interface ReportService {
-    CreateReportResponse createNew(UUID programId,CreateReportRequest request);
+    CreateReportResponse createNew(UUID programId, CreateReportRequest request);
+
+    CreateReportResponse findById(UUID id);
 }

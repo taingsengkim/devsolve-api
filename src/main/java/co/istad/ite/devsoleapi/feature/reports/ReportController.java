@@ -15,7 +15,7 @@ import java.util.UUID;
 public class ReportController {
     private final ReportService reportService;
 
-
+    
 
     @PostMapping("/programs/{programId}/reports")
     @ResponseStatus(HttpStatus.CREATED)
@@ -25,4 +25,9 @@ public class ReportController {
     ) {
         return reportService.createNew(programId, request);
     }
-}
+
+    @GetMapping("/reports/{id}")
+    public CreateReportResponse findById(@PathVariable UUID id) {
+        return reportService.findById(id);
+    }
+}
