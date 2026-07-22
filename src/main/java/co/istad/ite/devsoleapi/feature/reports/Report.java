@@ -70,9 +70,7 @@ public class Report {
     @NotNull
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "disclosure_status",
-            columnDefinition = "disclosure_status_enum",
-            nullable = false)
+    @Column(name = "disclosure_status", columnDefinition = "disclosure_status_enum", nullable = false)
     private DisclosureStatus disclosureStatus = DisclosureStatus.NOT_DISCLOSED;
 
     @JdbcTypeCode(SqlTypes.JSON)

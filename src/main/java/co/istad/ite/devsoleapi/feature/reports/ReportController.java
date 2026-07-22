@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -17,14 +18,22 @@ import java.util.UUID;
 public class ReportController {
     private final ReportService reportService;
 
-
     @PostMapping("/programs/{programId}/reports")
     @ResponseStatus(HttpStatus.CREATED)
     public ReportResponse createNew(
             @PathVariable UUID programId,
-            @Valid @RequestBody CreateReportRequest request
-    ) {
+            @Valid @RequestBody CreateReportRequest request) {
         return reportService.createNew(programId, request);
+    }
+
+    @GetMapping("/programs/{programId}/reports")
+    public List<ReportResponse> findByProgramId(@PathVariable UUID programId) {
+        return reportService.findAll(programId);
+    }
+
+    @GetMapping("/reports")
+    public List<ReportResponse> findAll(@RequestParam(required = false) UUID programId) {
+        return reportService.findAll(programId);
     }
 
     @GetMapping("/reports/{id}")
@@ -35,16 +44,14 @@ public class ReportController {
     @PatchMapping("/reports/{id}/triage")
     public ReportResponse triage(
             @PathVariable UUID id,
-            @Valid @RequestBody(required = false) TriageReportRequest request
-    ) {
+            @Valid @RequestBody(required = false) TriageReportRequest request) {
         return reportService.triage(id, request);
     }
 
-    @PatchMapping({"/reports/{id}/disclosure", "/reports/{id}/disclosure-state"})
+    @PatchMapping({ "/reports/{id}/disclosure", "/reports/{id}/disclosure-state" })
     public ReportResponse updateDisclosureState(
             @PathVariable UUID id,
-            @Valid @RequestBody(required = false) UpdateDisclosureStateRequest request
-    ) {
+            @Valid @RequestBody(required = false) UpdateDisclosureStateRequest request) {
         return reportService.updateDisclosureState(id, request);
     }
 }
