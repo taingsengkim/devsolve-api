@@ -16,7 +16,6 @@ import java.util.UUID;
 public class ReportController {
     private final ReportService reportService;
 
-    
 
     @PostMapping("/programs/{programId}/reports")
     @ResponseStatus(HttpStatus.CREATED)
