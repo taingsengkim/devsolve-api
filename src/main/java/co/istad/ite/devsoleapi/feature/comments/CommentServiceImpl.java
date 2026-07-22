@@ -2,6 +2,7 @@ package co.istad.ite.devsoleapi.feature.comments;
 
 import co.istad.ite.devsoleapi.feature.comments.dto.CommentMapper;
 import co.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
+import co.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
 import co.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import co.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,36 @@ public class CommentServiceImpl implements CommentService {
     private final CommentMapper commentMapper;
 
     @Override
+    public CommentResponse createReportComment(UUID reportId, CreateCommentRequest request) {
+        if (!reportRepository.existsById(reportId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Report not found"
+            );
+        }
+
+        Comment comment = commentMapper.toEntity(request);
+        comment.setCommentableType(CommentableType.REPORT);
+        comment.setCommentableId(reportId);
+
+        if (request.getParentCommentId() != null) {
+            Comment parentComment = commentRepository.findById(request.getParentCommentId())
+                    .orElseThrow(() ->
+                            new ResponseStatusException(
+                                    HttpStatus.NOT_FOUND,
+                                    "Parent comment not found"
+                            )
+                    );
+            comment.setParentComment(parentComment);
+        }
+
+        Comment savedComment = commentRepository.save(comment);
+        return commentMapper.toResponse(savedComment);
+    }
+
+    @Override
     public List<CommentResponse> findReportComments(UUID reportId) {
+
         if (!reportRepository.existsById(reportId)) {
             throw new ResponseStatusException(
                     HttpStatus.NOT_FOUND,
