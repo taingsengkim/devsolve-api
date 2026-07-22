@@ -3,6 +3,7 @@ package co.istad.ite.devsoleapi.feature.reports;
 import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
+import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 
 import java.util.UUID;
 
@@ -35,4 +36,14 @@ public interface ReportService {
      * @return a {@link ReportResponse} reflecting the updated state of the report
      */
     ReportResponse triage(UUID id, TriageReportRequest request);
+
+
+    /**
+     * Updates the disclosure state of an existing report.
+     *
+     * @param id      the unique identifier of the report to update disclosure state
+     * @param request the payload containing the updated disclosure state
+     * @return a {@link ReportResponse} reflecting the updated state of the report
+     */
+    ReportResponse updateDisclosureState(UUID id, UpdateDisclosureStateRequest request);
 }

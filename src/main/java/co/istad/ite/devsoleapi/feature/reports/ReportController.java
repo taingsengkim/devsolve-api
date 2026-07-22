@@ -3,6 +3,7 @@ package co.istad.ite.devsoleapi.feature.reports;
 import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
+import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -37,5 +38,13 @@ public class ReportController {
             @Valid @RequestBody(required = false) TriageReportRequest request
     ) {
         return reportService.triage(id, request);
+    }
+
+    @PatchMapping({"/reports/{id}/disclosure", "/reports/{id}/disclosure-state"})
+    public ReportResponse updateDisclosureState(
+            @PathVariable UUID id,
+            @Valid @RequestBody(required = false) UpdateDisclosureStateRequest request
+    ) {
+        return reportService.updateDisclosureState(id, request);
     }
 }

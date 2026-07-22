@@ -5,6 +5,7 @@ import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
+import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -55,6 +56,24 @@ public class ReportServiceImpl implements ReportService {
 
         if (request != null && request.getState() != null) {
             report.setState(request.getState());
+            reportRepository.save(report);
+        }
+
+        return reportMapper.toResponse(report);
+    }
+
+    @Override
+    public ReportResponse updateDisclosureState(UUID id, UpdateDisclosureStateRequest request) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Report not found"
+                        )
+                );
+
+        if (request != null && request.getDisclosureStatus() != null) {
+            report.setDisclosureStatus(request.getDisclosureStatus());
             reportRepository.save(report);
         }
 
