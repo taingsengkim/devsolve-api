@@ -6,6 +6,7 @@ import co.istad.ite.devsoleapi.feature.category.dto.CategoryRequest;
 import co.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 
 import java.util.List;
+import java.util.UUID;
 
 public interface CategoryService {
 
@@ -15,13 +16,13 @@ public interface CategoryService {
 
     List<CategoryResponse> getActiveCategoriesSorted();
 
-    CategoryResponse getCategoryById(Long id);
+    CategoryResponse getCategoryById(UUID id);
 
     CategoryResponse getCategoryBySlug(String slug);
 
 //    CategoryResponse updateCategory(Long id, CategoryPatchRequest request);
 
-    void deleteCategory(Long id);
+    void deleteCategory(UUID id);
 
-    CategoryResponse partialUpdateCategory(Long id, CategoryPatchRequest request);
+    CategoryResponse partialUpdateCategory(UUID id, CategoryPatchRequest request);
 }

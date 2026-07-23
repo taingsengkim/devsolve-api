@@ -1,10 +1,11 @@
 package co.istad.ite.devsoleapi.feature.category.dto;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 // --- Response DTO ---
 public record CategoryResponse(
-        Long id,
+        UUID id,
         String name,
         String slug,
         String description,
