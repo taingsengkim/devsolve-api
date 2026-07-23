@@ -3,6 +3,7 @@ package co.istad.ite.devsoleapi.feature.reports;
 import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
+import co.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 
 import java.util.List;
@@ -70,4 +71,13 @@ public interface ReportService {
      * @return a {@link ReportResponse} reflecting the updated state of the report
      */
     ReportResponse updateDisclosureState(UUID id, UpdateDisclosureStateRequest request);
+
+    /**
+     * Awards a monetary reward for a specific report.
+     *
+     * @param id      the unique identifier of the report to reward
+     * @param request the payload containing the reward amount and optional note
+     * @return a {@link ReportResponse} reflecting the updated state of the report
+     */
+    ReportResponse setReward(UUID id, RewardReportRequest request);
 }

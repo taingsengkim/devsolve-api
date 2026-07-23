@@ -51,6 +51,10 @@ public class Report {
     @JoinColumn(name = "report_id")
     private List<ReportAttachment> attachments;
 
+    @OneToMany(fetch = FetchType.LAZY)
+    @JoinColumn(name = "report_id")
+    private List<ReportReward> rewards;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "reported_severity", nullable = false)
     private Severity reportedSeverity;

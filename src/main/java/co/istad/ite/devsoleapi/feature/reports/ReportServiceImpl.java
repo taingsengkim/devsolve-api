@@ -4,9 +4,11 @@ import co.istad.ite.devsoleapi.config.security.AuthUtils;
 import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import co.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import co.istad.ite.devsoleapi.feature.reports.entities.Report;
+import co.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import java.util.UUID;
 public class ReportServiceImpl implements ReportService {
 
     private final ReportRepository reportRepository;
+    private final ReportRewardRepository reportRewardRepository;
     private final ReportMapper reportMapper;
 
     @Override
@@ -105,6 +108,32 @@ public class ReportServiceImpl implements ReportService {
             report.setDisclosureStatus(request.getDisclosureStatus());
             reportRepository.save(report);
         }
+
+        return reportMapper.toResponse(report);
+    }
+
+    @Override
+    public ReportResponse setReward(UUID id, RewardReportRequest request) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Report not found"));
+
+        String awardedBy;
+        try {
+            awardedBy = AuthUtils.extractUserId();
+        } catch (Exception e) {
+            awardedBy = "system";
+        }
+
+        ReportReward reward = ReportReward.builder()
+                .report(report)
+                .amount(request.getAmount())
+                .awardedBy(awardedBy)
+                .note(request.getNote())
+                .build();
+
+        reportRewardRepository.save(reward);
 
         return reportMapper.toResponse(report);
     }

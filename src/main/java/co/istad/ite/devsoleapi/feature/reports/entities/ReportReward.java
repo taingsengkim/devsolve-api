@@ -29,9 +29,6 @@ public class ReportReward {
     @Column(name = "amount", precision = 10, scale = 2)
     private BigDecimal amount;
 
-    @Column(name = "points")
-    private Integer points;
-
     @Column(name = "awarded_by", nullable = false, length = 255)
     private String awardedBy;
 

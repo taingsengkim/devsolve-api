@@ -2,6 +2,7 @@ package co.istad.ite.devsoleapi.feature.reports;
 
 import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import co.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import jakarta.validation.Valid;
@@ -58,5 +59,12 @@ public class ReportController {
             @PathVariable UUID id,
             @Valid @RequestBody(required = false) UpdateDisclosureStateRequest request) {
         return reportService.updateDisclosureState(id, request);
+    }
+
+    @PatchMapping("/reports/{id}/reward")
+    public ReportResponse setReward(
+            @PathVariable UUID id,
+            @Valid @RequestBody RewardReportRequest request) {
+        return reportService.setReward(id, request);
     }
 }
