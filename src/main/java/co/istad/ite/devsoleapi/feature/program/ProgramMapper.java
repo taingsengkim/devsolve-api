@@ -7,6 +7,7 @@ import co.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import co.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import co.istad.ite.devsoleapi.feature.program.program_reward.ProgramReward;
 import co.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
+import org.mapstruct.*;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

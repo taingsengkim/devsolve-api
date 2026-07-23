@@ -42,14 +42,14 @@ public class ProgramServiceImpl implements ProgramService {
     public ProgramResponseDto getProgramById(UUID id) {
         return programRepository.findById(id)
                 .map(mapper::toResponseDto)
-                .orElseThrow(() -> new ResourceNotFoundException("Program", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Program"));
     }
 
     @Override
     public ProgramResponseDto getProgramByHandle(String handle) {
         return programRepository.findByHandle(handle)
                 .map(mapper::toResponseDto)
-                .orElseThrow(() -> new ResourceNotFoundException("Program", "handle", handle));
+                .orElseThrow(() -> new ResourceNotFoundException("Program"));
     }
 
     @Override
@@ -68,7 +68,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Transactional
     public ProgramResponseDto updateProgram(UUID id, ProgramUpdateRequestDto dto) {
         Program existing = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Program"));
 
         // Only allow updates if DRAFT or ACTIVE (business rule)
         if (existing.getState() == ProgramState.CLOSED) {
@@ -92,7 +92,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Transactional
     public ProgramResponseDto publishProgram(UUID id) {
         Program program = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Program"));
 
         if (program.getState() != ProgramState.DRAFT) {
             throw new RuntimeException("Only DRAFT programs can be published.");
@@ -117,7 +117,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Transactional
     public ProgramResponseDto pauseProgram(UUID id) {
         Program program = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Program"));
 
         if (program.getState() != ProgramState.ACTIVE) {
             throw new RuntimeException("Only ACTIVE programs can be paused.");
@@ -139,7 +139,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Transactional
     public ProgramResponseDto closeProgram(UUID id) {
         Program program = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program", "id", id));
+                .orElseThrow(() -> new ResourceNotFoundException("Program"));
 
         if (program.getState() == ProgramState.CLOSED) {
             throw new RuntimeException("Program is already closed.");
@@ -161,7 +161,7 @@ public class ProgramServiceImpl implements ProgramService {
     public Page<ProgramUpdateChangeLogDto> getProgramUpdates(UUID id, Pageable pageable) {
         // Ensure program exists
         if (!programRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Program", "id", id);
+            throw new ResourceNotFoundException("Program");
         }
         return programUpdateRepository.findByProgramId(id, pageable).map(mapper::toUpdateDto);
     }

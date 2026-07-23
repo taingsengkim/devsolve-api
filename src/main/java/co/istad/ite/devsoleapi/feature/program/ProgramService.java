@@ -21,5 +21,4 @@ public interface ProgramService {
     ProgramResponseDto pauseProgram(UUID id);
     ProgramResponseDto closeProgram(UUID id);
     Page<ProgramUpdateChangeLogDto> getProgramUpdates(UUID id, Pageable pageable);
-    // For /reports, we need a Report entity – I'll leave a placeholder comment.
 }
