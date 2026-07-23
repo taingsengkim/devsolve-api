@@ -11,6 +11,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.UUID;
 
 @Getter
 @Setter
@@ -31,6 +32,10 @@ public class CreateReportRequest {
     @DecimalMin(value = "0.0", message = "CVSS score must be at least 0.0.")
     @DecimalMax(value = "10.0", message = "CVSS score must not exceed 10.0.")
     private BigDecimal cvssScore;
+
+    private UUID weaknessId;
+
+    private UUID assetId;
 
     private Map<String, Object> weakness;
 

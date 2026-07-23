@@ -9,7 +9,12 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -41,6 +46,21 @@ public class Report {
     @Column(name = "impact", columnDefinition = "TEXT")
     private String impact;
 
+    @Column(name = "cvss_score", precision = 3, scale = 1)
+    private BigDecimal cvssScore;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "weakness", columnDefinition = "jsonb")
+    private Map<String, Object> weakness;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "asset", columnDefinition = "jsonb")
+    private Map<String, Object> asset;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "attachments", columnDefinition = "jsonb")
+    private Map<String, Object> attachments;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "reported_severity", nullable = false)
     private Severity reportedSeverity;
@@ -59,13 +79,15 @@ public class Report {
     @Column(name = "asset_id")
     private UUID assetId;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "state", nullable = false)
-    private ReportState state;
+    private ReportState state = ReportState.NEW;
 
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "disclosure_status", nullable = false)
-    private DisclosureStatus disclosureStatus;
+    private DisclosureStatus disclosureStatus = DisclosureStatus.NOT_DISCLOSED;
 
     @Column(name = "triaged_by", length = 255)
     private String triagedBy;
@@ -86,4 +108,25 @@ public class Report {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        Instant now = Instant.now();
+
+        if (submittedAt == null) {
+            submittedAt = now;
+        }
+
+        if (state == null) {
+            state = ReportState.NEW;
+        }
+
+        if (disclosureStatus == null) {
+            disclosureStatus = DisclosureStatus.NOT_DISCLOSED;
+        }
+
+        if (reportedSeverity == null && severity != null) {
+            reportedSeverity = severity;
+        }
+    }
 }

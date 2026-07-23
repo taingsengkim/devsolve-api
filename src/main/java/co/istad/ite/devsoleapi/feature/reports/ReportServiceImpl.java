@@ -1,5 +1,6 @@
 package co.istad.ite.devsoleapi.feature.reports;
 
+import co.istad.ite.devsoleapi.config.security.AuthUtils;
 import co.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
@@ -27,6 +28,18 @@ public class ReportServiceImpl implements ReportService {
         Report report = reportMapper.toEntity(request);
 
         report.setProgramId(programId);
+
+        if (report.getReporterId() == null) {
+            try {
+                report.setReporterId(AuthUtils.extractUserId());
+            } catch (Exception e) {
+                report.setReporterId("system");
+            }
+        }
+
+        if (report.getReportedSeverity() == null && request.getSeverity() != null) {
+            report.setReportedSeverity(request.getSeverity());
+        }
 
         Report savedReport = reportRepository.save(report);
 

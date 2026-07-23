@@ -27,6 +27,10 @@ public class ReportResponse {
 
     private BigDecimal cvssScore;
 
+    private UUID weaknessId;
+
+    private UUID assetId;
+
     private ReportState state;
 
     private DisclosureStatus disclosureStatus;
