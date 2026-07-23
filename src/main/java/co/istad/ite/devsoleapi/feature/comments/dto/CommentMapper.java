@@ -15,6 +15,7 @@ public interface CommentMapper {
     @Mapping(target = "commentableId", ignore = true)
     @Mapping(target = "parentComment", ignore = true)
     @Mapping(target = "replies", ignore = true)
+    @Mapping(target = "authorId", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "deletedAt", ignore = true)

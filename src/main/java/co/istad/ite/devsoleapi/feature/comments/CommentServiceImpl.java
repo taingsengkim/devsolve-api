@@ -1,5 +1,6 @@
 package co.istad.ite.devsoleapi.feature.comments;
 
+import co.istad.ite.devsoleapi.config.security.AuthUtils;
 import co.istad.ite.devsoleapi.feature.comments.dto.CommentMapper;
 import co.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
 import co.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
@@ -30,7 +31,11 @@ public class CommentServiceImpl implements CommentService {
             );
         }
 
+        String userIdStr = AuthUtils.extractUserId();
+        UUID authorId = UUID.fromString(userIdStr);
+
         Comment comment = commentMapper.toEntity(request);
+        comment.setAuthorId(authorId);
         comment.setCommentableType(CommentableType.REPORT);
         comment.setCommentableId(reportId);
 
