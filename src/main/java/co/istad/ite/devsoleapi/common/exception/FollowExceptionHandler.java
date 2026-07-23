@@ -1,4 +1,4 @@
-package co.istad.ite.devsoleapi.feature.follow;
+package co.istad.ite.devsoleapi.common.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
