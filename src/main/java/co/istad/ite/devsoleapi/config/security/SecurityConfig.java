@@ -3,6 +3,7 @@ package co.istad.ite.devsoleapi.config.security;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -29,7 +30,12 @@ public class SecurityConfig {
                         jwt(Customizer.withDefaults()));
 
         http.authorizeHttpRequests(auth ->
-                auth.requestMatchers("/api/v1/auth/register").permitAll()
+                auth.requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/comments"
+                ).permitAll()
+
+                .requestMatchers("/api/v1/auth/register").permitAll()
                         .requestMatchers("/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
                         .requestMatchers("/scalar/**").permitAll()
                         .anyRequest().authenticated());

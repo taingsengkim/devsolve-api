@@ -22,9 +22,7 @@ public class VoteController {
 
         UUID userId = getUserId(jwt);
         VoteResponse response = voteService.vote(userId, request);
-
         return ResponseEntity.ok(response);
-
     }
 
     @DeleteMapping
