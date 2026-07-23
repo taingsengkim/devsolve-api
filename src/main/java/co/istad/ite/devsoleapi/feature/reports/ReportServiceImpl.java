@@ -5,6 +5,7 @@ import co.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import co.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
+import co.istad.ite.devsoleapi.feature.reports.entities.Report;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;

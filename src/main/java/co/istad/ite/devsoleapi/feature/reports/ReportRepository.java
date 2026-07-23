@@ -1,5 +1,6 @@
 package co.istad.ite.devsoleapi.feature.reports;
 
+import co.istad.ite.devsoleapi.feature.reports.entities.Report;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

@@ -1,5 +1,5 @@
 
-package co.istad.ite.devsoleapi.feature.reports;
+package co.istad.ite.devsoleapi.feature.reports.entities;
 
 import co.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import co.istad.ite.devsoleapi.feature.reports.enums.ReportState;
@@ -9,7 +9,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -71,19 +71,19 @@ public class Report {
     private String triagedBy;
 
     @Column(name = "triaged_at")
-    private LocalDateTime triagedAt;
+    private Instant triagedAt;
 
     @Column(name = "submitted_at", nullable = false)
-    private LocalDateTime submittedAt;
+    private Instant submittedAt;
 
     @Column(name = "resolved_at")
-    private LocalDateTime resolvedAt;
+    private Instant resolvedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 }

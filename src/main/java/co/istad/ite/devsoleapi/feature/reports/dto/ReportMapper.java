@@ -1,6 +1,6 @@
 package co.istad.ite.devsoleapi.feature.reports.dto;
 
-import co.istad.ite.devsoleapi.feature.reports.Report;
+import co.istad.ite.devsoleapi.feature.reports.entities.Report;
 import org.mapstruct.Mapper;
 import org.mapstruct.MappingConstants;
 

@@ -1,11 +1,11 @@
-package co.istad.ite.devsoleapi.feature.reports;
+package co.istad.ite.devsoleapi.feature.reports.entities;
 
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -37,7 +37,7 @@ public class ReportReward {
 
     @CreationTimestamp
     @Column(name = "awarded_at", nullable = false, updatable = false)
-    private LocalDateTime awardedAt;
+    private Instant awardedAt;
 
     @Column(name = "note", columnDefinition = "TEXT")
     private String note;

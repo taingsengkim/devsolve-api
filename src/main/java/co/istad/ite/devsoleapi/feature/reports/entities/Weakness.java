@@ -1,10 +1,10 @@
-package co.istad.ite.devsoleapi.feature.reports;
+package co.istad.ite.devsoleapi.feature.reports.entities;
 
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.UUID;
 
 @Entity
@@ -36,5 +36,5 @@ public class Weakness {
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 }
