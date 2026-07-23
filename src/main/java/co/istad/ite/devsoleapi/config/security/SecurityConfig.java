@@ -13,9 +13,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.http.HttpMethod;
+
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -23,97 +22,39 @@ import java.util.stream.Collectors;
 @EnableWebSecurity
 public class SecurityConfig {
 
-//    @Bean
-//    public SecurityFilterChain apiSecurity(HttpSecurity http) {
-//        http.oauth2ResourceServer(oauth->
-//                oauth.jwt(Customizer.withDefaults()));
-//
-//        http.authorizeHttpRequests(auth ->
-//                auth
-//                        .anyRequest().permitAll());
-////                        .requestMatchers("/api/v1/auth/register").permitAll()
-////                        .requestMatchers(HttpMethod.GET, "/api/v1/votes/**").authenticated().anyRequest().permitAll()
-//////                        .requestMatchers("GET", "/api/v1/comments").permitAll()
-////                        .requestMatchers(HttpMethod.GET, "/api/v1/comments")
-////                        .permitAll()
-////                     .requestMatchers("/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
-////                    .requestMatchers("/scalar/**").permitAll()
-////                    .anyRequest().authenticated());
-//
-//        http.sessionManagement(state ->
-//                state.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-//
-//        http.csrf(AbstractHttpConfigurer::disable);
-//        http.formLogin(AbstractHttpConfigurer::disable);
-//
-//        return http.build();
-//    }
+    @Bean
+    public SecurityFilterChain apiSecurity(HttpSecurity http) {
+        http.oauth2ResourceServer(oauth->
+                oauth.
+                        jwt(Customizer.withDefaults()));
 
+        http.authorizeHttpRequests(auth ->
+                auth.requestMatchers("/api/v1/auth/register").permitAll()
+                        .requestMatchers("/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
+                        .requestMatchers("/scalar/**").permitAll()
+                        .anyRequest().authenticated());
 
+        http.sessionManagement(state ->
+                state.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
-@Bean
-public SecurityFilterChain apiSecurity(HttpSecurity http) throws Exception {
+        http.csrf(AbstractHttpConfigurer::disable);
+        http.formLogin(AbstractHttpConfigurer::disable);
 
-    http
-            .oauth2ResourceServer(oauth ->
-                    oauth.jwt(Customizer.withDefaults())
-            );
-
-    http.authorizeHttpRequests(auth ->
-            auth
-                    .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/scalar/**")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/api/v1/votes")
-                    .authenticated()
-                    .requestMatchers(HttpMethod.DELETE, "/api/v1/votes")
-                    .authenticated()
-                    .anyRequest()
-                    .permitAll()
-    );
-
-    http.sessionManagement(session ->
-            session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-    );
-
-    http.csrf(AbstractHttpConfigurer::disable);
-
-    return http.build();
-}
-
-
-
+        return http.build();
+    }
 
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter(){
-        Converter<Jwt, Collection<GrantedAuthority>> converter = jwt -> {
-
-            Map<String, Object> realmAccess = jwt.getClaim("realm_access");
-
-            if (realmAccess == null || realmAccess.get("roles") == null) {
-                return List.of();
-            }
-
-            Collection<String> roles =
-                    (Collection<String>) realmAccess.get("roles");;
-
+        Converter<Jwt, Collection<GrantedAuthority>> jwtGrantedAuthroiteiesConverter = jwt -> {
+            Map<String,Collection> realmAccess = jwt.getClaim("realm_access");
+            Collection<String> roles = realmAccess.get("roles");
             return roles.stream()
-                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                    .map(role->new SimpleGrantedAuthority("ROLE_"+role))
                     .collect(Collectors.toList());
         };
-
-        JwtAuthenticationConverter jwtConverter =
-                new JwtAuthenticationConverter();
-
-        jwtConverter.setJwtGrantedAuthoritiesConverter(converter);
-
-        return jwtConverter;
+        var jwtAuthenticationConverter = new JwtAuthenticationConverter();
+        jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(jwtGrantedAuthroiteiesConverter);
+        return jwtAuthenticationConverter;
     }
-
-
-
-
-
-
-
 
 }
