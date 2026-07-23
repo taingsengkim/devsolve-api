@@ -1,4 +1,4 @@
-package co.istad.ite.devsoleapi.feature.user_profile;
+package co.istad.ite.devsoleapi.feature.userprofile;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
