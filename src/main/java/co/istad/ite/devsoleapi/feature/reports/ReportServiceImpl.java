@@ -9,6 +9,8 @@ import co.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import co.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import co.istad.ite.devsoleapi.feature.reports.entities.Report;
 import co.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
+import co.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import co.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ public class ReportServiceImpl implements ReportService {
     private final ReportRepository reportRepository;
     private final ReportRewardRepository reportRewardRepository;
     private final ReportMapper reportMapper;
+    private final UserProfileRepository userProfileRepository;
 
     @Override
     public ReportResponse createNew(UUID programId, CreateReportRequest request) {
@@ -32,12 +35,13 @@ public class ReportServiceImpl implements ReportService {
 
         report.setProgramId(programId);
 
-        if (report.getReporterId() == null) {
-            try {
-                report.setReporterId(AuthUtils.extractUserId());
-            } catch (Exception e) {
-                report.setReporterId("system");
-            }
+        if (report.getReporter() == null) {
+            String userId = AuthUtils.extractUserId();
+            UserProfile reporter = userProfileRepository.findById(userId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "Reporter profile not found"));
+            report.setReporter(reporter);
         }
 
         if (report.getReportedSeverity() == null && request.getSeverity() != null) {
@@ -78,7 +82,7 @@ public class ReportServiceImpl implements ReportService {
     @Override
     public List<ReportResponse> findMine() {
         String reporterId = AuthUtils.extractUserId();
-        List<Report> reports = reportRepository.findByReporterId(reporterId);
+        List<Report> reports = reportRepository.findByReporter_Id(reporterId);
         return reportMapper.toResponse(reports);
     }
 

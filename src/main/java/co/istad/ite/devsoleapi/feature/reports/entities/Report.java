@@ -5,6 +5,7 @@ import co.istad.ite.devsoleapi.feature.reports.enums.AssetType;
 import co.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import co.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import co.istad.ite.devsoleapi.feature.reports.enums.Severity;
+import co.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -32,8 +33,9 @@ public class Report {
     @Column(name = "program_id", nullable = false)
     private UUID programId;
 
-    @Column(name = "reporter_id", nullable = false, length = 255)
-    private String reporterId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "reporter_id", nullable = false)
+    private UserProfile reporter;
 
     @Column(name = "title", nullable = false, length = 255)
     private String title;
