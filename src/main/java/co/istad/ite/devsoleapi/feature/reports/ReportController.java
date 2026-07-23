@@ -36,6 +36,11 @@ public class ReportController {
         return reportService.findAll(programId);
     }
 
+    @GetMapping("/reports/mine")
+    public List<ReportResponse> findMine() {
+        return reportService.findMine();
+    }
+
     @GetMapping("/reports/{id}")
     public ReportResponse findById(@PathVariable UUID id) {
         return reportService.findById(id);

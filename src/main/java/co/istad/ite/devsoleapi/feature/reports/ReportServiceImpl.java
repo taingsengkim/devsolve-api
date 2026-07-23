@@ -73,6 +73,13 @@ public class ReportServiceImpl implements ReportService {
     }
 
     @Override
+    public List<ReportResponse> findMine() {
+        String reporterId = AuthUtils.extractUserId();
+        List<Report> reports = reportRepository.findByReporterId(reporterId);
+        return reportMapper.toResponse(reports);
+    }
+
+    @Override
     public ReportResponse triage(UUID id, TriageReportRequest request) {
         Report report = reportRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(

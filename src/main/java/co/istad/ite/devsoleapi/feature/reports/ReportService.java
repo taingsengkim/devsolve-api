@@ -46,6 +46,13 @@ public interface ReportService {
     List<ReportResponse> findAll();
 
     /**
+     * Retrieves all reports submitted by the currently authenticated user.
+     *
+     * @return a list of {@link ReportResponse} containing report details
+     */
+    List<ReportResponse> findMine();
+
+    /**
      * Triages an existing report, updating its status, severity, or other relevant
      * triage details.
      *

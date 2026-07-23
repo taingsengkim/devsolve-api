@@ -8,4 +8,5 @@ import java.util.UUID;
 
 public interface ReportRepository extends JpaRepository<Report, UUID> {
     List<Report> findByProgramId(UUID programId);
+    List<Report> findByReporterId(String reporterId);
 }
