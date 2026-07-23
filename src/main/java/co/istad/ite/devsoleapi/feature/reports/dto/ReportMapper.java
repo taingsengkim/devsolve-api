@@ -11,6 +11,7 @@ import java.util.List;
 public interface ReportMapper {
 
     @Mapping(target = "reportedSeverity", source = "severity")
+    @Mapping(target = "attachments", ignore = true)
     Report toEntity(CreateReportRequest request);
 
     @Mapping(target = "severity", expression = "java(report.getSeverity() != null ? report.getSeverity() : report.getReportedSeverity())")

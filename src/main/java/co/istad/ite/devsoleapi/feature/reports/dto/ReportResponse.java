@@ -1,5 +1,7 @@
 package co.istad.ite.devsoleapi.feature.reports.dto;
 
+import co.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
+import co.istad.ite.devsoleapi.feature.reports.enums.AssetType;
 import co.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import co.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import co.istad.ite.devsoleapi.feature.reports.enums.Severity;
@@ -8,6 +10,7 @@ import lombok.Getter;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -29,7 +32,7 @@ public class ReportResponse {
 
     private UUID weaknessId;
 
-    private UUID assetId;
+    private AssetType assetType;
 
     private ReportState state;
 
@@ -37,9 +40,7 @@ public class ReportResponse {
 
     private Map<String, Object> weakness;
 
-    private Map<String, Object> asset;
-
-    private Map<String, Object> attachments;
+    private List<ReportAttachment> attachments;
 
     private Instant submittedAt;
 

@@ -1,5 +1,6 @@
 package co.istad.ite.devsoleapi.feature.reports.dto;
 
+import co.istad.ite.devsoleapi.feature.reports.enums.AssetType;
 import co.istad.ite.devsoleapi.feature.reports.enums.Severity;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -10,7 +11,6 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.util.Map;
 import java.util.UUID;
 
 @Getter
@@ -35,11 +35,5 @@ public class CreateReportRequest {
 
     private UUID weaknessId;
 
-    private UUID assetId;
-
-    private Map<String, Object> weakness;
-
-    private Map<String, Object> asset;
-
-    private Map<String, Object> attachments;
+    private AssetType assetType;
 }

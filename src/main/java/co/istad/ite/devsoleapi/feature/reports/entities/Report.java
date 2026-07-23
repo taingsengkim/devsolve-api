@@ -1,6 +1,7 @@
 
 package co.istad.ite.devsoleapi.feature.reports.entities;
 
+import co.istad.ite.devsoleapi.feature.reports.enums.AssetType;
 import co.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import co.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import co.istad.ite.devsoleapi.feature.reports.enums.Severity;
@@ -9,12 +10,9 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -49,17 +47,9 @@ public class Report {
     @Column(name = "cvss_score", precision = 3, scale = 1)
     private BigDecimal cvssScore;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "weakness", columnDefinition = "jsonb")
-    private Map<String, Object> weakness;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "asset", columnDefinition = "jsonb")
-    private Map<String, Object> asset;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "attachments", columnDefinition = "jsonb")
-    private Map<String, Object> attachments;
+    @OneToMany(fetch = FetchType.LAZY)
+    @JoinColumn(name = "report_id")
+    private List<ReportAttachment> attachments;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "reported_severity", nullable = false)
@@ -76,8 +66,9 @@ public class Report {
     @Column(name = "weakness_id")
     private UUID weaknessId;
 
-    @Column(name = "asset_id")
-    private UUID assetId;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "asset_type")
+    private AssetType assetType;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
