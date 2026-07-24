@@ -1,12 +1,15 @@
 package co.istad.ite.devsoleapi.feature.category;
 
 import co.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import co.istad.ite.devsoleapi.config.security.AuthUtils;
 import co.istad.ite.devsoleapi.feature.category.dto.CategoryPatchRequest;
 import co.istad.ite.devsoleapi.feature.category.dto.CategoryRequest;
 import co.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.UUID;
@@ -21,6 +24,12 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     public CategoryResponse createCategory(CategoryRequest request) {
+
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can create categories");
+        }
+
         String baseSlug = slugify(request.name());
         String uniqueSlug = generateUniqueSlug(baseSlug);
 

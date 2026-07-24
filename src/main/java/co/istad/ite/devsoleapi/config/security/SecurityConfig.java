@@ -28,12 +28,10 @@ public class SecurityConfig {
                 oauth.jwt(Customizer.withDefaults()));
 
         http.authorizeHttpRequests(auth ->
-                auth
-                        .anyRequest().permitAll());
-//                        .requestMatchers("/api/v1/auth/register").permitAll()
-//                     .requestMatchers("/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
-//                    .requestMatchers("/scalar/**").permitAll()
-//                    .anyRequest().authenticated());
+                auth.requestMatchers("/api/v1/auth/register").permitAll()
+                        .requestMatchers("/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
+                    .requestMatchers("/scalar/**").permitAll()
+                    .anyRequest().authenticated());
 
         http.sessionManagement(state ->
                 state.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
