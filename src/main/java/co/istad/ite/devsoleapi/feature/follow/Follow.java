@@ -19,7 +19,7 @@ import java.util.UUID;
 public class Follow {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    private UUID id;
+    private String id;
 
     @ManyToOne
     private UserProfile follower;
@@ -28,7 +28,7 @@ public class Follow {
     private String followableType;
 
     @Column( nullable = false)
-    private UUID followableId;
+    private String followableId;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

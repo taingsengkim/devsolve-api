@@ -7,11 +7,16 @@ import java.util.List;
 import java.util.UUID;
 
 public interface FollowService {
+    /**
+     *
+     * @param request
+     * @return
+     */
     FollowResponse follow(FollowRequest request);
-    void unfollow(UUID followerId, String followableType, UUID followableId);
-    List<FollowResponse> getFollowing(UUID followerId);
-    List<FollowResponse> getFollowers(UUID followableId, String followableType);
-    boolean isFollowing(UUID followerId, String followableType, UUID followableId);
-    long countFollowers(String followableType, UUID followableId);
-    long countFollowing(UUID followerId);
+    void unfollow(String followerId, String followableType, String followableId);
+    List<FollowResponse> getFollowing(String followerId);
+    List<FollowResponse> getFollowers(String followableId, String followableType);
+    boolean isFollowing(String followerId, String followableType, String followableId);
+    long countFollowers(String followableType, String followableId);
+    long countFollowing(String followerId);
 }

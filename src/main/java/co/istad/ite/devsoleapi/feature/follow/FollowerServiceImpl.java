@@ -32,7 +32,7 @@ public class FollowerServiceImpl implements FollowService {
 
         // Check if already following
         if (followRepository.existsByFollowerIdAndFollowableTypeAndFollowableId(
-                UUID.fromString(follower.getId()),
+                follower.getId(),
                 request.followableType(),
                 request.followableId())) {
             throw new RuntimeException("Already following this " + request.followableType());
@@ -57,7 +57,7 @@ public class FollowerServiceImpl implements FollowService {
 
     @Override
     @Transactional
-    public void unfollow(UUID followerId, String followableType, UUID followableId) {
+    public void unfollow(String followerId, String followableType, String followableId) {
         log.info("Processing unfollow request - follower: {}, type: {}, id: {}",
                 followerId, followableType, followableId);
 
@@ -70,7 +70,7 @@ public class FollowerServiceImpl implements FollowService {
     }
 
     @Override
-    public List<FollowResponse> getFollowing(UUID followerId) {
+    public List<FollowResponse> getFollowing(String followerId) {
         log.info("Getting following list for user: {}", followerId);
 
         // Validate user exists
@@ -86,7 +86,7 @@ public class FollowerServiceImpl implements FollowService {
     }
 
     @Override
-    public List<FollowResponse> getFollowers(UUID followableId, String followableType) {
+    public List<FollowResponse> getFollowers(String followableId, String followableType) {
         log.info("Getting followers for - type: {}, id: {}", followableType, followableId);
 
         List<Follow> follows = followRepository.findByFollowableTypeAndFollowableId(followableType, followableId);
@@ -96,23 +96,23 @@ public class FollowerServiceImpl implements FollowService {
     }
 
     @Override
-    public boolean isFollowing(UUID followerId, String followableType, UUID followableId) {
+    public boolean isFollowing(String followerId, String followableType, String followableId) {
         return followRepository.existsByFollowerIdAndFollowableTypeAndFollowableId(
                 followerId, followableType, followableId);
     }
 
     @Override
-    public long countFollowers(String followableType, UUID followableId) {
+    public long countFollowers(String followableType, String followableId) {
         return followRepository.countByFollowableTypeAndFollowableId(followableType, followableId);
     }
 
     @Override
-    public long countFollowing(UUID followerId) {
+    public long countFollowing(String followerId) {
         return followRepository.countByFollowerId(followerId);
     }
 
     // Helper methods
-    private void validateFollowableExists(String followableType, UUID followableId) {
+    private void validateFollowableExists(String followableType, String followableId) {
         // Add validation logic based on followableType
         // For example: if type is "POST", check if post exists
         // if type is "USER", check if user exists, etc.

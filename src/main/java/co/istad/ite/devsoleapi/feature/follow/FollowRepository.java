@@ -8,41 +8,41 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface FollowRepository extends JpaRepository<Follow, UUID> {
+public interface FollowRepository extends JpaRepository<Follow, String> {
 
     // Find specific follow relationship
     Optional<Follow> findByFollowerIdAndFollowableTypeAndFollowableId(
-            UUID followerId,
+            String followerId,
             String followableType,
-            UUID followableId);
+            String followableId);
 
     // Check if relationship exists
     boolean existsByFollowerIdAndFollowableTypeAndFollowableId(
-            UUID followerId,
+            String followerId,
             String followableType,
-            UUID followableId);
+            String followableId);
 
     // Get all follows by follower
-    List<Follow> findByFollowerId(UUID followerId);
+    List<Follow> findByFollowerId(String followerId);
 
     // Get all follows by followable
-    List<Follow> findByFollowableTypeAndFollowableId(String followableType, UUID followableId);
+    List<Follow> findByFollowableTypeAndFollowableId(String followableType, String followableId);
 
     // Count followers
-    long countByFollowableTypeAndFollowableId(String followableType, UUID followableId);
+    long countByFollowableTypeAndFollowableId(String followableType, String followableId);
 
     // Count following
-    long countByFollowerId(UUID followerId);
+    long countByFollowerId(String followerId);
 
     // Check if user is following any entity of a type
-    boolean existsByFollowerIdAndFollowableType(UUID followerId, String followableType);
+    boolean existsByFollowerIdAndFollowableType(String followerId, String followableType);
 
     // Custom query to get follows with pagination
     @Query("SELECT f FROM Follow f WHERE f.follower.id = :followerId ORDER BY f.createdAt DESC")
-    List<Follow> findRecentFollowsByFollower(@Param("followerId") UUID followerId);
+    List<Follow> findRecentFollowsByFollower(@Param("followerId") String followerId);
 
     // Delete all follows for a user (useful for account deletion)
-    void deleteByFollowerId(UUID followerId);
+    void deleteByFollowerId(String followerId);
 
-    void deleteByFollowableTypeAndFollowableId(String followableType, UUID followableId);
+    void deleteByFollowableTypeAndFollowableId(String followableType, String followableId);
 }

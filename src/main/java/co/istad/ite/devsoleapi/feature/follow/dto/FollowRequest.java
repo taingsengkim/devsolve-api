@@ -7,12 +7,12 @@ import java.util.UUID;
 
 public record FollowRequest(
         @NotNull(message = "Follower ID is required")
-        UUID follower,
+        String follower,
 
         @NotBlank(message = "Followable type is required")
         String followableType,
 
         @NotNull(message = "Followable ID is required")
-        UUID followableId
+        String followableId
 ) {
 }
