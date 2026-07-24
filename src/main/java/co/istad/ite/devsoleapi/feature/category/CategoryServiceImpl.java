@@ -56,54 +56,23 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     public CategoryResponse getCategoryById(UUID id) {
         Category category = categoryRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("hello"));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with this uuid"));
         return mapToResponse(category);
     }
 
     @Override
     public CategoryResponse getCategoryBySlug(String slug) {
         Category category = categoryRepository.findBySlug(slug)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with slug: " + slug));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with this slug"));
         return mapToResponse(category);
     }
 
-//    @Override
-//    @Transactional
-//    public CategoryResponse updateCategory(Long id, CategoryPatchRequest request) {
-//        Category category = categoryRepository.findById(id)
-//                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + id));
-//
-//        if (request.name() != null) {
-//            category.setName(request.name());
-//            // Optionally regenerate slug on name change (uncomment if desired)
-////             String newSlug = generateUniqueSlug(slugify(request.name()));
-////             category.setSlug(newSlug);
-//        }
-//
-//
-//
-//        if (request.description() != null) {
-//            category.setDescription(request.description());
-//        }
-//        if (request.iconUrl() != null) {
-//            category.setIconUrl(request.iconUrl());
-//        }
-//        if (request.sortOrder() != null) {
-//            category.setSortOrder(request.sortOrder());
-//        }
-//        if (request.isActive() != null) {
-//            category.setIsActive(request.isActive());
-//        }
-//
-//        Category updated = categoryRepository.save(category);
-//        return mapToResponse(updated);
-//    }
 
     @Override
     @Transactional
     public void deleteCategory(UUID id) {
         if (!categoryRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Category not found with id: " + id);
+            throw new ResourceNotFoundException("Category not found with this uuid");
         }
         categoryRepository.deleteById(id);
     }
@@ -146,7 +115,7 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CategoryResponse partialUpdateCategory(UUID id, CategoryPatchRequest request) {
         Category category = categoryRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with this uuid"));
 
         // Only update fields that are actually sent (not null)
         if (request.name() != null) {
@@ -157,17 +126,6 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
 
-//        if (request.slug() != null) {
-//            // Check if the new slug is already taken by ANOTHER category (excluding itself)
-//            if (categoryRepository.existsBySlugAndIdNot(request.slug(), id)) {
-//                throw new RuntimeException("Slug '" + request.slug() + "' is already taken by another category!");
-//            }
-//
-//            String baseSlug = slugify(request.slug());
-//            String uniqueSlug = generateUniqueSlug(baseSlug);
-//
-//            category.setSlug(uniqueSlug);
-//        }
         if (request.slug() != null) {
             // 1. Clean the slug (lowercase, spaces → hyphens, remove special chars)
             String cleanSlug = slugify(request.slug());
