@@ -80,6 +80,11 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     public void deleteCategory(UUID id) {
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can delete categories");
+        }
+
         if (!categoryRepository.existsById(id)) {
             throw new ResourceNotFoundException("Category not found with this uuid");
         }
@@ -123,6 +128,12 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     public CategoryResponse partialUpdateCategory(UUID id, CategoryPatchRequest request) {
+
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can update categories");
+        }
+
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with this uuid"));
 

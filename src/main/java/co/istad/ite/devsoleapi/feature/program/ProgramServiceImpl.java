@@ -1,6 +1,7 @@
 package co.istad.ite.devsoleapi.feature.program;
 
 import co.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import co.istad.ite.devsoleapi.config.security.AuthUtils;
 import co.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import co.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import co.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
@@ -14,8 +15,10 @@ import co.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepos
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -55,6 +58,12 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto createProgram(UUID organizationId, ProgramRequestDto dto) {
+
+        if (!AuthUtils.hasRole("COMPANY")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can create program");
+        }
+
+
         Program program = mapper.toEntity(dto);
         program.setOrganizationId(organizationId);
         program.setState(ProgramState.DRAFT);
@@ -67,6 +76,11 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto updateProgram(UUID id, ProgramUpdateRequestDto dto) {
+
+        if (!AuthUtils.hasRole("COMPANY")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can update program");
+        }
+
         Program existing = programRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
 
@@ -91,6 +105,12 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto publishProgram(UUID id) {
+
+
+        if (!AuthUtils.hasRole("COMPANY")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can publish program");
+        }
+
         Program program = programRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
 
@@ -116,6 +136,11 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto pauseProgram(UUID id) {
+
+        if (!AuthUtils.hasRole("COMPANY")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can pause program");
+        }
+
         Program program = programRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
 
@@ -138,6 +163,12 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto closeProgram(UUID id) {
+
+
+        if (!AuthUtils.hasRole("COMPANY")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can close program");
+        }
+
         Program program = programRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
 
@@ -159,6 +190,11 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     public Page<ProgramUpdateChangeLogDto> getProgramUpdates(UUID id, Pageable pageable) {
+
+        if (!AuthUtils.hasRole("COMPANY")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can get program accounting");
+        }
+
         // Ensure program exists
         if (!programRepository.existsById(id)) {
             throw new ResourceNotFoundException("Program not found with this id");
