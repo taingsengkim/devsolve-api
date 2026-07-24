@@ -15,7 +15,7 @@ public interface ProgramService {
                                          String engagementType, Boolean offersBounties, Pageable pageable);
     ProgramResponseDto getProgramById(UUID id);
     ProgramResponseDto getProgramByHandle(String handle);
-    ProgramResponseDto createProgram(UUID organizationId, ProgramRequestDto dto);
+    ProgramResponseDto createProgram(ProgramRequestDto dto);
     ProgramResponseDto updateProgram(UUID id, ProgramUpdateRequestDto dto);
     ProgramResponseDto publishProgram(UUID id);
     ProgramResponseDto pauseProgram(UUID id);

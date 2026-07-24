@@ -51,12 +51,11 @@ public class ProgramController {
     }
 
     // 4. POST /organizations/{id}/programs — Manager/Member — Create a program (draft)
-    @PostMapping("/organizations/{organizationId}/programs")
+    @PostMapping("/organizations/programs")
     public ResponseEntity<ProgramResponseDto> createProgram(
-            @PathVariable UUID organizationId,
             @Valid @RequestBody ProgramRequestDto dto
     ) {
-        return new ResponseEntity<>(programService.createProgram(organizationId, dto), HttpStatus.CREATED);
+        return new ResponseEntity<>(programService.createProgram(dto), HttpStatus.CREATED);
     }
 
     // 5. PATCH /programs/{id} — Manager/Member — Update a program

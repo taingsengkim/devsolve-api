@@ -57,15 +57,17 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
-    public ProgramResponseDto createProgram(UUID organizationId, ProgramRequestDto dto) {
+    public ProgramResponseDto createProgram(ProgramRequestDto dto) {
 
         if (!AuthUtils.hasRole("COMPANY")) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can create program");
         }
 
+        String currentCompanyId = AuthUtils.extractUserId();
+         UUID companyUUID = UUID.fromString(currentCompanyId);
 
         Program program = mapper.toEntity(dto);
-        program.setOrganizationId(organizationId);
+        program.setOrganizationId(companyUUID);
         program.setState(ProgramState.DRAFT);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         // Handle the nested assets/rewards if present in DTO – omitted for brevity, but you'd set them here.
