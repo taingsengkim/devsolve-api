@@ -3,6 +3,8 @@ package co.istad.ite.devsoleapi.config.security;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -31,6 +33,8 @@ public class SecurityConfig {
                 auth.requestMatchers("/api/v1/auth/register").permitAll()
                         .requestMatchers("/v3/api-docs/**","/swagger-ui/**","/swagger-ui.html").permitAll()
                     .requestMatchers("/scalar/**").permitAll()
+                        // Admin only
+                        .requestMatchers(HttpMethod.PATCH,"/api/v1/showcases/*/status").hasRole("ADMIN")
                     .anyRequest().authenticated());
 
         http.sessionManagement(state ->
