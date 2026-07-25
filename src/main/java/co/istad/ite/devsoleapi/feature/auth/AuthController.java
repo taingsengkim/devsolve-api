@@ -20,8 +20,5 @@ public class AuthController {
     public RegisterResponse register(@Valid @RequestBody RegisterRequest registerRequest){
         return authService.register(registerRequest);
     }
-    @GetMapping("/me")
-    public UserProfileResponse me(){
-        return userProfileService.me();
-    }
+
 }
