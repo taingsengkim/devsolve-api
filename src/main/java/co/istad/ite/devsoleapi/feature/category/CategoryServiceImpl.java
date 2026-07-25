@@ -102,7 +102,7 @@ public class CategoryServiceImpl implements CategoryService {
                 category.getSortOrder(),
                 category.getIsActive(),
                 category.getCreatedAt(),
-                category.getLastModifiedAt()
+                category.getUpdatedAt()
         );
     }
 

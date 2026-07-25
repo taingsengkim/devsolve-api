@@ -5,51 +5,55 @@ import co.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 @Mapper(componentModel = "spring")
 public abstract class UserProfileMapper {
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "email", ignore = true)
+    @Mapping(target = "fullName", ignore = true)
+    @Mapping(target = "status", ignore = true)
+    @Mapping(target = "reputation", ignore = true)
+    @Mapping(target = "totalReports", ignore = true)
+    @Mapping(target = "validReports", ignore = true)
+    @Mapping(target = "criticalReports", ignore = true)
+    @Mapping(target = "recognitionCount", ignore = true)
+    @Mapping(target = "lastLoginAt", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "updatedAt", ignore = true)
     public abstract void mapUpdateUserProfileRequestToUserProfile(
             UpdateUserProfileRequest updateUserProfileRequest,
             @MappingTarget UserProfile userProfile
     );
 
-    public void mapUpdateUserProfileRequestToUserRepresentation(
-            UpdateUserProfileRequest updateUserProfileRequest,
-            @MappingTarget UserRepresentation userRepresentation
+    public UserProfileResponse toUserProfileResponse(
+            UserRepresentation keycloakUser,
+            UserProfile userProfile
     ) {
-        if (updateUserProfileRequest.email() != null)
-            userRepresentation.setFirstName(updateUserProfileRequest.email());
-
-        if (updateUserProfileRequest.fullName() != null)
-            userRepresentation.setLastName(updateUserProfileRequest.fullName());
-
-        if (updateUserProfileRequest.biography() != null)
-            userRepresentation.setLastName(updateUserProfileRequest.biography());
-
-        if (updateUserProfileRequest.phone() != null)
-            userRepresentation.setLastName(updateUserProfileRequest.phone());
-
-        if (updateUserProfileRequest.avatarUrl() != null)
-            userRepresentation.setLastName(updateUserProfileRequest.avatarUrl());
-    }
-
-    public UserProfileResponse toUserProfileResponse(UserRepresentation userRepresentation, UserProfile userProfile) {
         return UserProfileResponse.builder()
-                .id(userRepresentation.getId())
-                .fullName(userRepresentation.getFirstName() + " " + userRepresentation.getLastName())
-                .email(userRepresentation.getEmail())
+                .id(userProfile.getId())
+                .firstName(keycloakUser.getFirstName())
+                .lastName(keycloakUser.getLastName())
+                .fullName(userProfile.getFullName())
+                .email(keycloakUser.getEmail())
                 .phone(userProfile.getPhone())
                 .biography(userProfile.getBiography())
                 .status(userProfile.getStatus())
                 .avatarUrl(userProfile.getAvatarUrl())
                 .dateOfBirth(userProfile.getDateOfBirth())
+                .gender(userProfile.getGender())
+                .country(userProfile.getCountry())
+                .reputation(userProfile.getReputation())
+                .totalReports(userProfile.getTotalReports())
+                .validReports(userProfile.getValidReports())
+                .criticalReports(userProfile.getCriticalReports())
+                .recognitionCount(userProfile.getRecognitionCount())
+                .lastLoginAt(userProfile.getLastLoginAt())
+                .createdAt(userProfile.getCreatedAt())
+                .updatedAt(userProfile.getUpdatedAt())
                 .build();
     }
 }
