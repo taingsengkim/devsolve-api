@@ -1,7 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.auth.dto;
 
+import kh.edu.istad.ite.devsoleapi.feature.auth.RoleEnum;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -34,6 +36,9 @@ public record RegisterRequest(
 
         @Size(max = 30, message = "Phone number must not exceed 30 characters")
         @Pattern(regexp = "^\\+?[0-9]{8,15}$", message = "Phone number must be 8 to 15 digits, optionally starting with +")
-        String phone
+        String phone,
+
+        @NotNull(message = "Account type is required")
+        RoleEnum accountType
 ) {
 }

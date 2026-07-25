@@ -36,9 +36,20 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public RegisterResponse register(RegisterRequest registerRequest) {
-
         if (!registerRequest.password().equals(registerRequest.confirmPassword())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Passwords do not match");
+        }
+        if (registerRequest.accountType() == RoleEnum.ADMIN) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "ADMIN accounts cannot be created through public registration"
+            );
+        }
+        if (registerRequest.accountType() == RoleEnum.COMPANY) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Company accounts must register through /api/v1/organizations/register"
+            );
         }
 
         UsersResource usersResource = keycloak.realm(props.getTargetRealm()).users();
@@ -79,7 +90,7 @@ public class AuthServiceImpl implements AuthService {
             try {
                 RoleRepresentation userRole = keycloak.realm(props.getTargetRealm())
                         .roles()
-                        .get(RoleEnum.USER.name())
+                        .get(registerRequest.accountType().name())
                         .toRepresentation();
                 createdUserResource.roles().realmLevel().add(List.of(userRole));
 

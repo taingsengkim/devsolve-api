@@ -2,6 +2,13 @@ package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
@@ -21,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -30,6 +38,8 @@ public class ProgramServiceImpl implements ProgramService {
     private final ProgramRepository programRepository;
     private final ProgramUpdateRepository programUpdateRepository;
     private final ProgramMapper mapper;
+    private final OrganizationRepository organizationRepository;
+    private final OrganizationMemberRepository organizationMemberRepository;
 
     @Override
     public Page<ProgramResponseDto> getPrograms(UUID organizationId, ProgramState state, String visibility,
@@ -58,16 +68,10 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto createProgram(ProgramRequestDto dto) {
-
-        if (!AuthUtils.hasRole("COMPANY")) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can create program");
-        }
-
-        String currentCompanyId = AuthUtils.extractUserId();
-         UUID companyUUID = UUID.fromString(currentCompanyId);
+        Organization organization = findManageableOrganization();
 
         Program program = mapper.toEntity(dto);
-        program.setOrganizationId(companyUUID);
+        program.setOrganizationId(organization.getId());
         program.setState(ProgramState.DRAFT);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         // Handle the nested assets/rewards if present in DTO – omitted for brevity, but you'd set them here.
@@ -78,13 +82,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto updateProgram(UUID id, ProgramUpdateRequestDto dto) {
-
-        if (!AuthUtils.hasRole("COMPANY")) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can update program");
-        }
-
-        Program existing = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
+        Program existing = findProgramForManagement(id);
 
         // Only allow updates if DRAFT or ACTIVE (business rule)
         if (existing.getState() == ProgramState.CLOSED) {
@@ -107,14 +105,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto publishProgram(UUID id) {
-
-
-        if (!AuthUtils.hasRole("COMPANY")) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can publish program");
-        }
-
-        Program program = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
+        Program program = findProgramForManagement(id);
 
         if (program.getState() != ProgramState.DRAFT) {
             throw new RuntimeException("Only DRAFT programs can be published.");
@@ -138,13 +129,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto pauseProgram(UUID id) {
-
-        if (!AuthUtils.hasRole("COMPANY")) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can pause program");
-        }
-
-        Program program = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
+        Program program = findProgramForManagement(id);
 
         if (program.getState() != ProgramState.ACTIVE) {
             throw new RuntimeException("Only ACTIVE programs can be paused.");
@@ -165,14 +150,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto closeProgram(UUID id) {
-
-
-        if (!AuthUtils.hasRole("COMPANY")) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can close program");
-        }
-
-        Program program = programRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Program not found with this id"));
+        Program program = findProgramForManagement(id);
 
         if (program.getState() == ProgramState.CLOSED) {
             throw new RuntimeException("Program is already closed.");
@@ -192,15 +170,110 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     public Page<ProgramUpdateChangeLogDto> getProgramUpdates(UUID id, Pageable pageable) {
-
-        if (!AuthUtils.hasRole("COMPANY")) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only COMPANY can get program accounting");
-        }
-
-        // Ensure program exists
-        if (!programRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Program not found with this id");
-        }
+        findProgramForManagement(id);
         return programUpdateRepository.findByProgramId(id, pageable).map(mapper::toUpdateDto);
+    }
+
+    private Program findProgramForManagement(UUID programId) {
+        requireCompanyRole();
+        Program program = programRepository.findById(programId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Program not found with this id"
+                ));
+        requireManagementAccess(program.getOrganizationId());
+        return program;
+    }
+
+    private Organization findManageableOrganization() {
+        requireCompanyRole();
+        UUID userId = extractCurrentUserId();
+
+        return organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId)
+                .map(this::requireApproved)
+                .orElseGet(() -> {
+                    List<OrganizationMember> managedMemberships =
+                            organizationMemberRepository
+                                    .findByUserIdAndStatus(
+                                            userId,
+                                            MembershipStatus.ACTIVE
+                                    )
+                                    .stream()
+                                    .filter(member -> member.getRole() == OrgRole.MANAGER)
+                                    .toList();
+
+                    if (managedMemberships.isEmpty()) {
+                        throw new ResponseStatusException(
+                                HttpStatus.FORBIDDEN,
+                                "The authenticated company cannot manage an organization"
+                        );
+                    }
+                    if (managedMemberships.size() > 1) {
+                        throw new ResponseStatusException(
+                                HttpStatus.CONFLICT,
+                                "The authenticated user manages multiple organizations"
+                        );
+                    }
+                    return requireApproved(
+                            managedMemberships.getFirst().getOrganization()
+                    );
+                });
+    }
+
+    private void requireManagementAccess(UUID organizationId) {
+        UUID userId = extractCurrentUserId();
+        Organization organization = organizationRepository.findById(organizationId)
+                .filter(candidate -> candidate.getDeletedAt() == null)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Organization not found for this program"
+                ));
+        requireApproved(organization);
+
+        if (organization.getOwner().getId().equals(userId)) {
+            return;
+        }
+
+        boolean isActiveManager = organizationMemberRepository
+                .findByOrganizationIdAndUserId(organizationId, userId)
+                .filter(member -> member.getStatus() == MembershipStatus.ACTIVE)
+                .map(OrganizationMember::getRole)
+                .filter(role -> role == OrgRole.MANAGER)
+                .isPresent();
+        if (!isActiveManager) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only the organization owner or a manager can manage this program"
+            );
+        }
+    }
+
+    private Organization requireApproved(Organization organization) {
+        if (organization.getStatus() != OrganizationStatus.ACTIVE) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Organization must be approved before managing programs"
+            );
+        }
+        return organization;
+    }
+
+    private void requireCompanyRole() {
+        if (!AuthUtils.hasRole("COMPANY")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only COMPANY accounts can manage programs"
+            );
+        }
+    }
+
+    private UUID extractCurrentUserId() {
+        try {
+            return UUID.fromString(AuthUtils.extractUserId());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authenticated user ID is not a valid UUID",
+                    exception
+            );
+        }
     }
 }
