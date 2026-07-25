@@ -1,6 +1,5 @@
 package kh.edu.istad.ite.devsoleapi.config.security;
 
-
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -9,40 +8,52 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.server.ResponseStatusException;
 
-public class AuthUtils {
-    private AuthUtils(){}
-    public static String extractUserId(){
-        Authentication auth = getAuth();
-        if (auth instanceof AnonymousAuthenticationToken) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"You have been forbidden");
-        }
-        JwtAuthenticationToken jwtAuthenticationToken = (JwtAuthenticationToken) auth;
-        IO.println("TEST: " + jwtAuthenticationToken);
-        return jwtAuthenticationToken.getToken().getSubject();
+public final class AuthUtils {
+
+    private AuthUtils() {
     }
 
+    public static String extractUserId() {
+        return extractJwtPrincipal().getToken().getSubject();
+    }
 
-
-    // In AuthUtils
     public static boolean hasRole(String role) {
-        Authentication auth = getAuth();
-        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
+        Authentication authentication = getAuth();
+        if (!isAuthenticated(authentication)) {
             return false;
         }
-        return auth.getAuthorities().stream()
-                .anyMatch(grantedAuthority ->
-                        grantedAuthority.getAuthority().equals(role) ||
-                                grantedAuthority.getAuthority().equals("ROLE_" + role)
-                );
+
+        String normalizedRole = role.startsWith("ROLE_")
+                ? role
+                : "ROLE_" + role;
+        return authentication.getAuthorities().stream()
+                .anyMatch(authority -> authority.getAuthority()
+                        .equalsIgnoreCase(normalizedRole));
     }
 
-    public static String extractJwt(){
-        if(getAuth().getPrincipal()!=null){
-            return ((Jwt) getAuth().getPrincipal()).getTokenValue();
-        }
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"You have been unauthorized");
+    public static String extractJwt() {
+        return extractJwtPrincipal().getToken().getTokenValue();
     }
-    public static Authentication getAuth(){
+
+    public static Authentication getAuth() {
         return SecurityContextHolder.getContext().getAuthentication();
+    }
+
+    private static JwtAuthenticationToken extractJwtPrincipal() {
+        Authentication authentication = getAuth();
+        if (!isAuthenticated(authentication)
+                || !(authentication instanceof JwtAuthenticationToken jwtAuthentication)) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "A valid Keycloak access token is required"
+            );
+        }
+        return jwtAuthentication;
+    }
+
+    private static boolean isAuthenticated(Authentication authentication) {
+        return authentication != null
+                && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken);
     }
 }
