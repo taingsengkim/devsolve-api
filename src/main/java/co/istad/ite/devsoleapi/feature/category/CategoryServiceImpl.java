@@ -1,0 +1,167 @@
+package co.istad.ite.devsoleapi.feature.category;
+
+import co.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import co.istad.ite.devsoleapi.config.security.AuthUtils;
+import co.istad.ite.devsoleapi.feature.category.dto.CategoryPatchRequest;
+import co.istad.ite.devsoleapi.feature.category.dto.CategoryRequest;
+import co.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class CategoryServiceImpl implements CategoryService {
+
+    private final CategoryRepository categoryRepository;
+
+    @Override
+    @Transactional
+    public CategoryResponse createCategory(CategoryRequest request) {
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can create categories");
+        }
+
+        String baseSlug = slugify(request.name());
+        String uniqueSlug = generateUniqueSlug(baseSlug);
+
+        Category category = new Category();
+        category.setName(request.name());
+        category.setSlug(uniqueSlug);
+        category.setDescription(request.description());
+        category.setIconUrl(request.iconUrl());
+        category.setSortOrder(request.sortOrder());
+
+        if (request.isActive() != null) {
+            category.setIsActive(request.isActive());
+        }
+        Category saved = categoryRepository.save(category);
+        return mapToResponse(saved);
+    }
+
+    @Override
+    public List<CategoryResponse> getAllCategories() {
+        return categoryRepository.findAll()
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<CategoryResponse> getActiveCategoriesSorted() {
+        return categoryRepository.findByIsActiveTrueOrderBySortOrderAsc()
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public CategoryResponse getCategoryById(UUID id) {
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with this uuid"));
+        return mapToResponse(category);
+    }
+
+    @Override
+    public CategoryResponse getCategoryBySlug(String slug) {
+        Category category = categoryRepository.findBySlug(slug)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with this slug"));
+        return mapToResponse(category);
+    }
+
+
+    @Override
+    @Transactional
+    public void deleteCategory(UUID id) {
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can delete categories");
+        }
+
+        if (!categoryRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Category not found with this uuid");
+        }
+        categoryRepository.deleteById(id);
+    }
+
+
+    private CategoryResponse mapToResponse(Category category) {
+        return new CategoryResponse(
+                category.getId(),
+                category.getName(),
+                category.getSlug(),
+                category.getDescription(),
+                category.getIconUrl(),
+                category.getSortOrder(),
+                category.getIsActive(),
+                category.getCreatedAt(),
+                category.getLastModifiedAt()
+        );
+    }
+
+    private String slugify(String input) {
+        if (input == null) return null;
+        return input.toLowerCase()
+                .replaceAll("[^a-z0-9\\s-]", "")
+                .replaceAll("\\s+", "-")
+                .replaceAll("-+", "-")
+                .trim();
+    }
+
+    private String generateUniqueSlug(String baseSlug) {
+        String slug = baseSlug;
+        int counter = 1;
+        while (categoryRepository.existsBySlug(slug)) {
+            slug = baseSlug + "-" + counter++;
+        }
+        return slug;
+    }
+
+    @Override
+    @Transactional
+    public CategoryResponse partialUpdateCategory(UUID id, CategoryPatchRequest request) {
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can update categories");
+        }
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found with this uuid"));
+
+        if (request.name() != null) {
+            category.setName(request.name());
+        }
+
+
+        if (request.slug() != null) {
+            String cleanSlug = slugify(request.slug());
+            if (categoryRepository.existsBySlugAndIdNot(cleanSlug, id)) {
+                throw new RuntimeException("Slug '" + cleanSlug + "' is already taken!");
+            }
+
+            category.setSlug(cleanSlug);
+        }
+
+
+        if (request.description() != null) {
+            category.setDescription(request.description());
+        }
+        if (request.iconUrl() != null) {
+            category.setIconUrl(request.iconUrl());
+        }
+        if (request.sortOrder() != null) {
+            category.setSortOrder(request.sortOrder());
+        }
+        if (request.isActive() != null) {
+            category.setIsActive(request.isActive());
+        }
+
+        Category updated = categoryRepository.save(category);
+        return mapToResponse(updated);
+    }
+}

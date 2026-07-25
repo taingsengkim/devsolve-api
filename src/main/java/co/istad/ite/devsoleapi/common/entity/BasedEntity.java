@@ -25,6 +25,7 @@ public class BasedEntity{
 
     @CreatedBy
     protected String createdBy;
+
     @LastModifiedBy
     protected String lastModifiedBy;
 }
