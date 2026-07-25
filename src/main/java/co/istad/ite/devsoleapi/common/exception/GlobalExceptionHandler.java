@@ -1,5 +1,6 @@
 package co.istad.ite.devsoleapi.common.exception;
 
+import io.minio.Http;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -24,6 +25,8 @@ public class GlobalExceptionHandler {
                 .status(status.getReasonPhrase())
                 .timestamp(Instant.now())
                 .errorDetails(details)
+
                 .build();
     }
+
 }
