@@ -20,6 +20,22 @@ public class AuthUtils {
         IO.println("TEST: " + jwtAuthenticationToken);
         return jwtAuthenticationToken.getToken().getSubject();
     }
+
+
+
+    // In AuthUtils
+    public static boolean hasRole(String role) {
+        Authentication auth = getAuth();
+        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(grantedAuthority ->
+                        grantedAuthority.getAuthority().equals(role) ||
+                                grantedAuthority.getAuthority().equals("ROLE_" + role)
+                );
+    }
+
     public static String extractJwt(){
         if(getAuth().getPrincipal()!=null){
             return ((Jwt) getAuth().getPrincipal()).getTokenValue();
