@@ -5,6 +5,14 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+    open-in-view: false
+    defer-datasource-initialization: false
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      separator: "^^^"
 
   servlet:
     multipart:
