@@ -9,7 +9,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/follows")
@@ -61,11 +60,11 @@ public class FollowController {
     }
 
     @DeleteMapping("/unfollow")
-    public void unfollow(
+    public ResponseEntity<Void> unfollow(
             @RequestParam String followerId,
             @RequestParam String followableType,
             @RequestParam String followableId) {
         followService.unfollow(followerId, followableType, followableId);
-
+        return ResponseEntity.noContent().build();  // ✅ Added proper response
     }
 }

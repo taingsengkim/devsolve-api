@@ -10,13 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class FollowerServiceImpl implements FollowService {
+public class FollowServiceImpl implements FollowService {
     private final FollowRepository followRepository;
     private final FollowMapper followMapper;
     private final UserProfileRepository userProfileRepository;
@@ -26,11 +25,11 @@ public class FollowerServiceImpl implements FollowService {
     public FollowResponse follow(FollowRequest request) {
         log.info("Processing follow request: {}", request);
 
-        // Validate follower exists
-        UserProfile follower = userProfileRepository.findById(String.valueOf(request.follower()))
+        // ✅ Validate follower exists
+        UserProfile follower = userProfileRepository.findById(request.follower())
                 .orElseThrow(() -> new RuntimeException("User not found with id: " + request.follower()));
 
-        // Check if already following
+        // ✅ Check if already following
         if (followRepository.existsByFollowerIdAndFollowableTypeAndFollowableId(
                 follower.getId(),
                 request.followableType(),
@@ -38,21 +37,19 @@ public class FollowerServiceImpl implements FollowService {
             throw new RuntimeException("Already following this " + request.followableType());
         }
 
-        // Validate followable exists (you can add more validation based on type)
+        // ✅ Validate followable exists
         validateFollowableExists(request.followableType(), request.followableId());
 
-        // Create and save follow
+        // ✅ Create and save follow
         Follow follow = followMapper.toEntity(request);
         follow.setFollower(follower);
 
         Follow saved = followRepository.save(follow);
         log.info("Successfully created follow with id: {}", saved.getId());
 
+        // ✅ Convert to response and enrich with data
         FollowResponse response = followMapper.toResponse(saved);
-        // You can set followableName based on type
-        response = setFollowableName(response);
-
-        return response;
+        return enrichFollowResponse(response);
     }
 
     @Override
@@ -73,15 +70,15 @@ public class FollowerServiceImpl implements FollowService {
     public List<FollowResponse> getFollowing(String followerId) {
         log.info("Getting following list for user: {}", followerId);
 
-        // Validate user exists
-        if (!userProfileRepository.existsById(String.valueOf(followerId))) {
+        // ✅ Validate user exists
+        if (!userProfileRepository.existsById(followerId)) {
             throw new RuntimeException("User not found with id: " + followerId);
         }
 
         List<Follow> follows = followRepository.findByFollowerId(followerId);
         return follows.stream()
                 .map(followMapper::toResponse)
-                .map(this::setFollowableName)
+                .map(this::enrichFollowResponse)  // ✅ FIXED: Use enrich method
                 .collect(Collectors.toList());
     }
 
@@ -92,6 +89,7 @@ public class FollowerServiceImpl implements FollowService {
         List<Follow> follows = followRepository.findByFollowableTypeAndFollowableId(followableType, followableId);
         return follows.stream()
                 .map(followMapper::toResponse)
+                .map(this::enrichFollowResponse)  // ✅ FIXED: Use enrich method
                 .collect(Collectors.toList());
     }
 
@@ -111,31 +109,43 @@ public class FollowerServiceImpl implements FollowService {
         return followRepository.countByFollowerId(followerId);
     }
 
-    // Helper methods
+    // ✅ Helper method to validate followable exists
     private void validateFollowableExists(String followableType, String followableId) {
-        // Add validation logic based on followableType
-        // For example: if type is "POST", check if post exists
-        // if type is "USER", check if user exists, etc.
-        // This prevents following non-existent entities
-
         if (followableType.equalsIgnoreCase("USER")) {
-            userProfileRepository.findById(String.valueOf(followableId))
-                    .orElseThrow(() -> new RuntimeException("User to follow not found"));
+            userProfileRepository.findById(followableId)
+                    .orElseThrow(() -> new RuntimeException("User to follow not found with id: " + followableId));
         }
-        // Add more validations for other types
+        // Add more validations for other types (POST, TOPIC, etc.)
     }
 
-    private FollowResponse setFollowableName(FollowResponse response) {
-        // If followableType is "USER", fetch the username
-        if (response.followableType().equalsIgnoreCase("USER")) {
-            // Fetch and set the username
-            // userProfileRepository.findById(response.followableId())
-            //     .ifPresent(user -> response = new FollowResponse(
-            //         response.id(), response.followerId(),
-            //         response.followerUsername(), response.followableType(),
-            //         response.followableId(), user.getUsername(),
-            //         response.createdAt()
-            //     ));
+    // ✅ FIXED: Complete implementation to enrich response with user data
+    private FollowResponse enrichFollowResponse(FollowResponse response) {
+        String followerUsername = null;
+        String followableName = null;
+
+        // Get follower username
+        UserProfile follower = userProfileRepository.findById(response.followerId()).orElse(null);
+        if (follower != null) {
+            followerUsername = follower.getFullName();
         }
-        return response;
-    }}
+
+        // Get followable name (if following a USER)
+        if (response.followableType().equalsIgnoreCase("USER")) {
+            UserProfile followable = userProfileRepository.findById(response.followableId()).orElse(null);
+            if (followable != null) {
+                followableName = followable.getFullName();
+            }
+        }
+
+        // ✅ Return new response with enriched data
+        return new FollowResponse(
+                response.id(),
+                response.followerId(),
+                followerUsername,
+                response.followableType(),
+                response.followableId(),
+                followableName,
+                response.createdAt()
+        );
+    }
+}
