@@ -1,105 +1,131 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
-import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
-import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
-import jakarta.validation.Valid;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class ProgramController {
 
     private final ProgramService programService;
 
-    // 1. GET /programs — Public — Browse public open programs (paginated, filterable)
     @GetMapping("/programs")
-    public ResponseEntity<Page<ProgramResponseDto>> getPrograms(
+    public Page<ProgramResponseDto> getPublicPrograms(
             @RequestParam(required = false) UUID organizationId,
-            @RequestParam(required = false) ProgramState state,
-            @RequestParam(required = false) String visibility,
-            @RequestParam(required = false) String engagementType,
+            @RequestParam(required = false) EngagementType engagementType,
             @RequestParam(required = false) Boolean offersBounties,
-            @PageableDefault(size = 20 ) Pageable pageable
+            @PageableDefault(
+                    size = 20,
+                    sort = "createdAt",
+                    direction = Sort.Direction.DESC
+            )
+            Pageable pageable
     ) {
-        return ResponseEntity.ok(programService.getPrograms(
-                organizationId, state, visibility, engagementType, offersBounties, pageable));
+        return programService.getPublicPrograms(
+                organizationId,
+                engagementType,
+                offersBounties,
+                pageable
+        );
     }
 
-    // 2. GET /programs/{id} — Public — Get program detail
     @GetMapping("/programs/{id}")
-    public ResponseEntity<ProgramResponseDto> getProgramById(@PathVariable UUID id) {
-        return ResponseEntity.ok(programService.getProgramById(id));
+    public ProgramResponseDto getPublicProgramById(@PathVariable UUID id) {
+        return programService.getPublicProgramById(id);
     }
 
-    // 3. GET /programs/{handle} — Public — Get program by handle
     @GetMapping("/programs/handle/{handle}")
-    public ResponseEntity<ProgramResponseDto> getProgramByHandle(@PathVariable String handle) {
-        return ResponseEntity.ok(programService.getProgramByHandle(handle));
-    }
-
-    // 4. POST /organizations/{id}/programs — Manager/Member — Create a program (draft)
-    @PostMapping("/organizations/programs")
-    public ResponseEntity<ProgramResponseDto> createProgram(
-            @Valid @RequestBody ProgramRequestDto dto
+    public ProgramResponseDto getPublicProgramByHandle(
+            @PathVariable String handle
     ) {
-        return new ResponseEntity<>(programService.createProgram(dto), HttpStatus.CREATED);
+        return programService.getPublicProgramByHandle(handle);
     }
 
-    // 5. PATCH /programs/{id} — Manager/Member — Update a program
-    @PatchMapping("/programs/{id}")
-    public ResponseEntity<ProgramResponseDto> updateProgram(
-            @PathVariable UUID id,
-            @Valid @RequestBody ProgramUpdateRequestDto dto
-    ) {
-        return ResponseEntity.ok(programService.updateProgram(id, dto));
-    }
-
-    // 6. PATCH /programs/{id}/publish — Manager — Submit for admin approval and publish
-    @PatchMapping("/programs/{id}/publish")
-    public ResponseEntity<ProgramResponseDto> publishProgram(@PathVariable UUID id) {
-        return ResponseEntity.ok(programService.publishProgram(id));
-    }
-
-    // 7. PATCH /programs/{id}/pause — Manager — Pause a program
-    @PatchMapping("/programs/{id}/pause")
-    public ResponseEntity<ProgramResponseDto> pauseProgram(@PathVariable UUID id) {
-        return ResponseEntity.ok(programService.pauseProgram(id));
-    }
-
-    // 8. PATCH /programs/{id}/close — Manager — Close a program
-    @PatchMapping("/programs/{id}/close")
-    public ResponseEntity<ProgramResponseDto> closeProgram(@PathVariable UUID id) {
-        return ResponseEntity.ok(programService.closeProgram(id));
-    }
-
-    // 9. GET /programs/{id}/updates — Public — Program changelog
     @GetMapping("/programs/{id}/updates")
-    public ResponseEntity<Page<ProgramUpdateChangeLogDto>> getProgramUpdates(
+    public Page<ProgramUpdateChangeLogDto> getPublicProgramUpdates(
             @PathVariable UUID id,
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
+            @PageableDefault(
+                    size = 10,
+                    sort = "createdAt",
+                    direction = Sort.Direction.DESC
+            )
+            Pageable pageable
     ) {
-        return ResponseEntity.ok(programService.getProgramUpdates(id, pageable));
+        return programService.getPublicProgramUpdates(id, pageable);
     }
 
-    // 10. GET /programs/{id}/reports — Member+ — List reports submitted to this program
-    // Since you didn't provide the 'reports' table schema, I'll add a placeholder.
-    // Once you define the Report entity, inject ReportService here.
-    @GetMapping("/programs/{id}/reports")
-    public ResponseEntity<String> getProgramReports(@PathVariable UUID id) {
-        // TODO: Implement when Report entity is defined.
-        return ResponseEntity.ok("Reports endpoint - implementation pending (Report entity not yet defined).");
+    @GetMapping("/organizations/me/programs")
+    public Page<ProgramResponseDto> getMyPrograms(
+            @PageableDefault(
+                    size = 20,
+                    sort = "updatedAt",
+                    direction = Sort.Direction.DESC
+            )
+            Pageable pageable
+    ) {
+        return programService.getMyPrograms(pageable);
+    }
+
+    @PostMapping("/organizations/me/programs")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ProgramResponseDto createProgram(
+            @Valid @RequestBody ProgramRequestDto request
+    ) {
+        return programService.createProgram(request);
+    }
+
+    @PatchMapping("/programs/{id}")
+    public ProgramResponseDto updateProgram(
+            @PathVariable UUID id,
+            @Valid @RequestBody ProgramUpdateRequestDto request
+    ) {
+        return programService.updateProgram(id, request);
+    }
+
+    @PatchMapping("/programs/{id}/submit")
+    public ProgramResponseDto submitProgram(@PathVariable UUID id) {
+        return programService.submitProgram(id);
+    }
+
+    @PatchMapping("/programs/{id}/publish")
+    public ProgramResponseDto publishProgram(@PathVariable UUID id) {
+        return programService.publishProgram(id);
+    }
+
+    @PatchMapping("/programs/{id}/pause")
+    public ProgramResponseDto pauseProgram(@PathVariable UUID id) {
+        return programService.pauseProgram(id);
+    }
+
+    @PatchMapping("/programs/{id}/resume")
+    public ProgramResponseDto resumeProgram(@PathVariable UUID id) {
+        return programService.resumeProgram(id);
+    }
+
+    @PatchMapping("/programs/{id}/close")
+    public ProgramResponseDto closeProgram(@PathVariable UUID id) {
+        return programService.closeProgram(id);
     }
 }

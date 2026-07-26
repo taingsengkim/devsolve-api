@@ -11,6 +11,5 @@ import java.util.UUID;
 @Repository
 public interface ProgramUpdateRepository extends JpaRepository<ProgramUpdate, UUID> {
 
-    // Used in ProgramServiceImpl.getProgramUpdates()
     Page<ProgramUpdate> findByProgramId(UUID programId, Pageable pageable);
 }

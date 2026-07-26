@@ -1,44 +1,81 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import jakarta.persistence.criteria.Predicate;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
-import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-public class ProgramSpecification {
+public final class ProgramSpecification {
 
-    public static Specification<Program> filterPrograms(
+    private ProgramSpecification() {
+    }
+
+    public static Specification<Program> publicPrograms(
             UUID organizationId,
-            ProgramState state,
-            Visibility visibility,
             EngagementType engagementType,
             Boolean offersBounties
     ) {
         return (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
+            predicates.add(criteriaBuilder.equal(
+                    root.get("state"),
+                    ProgramState.ACTIVE
+            ));
+            predicates.add(criteriaBuilder.equal(
+                    root.get("submissionState"),
+                    SubmissionState.APPROVED
+            ));
+            predicates.add(criteriaBuilder.equal(
+                    root.get("visibility"),
+                    Visibility.PUBLIC
+            ));
 
             if (organizationId != null) {
-                predicates.add(criteriaBuilder.equal(root.get("organizationId"), organizationId));
-            }
-            if (state != null) {
-                predicates.add(criteriaBuilder.equal(root.get("state"), state));
-            }
-            if (visibility != null) {
-                predicates.add(criteriaBuilder.equal(root.get("visibility"), visibility));
+                predicates.add(criteriaBuilder.equal(
+                        root.get("organizationId"),
+                        organizationId
+                ));
             }
             if (engagementType != null) {
-                predicates.add(criteriaBuilder.equal(root.get("engagementType"), engagementType));
+                predicates.add(criteriaBuilder.equal(
+                        root.get("engagementType"),
+                        engagementType
+                ));
             }
             if (offersBounties != null) {
-                predicates.add(criteriaBuilder.equal(root.get("offersBounties"), offersBounties));
+                predicates.add(criteriaBuilder.equal(
+                        root.get("offersBounties"),
+                        offersBounties
+                ));
             }
 
-            return criteriaBuilder.and(predicates.toArray(new Predicate[0]));
+            return criteriaBuilder.and(
+                    predicates.toArray(new Predicate[0])
+            );
         };
+    }
+
+    public static Specification<Program> organizationPrograms(
+            UUID organizationId
+    ) {
+        return (root, query, criteriaBuilder) -> criteriaBuilder.equal(
+                root.get("organizationId"),
+                organizationId
+        );
+    }
+
+    public static Specification<Program> programsForReview(
+            SubmissionState submissionState
+    ) {
+        return (root, query, criteriaBuilder) -> criteriaBuilder.equal(
+                root.get("submissionState"),
+                submissionState
+        );
     }
 }

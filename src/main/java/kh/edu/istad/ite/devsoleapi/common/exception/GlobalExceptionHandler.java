@@ -1,44 +1,97 @@
 package kh.edu.istad.ite.devsoleapi.common.exception;
 
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    @ExceptionHandler(ResponseStatusException.class)
-    public RestErrorResponse handleResponseStatusException(ResponseStatusException e) {
-        return buildError(
-                HttpStatus.valueOf(e.getStatusCode().value()),
-                e.getMessage(),
-                null
-        );
-    }
 
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<RestErrorResponse> handleResponseStatusException(
+            ResponseStatusException exception
+    ) {
+        HttpStatus status = HttpStatus.valueOf(
+                exception.getStatusCode().value()
+        );
+        return ResponseEntity.status(status).body(buildError(
+                status,
+                exception.getReason(),
+                null
+        ));
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public RestErrorResponse handleResourceNotFound(ResourceNotFoundException e) {
-        return buildError(
-                HttpStatus.NOT_FOUND,
-                e.getMessage(),
+    public ResponseEntity<RestErrorResponse> handleResourceNotFound(
+            ResourceNotFoundException exception
+    ) {
+        HttpStatus status = HttpStatus.NOT_FOUND;
+        return ResponseEntity.status(status).body(buildError(
+                status,
+                exception.getMessage(),
                 null
-        );
+        ));
     }
 
-    private RestErrorResponse buildError(HttpStatus status, String message, Object details) {
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<RestErrorResponse> handleInvalidRequest(
+            MethodArgumentNotValidException exception
+    ) {
+        Map<String, String> fieldErrors = new LinkedHashMap<>();
+        exception.getBindingResult().getFieldErrors().forEach(error ->
+                fieldErrors.putIfAbsent(
+                        error.getField(),
+                        error.getDefaultMessage()
+                )
+        );
+
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(buildError(
+                status,
+                "Request validation failed",
+                fieldErrors
+        ));
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<RestErrorResponse> handleConstraintViolation(
+            ConstraintViolationException exception
+    ) {
+        Map<String, String> violations = new LinkedHashMap<>();
+        exception.getConstraintViolations().forEach(violation ->
+                violations.put(
+                        violation.getPropertyPath().toString(),
+                        violation.getMessage()
+                )
+        );
+
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+        return ResponseEntity.status(status).body(buildError(
+                status,
+                "Request validation failed",
+                violations
+        ));
+    }
+
+    private RestErrorResponse buildError(
+            HttpStatus status,
+            String message,
+            Object details
+    ) {
         return RestErrorResponse.builder()
                 .message(message)
                 .code(status.value())
                 .status(status.getReasonPhrase())
                 .timestamp(Instant.now())
                 .errorDetails(details)
-
                 .build();
     }
-
 }
