@@ -14,5 +14,13 @@ import java.util.UUID;
 @Repository
 public interface ProgramRepository extends JpaRepository<Program, UUID>, JpaSpecificationExecutor<Program> {
     Optional<Program> findByHandle(String handle);
-    Page<Program> findAll(Specification<Program> spec, Pageable pageable);
+
+    boolean existsByHandleIgnoreCase(String handle);
+
+    boolean existsByHandleIgnoreCaseAndIdNot(String handle, UUID id);
+
+    Page<Program> findAll(
+            Specification<Program> specification,
+            Pageable pageable
+    );
 }

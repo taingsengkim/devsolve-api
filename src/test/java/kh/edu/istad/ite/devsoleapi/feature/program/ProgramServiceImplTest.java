@@ -1,14 +1,19 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import org.junit.jupiter.api.AfterEach;
@@ -21,6 +26,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -28,7 +34,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,61 +66,346 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void createProgramUsesOwnedOrganizationId() {
+    void createProgramUsesOwnedOrganizationAndPendingDefaults() {
         UUID userId = UUID.randomUUID();
-        UUID organizationId = UUID.randomUUID();
-        authenticateCompany(userId);
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = validProgram(organization.getId());
+        authenticate(userId, "COMPANY");
 
-        UserProfile owner = new UserProfile();
-        owner.setId(userId);
-
-        Organization organization = new Organization();
-        organization.setId(organizationId);
-        organization.setOwner(owner);
-        organization.setStatus(OrganizationStatus.ACTIVE);
-
-        Program program = new Program();
         when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
                 .thenReturn(Optional.of(organization));
         when(programMapper.toEntity(any(ProgramRequestDto.class)))
                 .thenReturn(program);
-        when(programRepository.save(program))
-                .thenReturn(program);
+        when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        ProgramServiceImpl service = new ProgramServiceImpl(
+        service().createProgram(ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .engagementType(EngagementType.BOUNTY)
+                .visibility(Visibility.PRIVATE)
+                .build());
+
+        assertEquals(organization.getId(), program.getOrganizationId());
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+        verify(programRepository).saveAndFlush(program);
+        verify(programUpdateRepository).save(any(ProgramUpdate.class));
+    }
+
+    @Test
+    void createProgramRejectsPublicVisibilityBeforeAdminApproval() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        authenticate(userId, "COMPANY");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().createProgram(ProgramRequestDto.builder()
+                        .handle("public-before-approval")
+                        .name("Unapproved Public Program")
+                        .engagementType(EngagementType.BOUNTY)
+                        .visibility(Visibility.PUBLIC)
+                        .build())
+        );
+
+        assertEquals(
+                "Only admin-approved programs can be public",
+                exception.getReason()
+        );
+        verify(programRepository, never())
+                .saveAndFlush(any(Program.class));
+    }
+
+    @Test
+    void adminCanApprovePendingProgram() {
+        UUID adminId = UUID.randomUUID();
+        Organization organization =
+                activeOwnedOrganization(UUID.randomUUID());
+        Program program = validProgram(organization.getId());
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        authenticate(adminId, "ADMIN");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().approveProgram(program.getId());
+
+        assertEquals(
+                SubmissionState.APPROVED,
+                program.getSubmissionState()
+        );
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(adminId, updateCaptor.getValue().getChangedBy());
+    }
+
+    @Test
+    void editingApprovedProgramRequiresAdminReviewAgain() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().updateProgram(
+                program.getId(),
+                new ProgramUpdateRequestDto(
+                        null,
+                        "Updated Program Name",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+    }
+
+    @Test
+    void approvedProgramCanBecomePublicWithoutAnotherReview() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PRIVATE);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ProgramUpdateRequestDto request = new ProgramUpdateRequestDto(
+                null,
+                null,
+                null,
+                null,
+                Visibility.PUBLIC,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        doAnswer(invocation -> {
+            Program target = invocation.getArgument(1);
+            target.setVisibility(request.visibility());
+            return null;
+        }).when(programMapper).updateEntity(eq(request), eq(program));
+
+        service().updateProgram(program.getId(), request);
+
+        assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        assertEquals(Visibility.PUBLIC, program.getVisibility());
+
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program visibility changed to public",
+                updateCaptor.getValue().getChangeSummary()
+        );
+    }
+
+    @Test
+    void adminRejectionReturnsProgramToPrivateDraft() {
+        UUID adminId = UUID.randomUUID();
+        Program program = validProgram(UUID.randomUUID());
+        program.setState(ProgramState.ACTIVE);
+        program.setVisibility(Visibility.PUBLIC);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        authenticate(adminId, "ADMIN");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        service().rejectProgram(program.getId(), "Scope is incomplete");
+
+        assertEquals(
+                SubmissionState.REJECTED,
+                program.getSubmissionState()
+        );
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+    }
+
+    @Test
+    void approvedProgramCanBeLaunchedByOwner() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setSubmissionState(SubmissionState.APPROVED);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().publishProgram(program.getId());
+
+        assertEquals(ProgramState.ACTIVE, program.getState());
+    }
+
+    @Test
+    void approvedPausedProgramCanBeResumedByOwner() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.PAUSED);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().resumeProgram(program.getId());
+
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
+        assertEquals(Visibility.PUBLIC, program.getVisibility());
+
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program resumed",
+                updateCaptor.getValue().getChangeSummary()
+        );
+    }
+
+    @Test
+    void activeProgramCannotBeResumed() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().resumeProgram(program.getId())
+        );
+
+        assertEquals(
+                "Only paused programs can be resumed",
+                exception.getReason()
+        );
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        verify(programUpdateRepository, never())
+                .save(any(ProgramUpdate.class));
+    }
+
+    @Test
+    void rejectedProgramCanBeResubmittedByOwner() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setSubmissionState(SubmissionState.REJECTED);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().submitProgram(program.getId());
+
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+    }
+
+    @Test
+    void publicLookupDoesNotRevealPrivateProgram() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PRIVATE);
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().getPublicProgramById(program.getId())
+        );
+    }
+
+    private ProgramServiceImpl service() {
+        return new ProgramServiceImpl(
                 programRepository,
                 programUpdateRepository,
                 programMapper,
                 organizationRepository,
                 organizationMemberRepository
         );
-
-        service.createProgram(ProgramRequestDto.builder()
-                .handle("acme-security")
-                .name("Acme Security Program")
-                .engagementType(EngagementType.BOUNTY)
-                .visibility(Visibility.PUBLIC)
-                .build());
-
-        ArgumentCaptor<Program> programCaptor =
-                ArgumentCaptor.forClass(Program.class);
-        verify(programRepository).save(programCaptor.capture());
-
-        assertEquals(
-                organizationId,
-                programCaptor.getValue().getOrganizationId()
-        );
-        assertEquals(
-                ProgramState.DRAFT,
-                programCaptor.getValue().getState()
-        );
-        assertEquals(
-                SubmissionState.PENDING_REVIEW,
-                programCaptor.getValue().getSubmissionState()
-        );
     }
 
-    private void authenticateCompany(UUID userId) {
+    private Program validProgram(UUID organizationId) {
+        Program program = new Program();
+        program.setId(UUID.randomUUID());
+        program.setOrganizationId(organizationId);
+        program.setHandle("acme-security");
+        program.setName("Acme Security Program");
+        program.setPolicy("Test only the assets listed as in scope.");
+        program.setEngagementType(EngagementType.BOUNTY);
+        program.setVisibility(Visibility.PRIVATE);
+        program.setOffersBounties(false);
+
+        ProgramAsset asset = ProgramAsset.builder()
+                .program(program)
+                .assetType(AssetType.URL)
+                .identifier("https://app.acme.test")
+                .isInScope(true)
+                .build();
+        program.getAssets().add(asset);
+        return program;
+    }
+
+    private Organization activeOwnedOrganization(UUID ownerId) {
+        UserProfile owner = new UserProfile();
+        owner.setId(ownerId);
+
+        Organization organization = new Organization();
+        organization.setId(UUID.randomUUID());
+        organization.setOwner(owner);
+        organization.setStatus(OrganizationStatus.ACTIVE);
+        return organization;
+    }
+
+    private void authenticate(UUID userId, String role) {
         Instant now = Instant.now();
         Jwt jwt = Jwt.withTokenValue("access-token")
                 .header("alg", "none")
@@ -122,7 +417,7 @@ class ProgramServiceImplTest {
         SecurityContextHolder.getContext().setAuthentication(
                 new JwtAuthenticationToken(
                         jwt,
-                        List.of(new SimpleGrantedAuthority("ROLE_COMPANY"))
+                        List.of(new SimpleGrantedAuthority("ROLE_" + role))
                 )
         );
     }

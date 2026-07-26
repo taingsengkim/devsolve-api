@@ -4,8 +4,8 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
-import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
-import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.ProgramReward;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.dto.ProgramRewardResponseDto;
 import lombok.Builder;
 
 import java.math.BigDecimal;
@@ -24,12 +24,12 @@ public record ProgramResponseDto(
         ProgramState state,
         SubmissionState submissionState,
         Visibility visibility,
-        String currency,
         String policy,
         Boolean offersBounties,
         BigDecimal minimumBounty,
         BigDecimal maximumBounty,
-        LocalDateTime startedAcceptingAt,
-        List<ProgramAsset> assets,
-        List<ProgramReward> rewards
+        List<ProgramAssetResponseDto> assets,
+        List<ProgramRewardResponseDto> rewards,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt
 ) {}

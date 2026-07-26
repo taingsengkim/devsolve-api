@@ -40,6 +40,107 @@ BEGIN
 END
 $$^^^
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'engagement_type_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.engagement_type_enum AS ENUM (
+            'bounty',
+            'response'
+        );
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'program_state_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.program_state_enum AS ENUM (
+            'draft',
+            'active',
+            'paused',
+            'closed'
+        );
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'submission_state_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.submission_state_enum AS ENUM (
+            'pending_review',
+            'approved',
+            'rejected'
+        );
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'visibility_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.visibility_enum AS ENUM (
+            'public',
+            'invite_only',
+            'private'
+        );
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'severity_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.severity_enum AS ENUM (
+            'none',
+            'low',
+            'medium',
+            'high',
+            'critical'
+        );
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'asset_type_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.asset_type_enum AS ENUM (
+            'url',
+            'wildcard',
+            'ip_range',
+            'mobile_app',
+            'api',
+            'source_code',
+            'hardware',
+            'other'
+        );
+    END IF;
+END
+$$^^^
+
 ALTER TABLE IF EXISTS public.organizations
     ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'^^^
 
