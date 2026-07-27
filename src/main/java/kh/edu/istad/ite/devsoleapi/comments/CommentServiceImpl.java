@@ -5,7 +5,7 @@ import kh.edu.istad.ite.devsoleapi.comments.dto.CommentMapper;
 import kh.edu.istad.ite.devsoleapi.comments.dto.CommentResponse;
 import kh.edu.istad.ite.devsoleapi.comments.dto.CreateCommentRequest;
 import kh.edu.istad.ite.devsoleapi.comments.enums.CommentableType;
-import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -19,17 +19,12 @@ import java.util.UUID;
 public class CommentServiceImpl implements CommentService {
 
     private final CommentRepository commentRepository;
-    private final ReportRepository reportRepository;
+    private final ReportService reportService;
     private final CommentMapper commentMapper;
 
     @Override
     public CommentResponse createReportComment(UUID reportId, CreateCommentRequest request) {
-        if (!reportRepository.existsById(reportId)) {
-            throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "Report not found"
-            );
-        }
+        reportService.requireViewAccess(reportId);
 
         String userIdStr = AuthUtils.extractUserId();
         UUID authorId = UUID.fromString(userIdStr);
@@ -57,12 +52,7 @@ public class CommentServiceImpl implements CommentService {
     @Override
     public List<CommentResponse> findReportComments(UUID reportId) {
 
-        if (!reportRepository.existsById(reportId)) {
-            throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND,
-                    "Report not found"
-            );
-        }
+        reportService.requireViewAccess(reportId);
 
         List<Comment> comments = commentRepository.findByCommentableTypeAndCommentableId(
                 CommentableType.REPORT,

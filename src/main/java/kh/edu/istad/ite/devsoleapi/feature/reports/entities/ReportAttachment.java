@@ -1,10 +1,24 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports.entities;
 
-import jakarta.persistence.*;
-import lombok.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
@@ -17,12 +31,14 @@ import java.util.UUID;
 public class ReportAttachment {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "report_id", nullable = false)
-    private UUID reportId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "report_id", nullable = false)
+    @JsonIgnore
+    private Report report;
 
     @Column(name = "file_name", nullable = false, length = 255)
     private String fileName;
@@ -36,10 +52,11 @@ public class ReportAttachment {
     @Column(name = "size_bytes")
     private Long sizeBytes;
 
-    @Column(name = "uploaded_by", nullable = false, length = 255)
-    private String uploadedBy;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "uploaded_by", nullable = false)
+    private UserProfile uploadedBy;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 }

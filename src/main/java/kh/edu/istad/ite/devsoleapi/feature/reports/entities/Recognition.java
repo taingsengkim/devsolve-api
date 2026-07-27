@@ -1,9 +1,25 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports.entities;
 
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import kh.edu.istad.ite.devsoleapi.feature.program.Program;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
@@ -17,19 +33,20 @@ public class Recognition {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    /**
-     * User profile ID (Keycloak user identifier)
-     */
-    @Column(name = "user_id", nullable = false, length = 255)
-    private String userId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private UserProfile user;
 
-    @Column(name = "program_id", nullable = false)
-    private UUID programId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "program_id", nullable = false)
+    private Program program;
 
-    @Column(name = "report_id")
-    private UUID reportId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "report_id")
+    private Report report;
 
     @Column(name = "title", nullable = false, length = 255)
     private String title;
@@ -37,41 +54,19 @@ public class Recognition {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    /**
-     * User profile ID of the person who awarded recognition
-     */
-    @Column(name = "awarded_by", nullable = false, length = 255)
-    private String awardedBy;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "awarded_by", nullable = false)
+    private UserProfile awardedBy;
 
-    @Column(name = "awarded_at", nullable = false)
-    private Instant awardedAt;
+    @CreationTimestamp
+    @Column(name = "awarded_at", nullable = false, updatable = false)
+    private LocalDateTime awardedAt;
 
-    @Column(name = "created_at", nullable = false)
-    private Instant createdAt;
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
 
+    @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
-
-
-    @PrePersist
-    protected void onCreate() {
-        Instant now = Instant.now();
-
-        if (awardedAt == null) {
-            awardedAt = now;
-        }
-
-        if (createdAt == null) {
-            createdAt = now;
-        }
-
-        if (updatedAt == null) {
-            updatedAt = now;
-        }
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = Instant.now();
-    }
+    private LocalDateTime updatedAt;
 }

@@ -1,79 +1,38 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
-import kh.edu.istad.ite.devsoleapi.feature.reports.dto.*;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
-import java.util.List;
 import java.util.UUID;
 
 public interface ReportService {
 
-    /**
-     * Creates a new report for a specific program.
-     *
-     * @param programId the unique identifier of the program for which the report is
-     *                  being created
-     * @param request   the payload containing the details of the report to be
-     *                  created
-     * @return a {@link ReportResponse} containing the newly created report's
-     *         details
-     */
-    ReportResponse createNew(UUID programId, CreateReportRequest request);
+    ReportResponse create(UUID programId, CreateReportRequest request);
 
-    /**
-     * Retrieves the details of a specific report by its unique identifier.
-     *
-     * @param id the unique identifier of the report to retrieve
-     * @return a {@link ReportResponse} containing the report's details
-     */
     ReportResponse findById(UUID id);
 
-    /**
-     * Retrieves all reports, optionally filtered by program ID.
-     *
-     * @param programId optional program identifier to filter reports by
-     * @return a list of {@link ReportResponse} containing report details
-     */
-    List<ReportResponse> findAll(UUID programId);
+    Page<ReportResponse> findAccessible(
+            UUID programId,
+            ReportState state,
+            Pageable pageable
+    );
 
-    /**
-     * Retrieves all reports.
-     *
-     * @return a list of {@link ReportResponse} containing report details
-     */
-    List<ReportResponse> findAll();
+    Page<ReportResponse> findMine(Pageable pageable);
 
-    /**
-     * Retrieves all reports submitted by the currently authenticated user.
-     *
-     * @return a list of {@link ReportResponse} containing report details
-     */
-    List<ReportResponse> findMine();
-
-    /**
-     * Triages an existing report, updating its status, severity, or other relevant
-     * triage details.
-     *
-     * @param id      the unique identifier of the report to triage
-     * @param request the payload containing the triage update details
-     * @return a {@link ReportResponse} reflecting the updated state of the report
-     */
     ReportResponse triage(UUID id, TriageReportRequest request);
 
-    /**
-     * Updates the disclosure state of an existing report.
-     *
-     * @param id      the unique identifier of the report to update disclosure state
-     * @param request the payload containing the updated disclosure state
-     * @return a {@link ReportResponse} reflecting the updated state of the report
-     */
-    ReportResponse updateDisclosureState(UUID id, UpdateDisclosureStateRequest request);
+    ReportResponse updateDisclosureStatus(
+            UUID id,
+            UpdateDisclosureStateRequest request
+    );
 
-    /**
-     * Awards a monetary reward for a specific report.
-     *
-     * @param id      the unique identifier of the report to reward
-     * @param request the payload containing the reward amount and optional note
-     * @return a {@link ReportResponse} reflecting the updated state of the report
-     */
-    ReportResponse setReward(UUID id, RewardReportRequest request);
+    ReportResponse recordReward(UUID id, RewardReportRequest request);
+
+    void requireViewAccess(UUID reportId);
 }

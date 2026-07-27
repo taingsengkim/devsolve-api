@@ -1,48 +1,87 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports.dto;
 
-import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
-import kh.edu.istad.ite.devsoleapi.feature.reports.enums.AssetType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
-import kh.edu.istad.ite.devsoleapi.feature.reports.enums.Severity;
-import lombok.Builder;
-import lombok.Getter;
 
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
-@Getter
-@Builder
-public class ReportResponse {
+public record ReportResponse(
+        UUID id,
+        UUID programId,
+        UUID reporterId,
+        String title,
+        String vulnerabilityInformation,
+        String impact,
+        Severity reportedSeverity,
+        Severity triageSeverity,
+        Severity severity,
+        WeaknessSummary weakness,
+        AssetSummary asset,
+        ReportState state,
+        DisclosureStatus disclosureStatus,
+        UUID duplicateOfId,
+        UUID triagedBy,
+        DisputeSummary dispute,
+        List<AttachmentSummary> attachments,
+        List<RewardSummary> rewards,
+        LocalDateTime submittedAt,
+        LocalDateTime triagedAt,
+        LocalDateTime resolvedAt,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt
+) {
 
-    private UUID id;
+    public record WeaknessSummary(
+            UUID id,
+            String cweId,
+            String name
+    ) {
+    }
 
-    private String title;
+    public record AssetSummary(
+            UUID id,
+            AssetType assetType,
+            String identifier,
+            Boolean isInScope,
+            Severity maxSeverity
+    ) {
+    }
 
-    private String vulnerabilityInformation;
+    public record AttachmentSummary(
+            UUID id,
+            String fileName,
+            String fileUrl,
+            String mimeType,
+            Long sizeBytes,
+            UUID uploadedBy,
+            LocalDateTime createdAt
+    ) {
+    }
 
-    private String impact;
+    public record RewardSummary(
+            UUID id,
+            BigDecimal amount,
+            Integer points,
+            UUID awardedBy,
+            LocalDateTime awardedAt,
+            String note
+    ) {
+    }
 
-    private Severity severity;
-
-    private BigDecimal cvssScore;
-
-    private UUID weaknessId;
-
-    private AssetType assetType;
-
-    private ReportState state;
-
-    private DisclosureStatus disclosureStatus;
-
-    private Map<String, Object> weakness;
-
-    private List<ReportAttachment> attachments;
-
-    private Instant submittedAt;
-
-    private Instant createdAt;
+    public record DisputeSummary(
+            UUID id,
+            DisputeStatus status,
+            Severity resolvedSeverity,
+            UUID resolvedBy,
+            String resolutionNotes,
+            LocalDateTime createdAt,
+            LocalDateTime resolvedAt
+    ) {
+    }
 }

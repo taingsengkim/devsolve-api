@@ -1,35 +1,32 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports.dto;
 
-import jakarta.validation.constraints.*;
-import kh.edu.istad.ite.devsoleapi.feature.reports.enums.AssetType;
-import kh.edu.istad.ite.devsoleapi.feature.reports.enums.Severity;
-import lombok.Getter;
-import lombok.Setter;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 
-import java.math.BigDecimal;
 import java.util.UUID;
 
-@Getter
-@Setter
-public class CreateReportRequest {
+public record CreateReportRequest(
+        @NotBlank(message = "Title is required")
+        @Size(
+                max = 255,
+                message = "Title must not exceed 255 characters"
+        )
+        String title,
 
-    @NotBlank(message = "Title is required.")
-    @Size(max = 255, message = "Title must not exceed 255 characters.")
-    private String title;
+        @NotBlank(message = "Vulnerability information is required")
+        String vulnerabilityInformation,
 
-    @NotBlank(message = "Vulnerability information is required.")
-    private String vulnerabilityInformation;
+        String impact,
 
-    private String impact;
+        @NotNull(message = "Reported severity is required")
+        @JsonAlias("severity")
+        Severity reportedSeverity,
 
-    @NotNull(message = "Severity is required.")
-    private Severity severity;
+        UUID weaknessId,
 
-    @DecimalMin(value = "0.0", message = "CVSS score must be at least 0.0.")
-    @DecimalMax(value = "10.0", message = "CVSS score must not exceed 10.0.")
-    private BigDecimal cvssScore;
-
-    private UUID weaknessId;
-
-    private AssetType assetType;
+        UUID assetId
+) {
 }

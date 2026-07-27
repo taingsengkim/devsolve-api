@@ -1,13 +1,17 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports.dto;
 
+import jakarta.validation.constraints.NotNull;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
-import lombok.Getter;
-import lombok.Setter;
 
-@Getter
-@Setter
-public class TriageReportRequest {
+import java.util.UUID;
 
-    private ReportState state;
+public record TriageReportRequest(
+        @NotNull(message = "Triage severity is required")
+        Severity triageSeverity,
+
+        ReportState state,
+
+        UUID duplicateOfId
+) {
 }
-

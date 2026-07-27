@@ -1,12 +1,40 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-import java.util.List;
 import java.util.UUID;
 
-public interface ReportRepository extends JpaRepository<Report, UUID> {
-    List<Report> findByProgramId(UUID programId);
-    List<Report> findByReporter_Id(String reporterId);
+public interface ReportRepository
+        extends JpaRepository<Report, UUID>,
+        JpaSpecificationExecutor<Report> {
+
+    @EntityGraph(attributePaths = {
+            "program",
+            "reporter",
+            "weakness",
+            "asset",
+            "triagedBy",
+            "duplicateOf"
+    })
+    Page<Report> findByReporterId(UUID reporterId, Pageable pageable);
+
+    @Override
+    @EntityGraph(attributePaths = {
+            "program",
+            "reporter",
+            "weakness",
+            "asset",
+            "triagedBy",
+            "duplicateOf"
+    })
+    Page<Report> findAll(
+            Specification<Report> specification,
+            Pageable pageable
+    );
 }

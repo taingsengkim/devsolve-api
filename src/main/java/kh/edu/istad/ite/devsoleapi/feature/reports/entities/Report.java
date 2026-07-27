@@ -1,18 +1,37 @@
-
 package kh.edu.istad.ite.devsoleapi.feature.reports.entities;
 
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
-import jakarta.persistence.*;
-import kh.edu.istad.ite.devsoleapi.feature.reports.enums.AssetType;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
+import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
+import kh.edu.istad.ite.devsoleapi.feature.program.Program;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
-import kh.edu.istad.ite.devsoleapi.feature.reports.enums.Severity;
-import lombok.*;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
-import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,15 +42,16 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Report {
+public class Report extends BasedEntity {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "program_id", nullable = false)
-    private UUID programId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "program_id", nullable = false)
+    private Program program;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "reporter_id", nullable = false)
@@ -40,90 +60,102 @@ public class Report {
     @Column(name = "title", nullable = false, length = 255)
     private String title;
 
-    @Column(name = "vulnerability_information", nullable = false, columnDefinition = "TEXT")
+    @Column(
+            name = "vulnerability_information",
+            nullable = false,
+            columnDefinition = "TEXT"
+    )
     private String vulnerabilityInformation;
 
     @Column(name = "impact", columnDefinition = "TEXT")
     private String impact;
 
-    @Column(name = "cvss_score", precision = 3, scale = 1)
-    private BigDecimal cvssScore;
-
-    @OneToMany(fetch = FetchType.LAZY)
-    @JoinColumn(name = "report_id")
-    private List<ReportAttachment> attachments;
-
-    @OneToMany(fetch = FetchType.LAZY)
-    @JoinColumn(name = "report_id")
-    private List<ReportReward> rewards;
-
     @Enumerated(EnumType.STRING)
-    @Column(name = "reported_severity", nullable = false)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(
+            name = "reported_severity",
+            nullable = false,
+            columnDefinition = "severity_enum"
+    )
     private Severity reportedSeverity;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "triage_severity")
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "triage_severity", columnDefinition = "severity_enum")
     private Severity triageSeverity;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "severity")
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "severity", columnDefinition = "severity_enum")
     private Severity severity;
 
-    @Column(name = "weakness_id")
-    private UUID weaknessId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "weakness_id")
+    private Weakness weakness;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "asset_id")
+    private ProgramAsset asset;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "asset_type")
-    private AssetType assetType;
-
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(
+            name = "state",
+            nullable = false,
+            columnDefinition = "report_state_enum"
+    )
     @Builder.Default
-    @Enumerated(EnumType.STRING)
-    @Column(name = "state", nullable = false)
     private ReportState state = ReportState.NEW;
 
-    @Builder.Default
     @Enumerated(EnumType.STRING)
-    @Column(name = "disclosure_status", nullable = false)
-    private DisclosureStatus disclosureStatus = DisclosureStatus.NOT_DISCLOSED;
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(
+            name = "disclosure_status",
+            nullable = false,
+            columnDefinition = "disclosure_status_enum"
+    )
+    @Builder.Default
+    private DisclosureStatus disclosureStatus =
+            DisclosureStatus.NOT_DISCLOSED;
 
-    @Column(name = "triaged_by", length = 255)
-    private String triagedBy;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "duplicate_of_id")
+    private Report duplicateOf;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "triaged_by")
+    private UserProfile triagedBy;
 
     @Column(name = "triaged_at")
-    private Instant triagedAt;
-
-    @Column(name = "submitted_at", nullable = false)
-    private Instant submittedAt;
-
-    @Column(name = "resolved_at")
-    private Instant resolvedAt;
+    private LocalDateTime triagedAt;
 
     @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
+    @Column(name = "submitted_at", nullable = false, updatable = false)
+    private LocalDateTime submittedAt;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at", nullable = false)
-    private Instant updatedAt;
+    @Column(name = "resolved_at")
+    private LocalDateTime resolvedAt;
 
-    @PrePersist
-    protected void onCreate() {
-        Instant now = Instant.now();
+    @OneToMany(
+            mappedBy = "report",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @BatchSize(size = 20)
+    @Builder.Default
+    private List<ReportAttachment> attachments = new ArrayList<>();
 
-        if (submittedAt == null) {
-            submittedAt = now;
-        }
+    @OneToMany(
+            mappedBy = "report",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @BatchSize(size = 20)
+    @Builder.Default
+    private List<ReportReward> rewards = new ArrayList<>();
 
-        if (state == null) {
-            state = ReportState.NEW;
-        }
-
-        if (disclosureStatus == null) {
-            disclosureStatus = DisclosureStatus.NOT_DISCLOSED;
-        }
-
-        if (reportedSeverity == null && severity != null) {
-            reportedSeverity = severity;
-        }
-    }
+    @OneToMany(mappedBy = "report")
+    @BatchSize(size = 20)
+    @Builder.Default
+    private List<Dispute> disputes = new ArrayList<>();
 }
