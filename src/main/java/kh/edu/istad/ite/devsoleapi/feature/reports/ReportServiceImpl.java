@@ -1,0 +1,139 @@
+package kh.edu.istad.ite.devsoleapi.feature.reports;
+
+import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.*;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class ReportServiceImpl implements ReportService {
+
+    private final ReportRepository reportRepository;
+    private final ReportRewardRepository reportRewardRepository;
+    private final ReportMapper reportMapper;
+    private final UserProfileRepository userProfileRepository;
+
+    @Override
+    public ReportResponse createNew(UUID programId, CreateReportRequest request) {
+
+        Report report = reportMapper.toEntity(request);
+
+        report.setProgramId(programId);
+
+        if (report.getReporter() == null) {
+            String userId = AuthUtils.extractUserId();
+            UserProfile reporter = userProfileRepository.findById(UUID.fromString(userId))
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "Reporter profile not found"));
+            report.setReporter(reporter);
+        }
+
+        if (report.getReportedSeverity() == null && request.getSeverity() != null) {
+            report.setReportedSeverity(request.getSeverity());
+        }
+
+        Report savedReport = reportRepository.save(report);
+
+        return reportMapper.toResponse(savedReport);
+    }
+
+    @Override
+    public ReportResponse findById(UUID id) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Report not found"));
+
+        return reportMapper.toResponse(report);
+    }
+
+    @Override
+    public List<ReportResponse> findAll(UUID programId) {
+        List<Report> reports;
+        if (programId != null) {
+            reports = reportRepository.findByProgramId(programId);
+        } else {
+            reports = reportRepository.findAll();
+        }
+        return reportMapper.toResponse(reports);
+    }
+
+    @Override
+    public List<ReportResponse> findAll() {
+        return findAll(null);
+    }
+
+    @Override
+    public List<ReportResponse> findMine() {
+        String reporterId = AuthUtils.extractUserId();
+        List<Report> reports = reportRepository.findByReporter_Id(reporterId);
+        return reportMapper.toResponse(reports);
+    }
+
+    @Override
+    public ReportResponse triage(UUID id, TriageReportRequest request) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Report not found"));
+
+        if (request != null && request.getState() != null) {
+            report.setState(request.getState());
+            reportRepository.save(report);
+        }
+
+        return reportMapper.toResponse(report);
+    }
+
+    @Override
+    public ReportResponse updateDisclosureState(UUID id, UpdateDisclosureStateRequest request) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Report not found"));
+
+        if (request != null && request.getDisclosureStatus() != null) {
+            report.setDisclosureStatus(request.getDisclosureStatus());
+            reportRepository.save(report);
+        }
+
+        return reportMapper.toResponse(report);
+    }
+
+    @Override
+    public ReportResponse setReward(UUID id, RewardReportRequest request) {
+        Report report = reportRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Report not found"));
+
+        String awardedBy;
+        try {
+            awardedBy = AuthUtils.extractUserId();
+        } catch (Exception e) {
+            awardedBy = "system";
+        }
+
+        ReportReward reward = ReportReward.builder()
+                .report(report)
+                .amount(request.getAmount())
+                .awardedBy(awardedBy)
+                .note(request.getNote())
+                .build();
+
+        reportRewardRepository.save(reward);
+
+        return reportMapper.toResponse(report);
+    }
+}
