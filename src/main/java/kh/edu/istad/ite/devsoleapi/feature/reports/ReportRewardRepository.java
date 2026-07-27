@@ -1,0 +1,9 @@
+package kh.edu.istad.ite.devsoleapi.feature.reports;
+
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.UUID;
+
+public interface ReportRewardRepository extends JpaRepository<ReportReward, UUID> {
+}

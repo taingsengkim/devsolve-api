@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
     private final AuthService authService;
     private final UserProfileService userProfileService;
+    
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
     public RegisterResponse register(@Valid @RequestBody RegisterRequest registerRequest){

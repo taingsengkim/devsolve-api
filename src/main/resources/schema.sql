@@ -24,6 +24,137 @@ BEGIN
         FROM pg_type t
         JOIN pg_namespace n
             ON n.oid = t.typnamespace
+        WHERE t.typname = 'report_state_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.report_state_enum AS ENUM (
+            'new',
+            'triaging',
+            'needs_more_info',
+            'valid_confirmed',
+            'resolved',
+            'rejected',
+            'duplicate'
+        );
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'disclosure_status_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.disclosure_status_enum AS ENUM (
+            'not_disclosed',
+            'pending_disclosure',
+            'disclosed'
+        );
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'dispute_status_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.dispute_status_enum AS ENUM (
+            'open',
+            'under_review',
+            'resolved',
+            'dismissed'
+        );
+    END IF;
+END
+$$^^^
+
+CREATE OR REPLACE FUNCTION public.reconcile_report_severity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.id IS NOT NULL
+       AND EXISTS (
+           SELECT 1
+           FROM public.disputes d
+           WHERE d.report_id = NEW.id
+             AND d.status IN ('open', 'under_review')
+       ) THEN
+        NEW.severity := NULL;
+    ELSIF NEW.triage_severity IS NULL THEN
+        NEW.severity := NULL;
+    ELSIF NEW.reported_severity = NEW.triage_severity THEN
+        NEW.severity := NEW.triage_severity;
+    ELSE
+        NEW.severity := NULL;
+    END IF;
+
+    RETURN NEW;
+END
+$$^^^
+
+CREATE OR REPLACE FUNCTION public.open_report_severity_dispute()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.triage_severity IS NOT NULL
+       AND NEW.reported_severity <> NEW.triage_severity
+       AND NOT EXISTS (
+           SELECT 1
+           FROM public.disputes d
+           WHERE d.report_id = NEW.id
+             AND d.status IN ('open', 'under_review')
+       ) THEN
+        INSERT INTO public.disputes (
+            report_id,
+            raised_by,
+            reason,
+            status
+        )
+        VALUES (
+            NEW.id,
+            NEW.reporter_id,
+            'Automatically opened because the reported and triage severities differ',
+            'open'
+        );
+    END IF;
+
+    RETURN NEW;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL
+       AND to_regclass('public.disputes') IS NOT NULL THEN
+        EXECUTE 'DROP TRIGGER IF EXISTS trg_reconcile_report_severity ON public.reports';
+        EXECUTE 'CREATE TRIGGER trg_reconcile_report_severity BEFORE INSERT OR UPDATE OF reported_severity, triage_severity ON public.reports FOR EACH ROW EXECUTE FUNCTION public.reconcile_report_severity()';
+
+        EXECUTE 'DROP TRIGGER IF EXISTS trg_open_report_severity_dispute ON public.reports';
+        EXECUTE 'CREATE TRIGGER trg_open_report_severity_dispute AFTER INSERT OR UPDATE OF reported_severity, triage_severity ON public.reports FOR EACH ROW EXECUTE FUNCTION public.open_report_severity_dispute()';
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
         WHERE t.typname = 'industry_enum'
           AND n.nspname = 'public'
     ) THEN
