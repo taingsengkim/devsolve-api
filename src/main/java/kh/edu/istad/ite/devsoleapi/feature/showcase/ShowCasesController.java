@@ -74,11 +74,4 @@ public class ShowCasesController {
         service.hardDelete(id);
     }
 
-    @PatchMapping("/{id}/review-status")
-    public ShowCasesResponse updateReviewStatus(
-            @PathVariable UUID id,
-            @Valid @RequestBody UpdateShowcaseStatusRequest request
-    ) {
-        return service.updateStatus(id, request);
-    }
 }

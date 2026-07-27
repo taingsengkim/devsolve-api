@@ -13,6 +13,10 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -346,6 +350,44 @@ public class OrganizationServiceImpl implements OrganizationService {
         organization.setStatus(OrganizationStatus.REJECTED);
         organization.setVerifiedAt(null);
         return organizationMapper.toOrganizationResponse(organization);
+    }
+
+    @Override
+    public Page<OrganizationResponse> getPendingOrganizations(
+            int pageNumber,
+            int pageSize) {
+
+        requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
+
+        if (pageNumber < 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page number must be greater than or equal to 0"
+            );
+        }
+
+        if (pageSize < 1 || pageSize > 100) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page size must be between 1 and 100"
+            );
+        }
+
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(
+                        Sort.Direction.ASC,
+                        "createdAt"
+                )
+        );
+
+        return organizationRepository
+                .findByStatusAndDeletedAtIsNull(
+                        OrganizationStatus.PENDING,
+                        pageable
+                )
+                .map(organizationMapper::toOrganizationResponse);
     }
 
     private Organization findMyOrganization() {

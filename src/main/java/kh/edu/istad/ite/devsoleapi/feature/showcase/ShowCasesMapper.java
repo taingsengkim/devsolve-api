@@ -33,7 +33,7 @@ public abstract class ShowCasesMapper {
 
                 .authorId(
                         showCase.getAuthor() != null
-                                ? showCase.getAuthor().getId()
+                                ? String.valueOf(showCase.getAuthor().getId())
                                 : null
                 )
 

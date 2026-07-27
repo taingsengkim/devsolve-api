@@ -72,7 +72,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         String authorId = AuthUtils.extractUserId();
 
         UserProfile author = userProfileRepository
-                .findById(authorId)
+                .findById(UUID.fromString(authorId))
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.NOT_FOUND,

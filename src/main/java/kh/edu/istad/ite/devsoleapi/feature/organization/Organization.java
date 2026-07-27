@@ -61,7 +61,7 @@ public class Organization extends BasedEntity {
     @Column(
             name = "status",
             nullable = false,
-            columnDefinition = "VARCHAR(20) DEFAULT 'pending'"
+            length = 20
     )
     private OrganizationStatus status = OrganizationStatus.PENDING;
 
