@@ -3,7 +3,6 @@ package kh.edu.istad.ite.devsoleapi.feature.auth;
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterRequest;
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileService;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,8 +19,5 @@ public class AuthController {
     public RegisterResponse register(@Valid @RequestBody RegisterRequest registerRequest){
         return authService.register(registerRequest);
     }
-    @GetMapping("/me")
-    public UserProfileResponse me(){
-        return userProfileService.me();
-    }
+
 }

@@ -9,6 +9,7 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
 import jakarta.ws.rs.core.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.keycloak.admin.client.CreatedResponseUtil;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
@@ -17,9 +18,11 @@ import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -29,13 +32,27 @@ public class AuthServiceImpl implements AuthService {
     private final AuthMapper authMapper;
     private final KeycloakAdminProps props;
     private final UserProfileRepository userProfileRepository;
-    @Override
-    public RegisterResponse register(RegisterRequest registerRequest) {
 
-        if(!registerRequest.password().equals(registerRequest.confirmPassword())){
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Password doesn't match!");
+    @Override
+    @Transactional
+    public RegisterResponse register(RegisterRequest registerRequest) {
+        if (!registerRequest.password().equals(registerRequest.confirmPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Passwords do not match");
         }
-        UsersResource userResource = keycloak.realm(props.getTargetRealm()).users();
+        if (registerRequest.accountType() == RoleEnum.ADMIN) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "ADMIN accounts cannot be created through public registration"
+            );
+        }
+        if (registerRequest.accountType() == RoleEnum.COMPANY) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Company accounts must register through /api/v1/organizations/register"
+            );
+        }
+
+        UsersResource usersResource = keycloak.realm(props.getTargetRealm()).users();
         UserRepresentation userRepresentation = new UserRepresentation();
         userRepresentation.setUsername(registerRequest.username());
         userRepresentation.setEmail(registerRequest.email());
@@ -49,39 +66,66 @@ public class AuthServiceImpl implements AuthService {
         userRepresentation.setEnabled(true);
         userRepresentation.setEmailVerified(false);
         userRepresentation.setCredentials(List.of(credential));
-        try(Response response = userResource.create(userRepresentation)) {
-            log.info("Response status code : {}" , response.getStatus());
-            if(response.getStatus() == HttpStatus.CREATED.value()){
-                UserRepresentation createdUser = keycloak.realm(props.getTargetRealm()).users()
-                        .search(userRepresentation.getUsername())
-                        .getFirst();
 
-                UserResource userResourceSet = keycloak.realm(props.getTargetRealm())
-                        .users().get(createdUser.getId());
-                userResourceSet.sendVerifyEmail();
+        try (Response response = usersResource.create(userRepresentation)) {
+            log.info("Keycloak registration response status: {}", response.getStatus());
 
-                try {
-                    RoleRepresentation roleUser = keycloak.realm(props.getTargetRealm())
-                            .roles().get(RoleEnum.USER.name()).toRepresentation();
-                    userResourceSet.roles().realmLevel().add(List.of(roleUser));
-                } catch (Exception e) {
-                    log.error("Role assignment failed: {}", e.getMessage(), e);
-                    throw e;
-                }
+            if (response.getStatus() == HttpStatus.CONFLICT.value()) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Username or email already exists"
+                );
+            }
+
+            if (response.getStatus() != HttpStatus.CREATED.value()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_GATEWAY,
+                        "Identity provider could not create the user"
+                );
+            }
+
+            String createdUserId = CreatedResponseUtil.getCreatedId(response);
+            UserResource createdUserResource = usersResource.get(createdUserId);
+
+            try {
+                RoleRepresentation userRole = keycloak.realm(props.getTargetRealm())
+                        .roles()
+                        .get(registerRequest.accountType().name())
+                        .toRepresentation();
+                createdUserResource.roles().realmLevel().add(List.of(userRole));
 
                 UserProfile userProfile = new UserProfile();
-                userProfile.setId(createdUser.getId());
+                userProfile.setId(UUID.fromString(createdUserId));
                 userProfile.setEmail(registerRequest.email());
                 userProfile.setPhone(registerRequest.phone());
-                userProfile.setFullName(registerRequest.firstName() + " " + registerRequest.lastName());
+                userProfile.setFullName(
+                        registerRequest.firstName().trim() + " " + registerRequest.lastName().trim()
+                );
                 userProfile.setStatus(UserStatus.ACTIVE);
-                userProfileRepository.save(userProfile);
+                userProfileRepository.saveAndFlush(userProfile);
 
-                return authMapper.toRegisterResponse(registerRequest,createdUser);
-            }else if (response.getStatus() == HttpStatus.CONFLICT.value()){
-                log.info("Check username or email already exist");
+                createdUserResource.sendVerifyEmail();
+                UserRepresentation createdUser = createdUserResource.toRepresentation();
+                return authMapper.toRegisterResponse(registerRequest, createdUser);
+            } catch (RuntimeException exception) {
+                deleteKeycloakUserAfterFailedRegistration(createdUserResource, createdUserId);
+                throw exception;
             }
         }
-        return null;
+    }
+
+    private void deleteKeycloakUserAfterFailedRegistration(
+            UserResource createdUserResource,
+            String createdUserId
+    ) {
+        try {
+            createdUserResource.remove();
+        } catch (RuntimeException cleanupException) {
+            log.error(
+                    "Failed to remove Keycloak user {} after local registration failed",
+                    createdUserId,
+                    cleanupException
+            );
+        }
     }
 }

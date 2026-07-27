@@ -9,5 +9,6 @@ import lombok.Builder;
 public record ProgramUpdateChangeLogDto(
         UUID id,
         String changeSummary,
+        UUID changedBy,
         LocalDateTime createdAt
 ) {}

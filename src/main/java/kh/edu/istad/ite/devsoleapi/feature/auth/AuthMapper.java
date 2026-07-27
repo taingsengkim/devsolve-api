@@ -15,6 +15,7 @@ public class AuthMapper {
                 .email(userRepresentation.getEmail())
                 .firstName(userRepresentation.getFirstName())
                 .lastName(userRepresentation.getLastName())
+                .accountType(request.accountType())
                 .build();
     }
 }

@@ -1,0 +1,94 @@
+package kh.edu.istad.ite.devsoleapi.feature.organization;
+
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+@Component
+@RequiredArgsConstructor
+public class OrganizationMapper {
+
+    private final WebsiteUrlService websiteUrlService;
+
+    public Organization toOrganization(
+            OrganizationRequest request,
+            UserProfile owner,
+            String slug
+    ) {
+        Organization organization = new Organization();
+        organization.setName(request.companyName().trim());
+        organization.setSlug(slug);
+        organization.setWebsiteUrl(
+                websiteUrlService.normalize(request.companyWebsite())
+        );
+        organization.setOwnerJobTitle(request.jobTitle().trim());
+        organization.setCompanySize(request.companySize());
+        organization.setCountry(request.country().trim());
+        organization.setJoiningReason(request.joiningReason().trim());
+        organization.setIndustry(request.industry());
+        organization.setOwner(owner);
+        return organization;
+    }
+
+    public void updateOrganization(
+            OrganizationUpdateRequest request,
+            Organization organization
+    ) {
+        if (request.name() != null) {
+            organization.setName(request.name().trim());
+        }
+        if (request.logoUrl() != null) {
+            organization.setLogoUrl(trimToNull(request.logoUrl()));
+        }
+        if (request.description() != null) {
+            organization.setDescription(trimToNull(request.description()));
+        }
+        if (request.industry() != null) {
+            organization.setIndustry(request.industry());
+        }
+    }
+
+    public OrganizationResponse toOrganizationResponse(Organization organization) {
+        return new OrganizationResponse(
+                organization.getId(),
+                organization.getOwner().getId(),
+                organization.getName(),
+                organization.getSlug(),
+                websiteUrlService.extractDomain(organization.getWebsiteUrl()),
+                organization.getWebsiteUrl(),
+                organization.getLogoUrl(),
+                organization.getDescription(),
+                organization.getIndustry(),
+                organization.getCompanySize(),
+                organization.getCountry(),
+                organization.getStatus(),
+                organization.getVerifiedAt(),
+                organization.getCreatedAt(),
+                organization.getUpdatedAt()
+        );
+    }
+
+    public MemberResponse toMemberResponse(OrganizationMember member) {
+        return MemberResponse.builder()
+                .userId(member.getUser().getId())
+                .name(member.getUser().getFullName())
+                .email(member.getUser().getEmail())
+                .role(member.getRole())
+                .status(member.getStatus())
+                .invitationPending(member.isInvitationPending())
+                .joinedAt(member.getJoinedAt())
+                .build();
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+}

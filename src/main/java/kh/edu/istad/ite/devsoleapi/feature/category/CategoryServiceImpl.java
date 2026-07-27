@@ -25,7 +25,6 @@ public class CategoryServiceImpl implements CategoryService {
     @Transactional
     public CategoryResponse createCategory(CategoryRequest request) {
 
-
         if (!AuthUtils.hasRole("ADMIN")) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can create categories");
         }
@@ -33,15 +32,16 @@ public class CategoryServiceImpl implements CategoryService {
         String baseSlug = slugify(request.name());
         String uniqueSlug = generateUniqueSlug(baseSlug);
 
-        Category category = Category.builder()
-                .name(request.name())
-                .slug(uniqueSlug)
-                .description(request.description())
-                .iconUrl(request.iconUrl())
-                .sortOrder(request.sortOrder())
-                .isActive(request.isActive() != null ? request.isActive() : true)
-                .build();
+        Category category = new Category();
+        category.setName(request.name());
+        category.setSlug(uniqueSlug);
+        category.setDescription(request.description());
+        category.setIconUrl(request.iconUrl());
+        category.setSortOrder(request.sortOrder());
 
+        if (request.isActive() != null) {
+            category.setIsActive(request.isActive());
+        }
         Category saved = categoryRepository.save(category);
         return mapToResponse(saved);
     }
@@ -91,7 +91,6 @@ public class CategoryServiceImpl implements CategoryService {
         categoryRepository.deleteById(id);
     }
 
-    // --- Private Helper Methods ---
 
     private CategoryResponse mapToResponse(Category category) {
         return new CategoryResponse(
@@ -128,34 +127,23 @@ public class CategoryServiceImpl implements CategoryService {
     @Override
     @Transactional
     public CategoryResponse partialUpdateCategory(UUID id, CategoryPatchRequest request) {
-
-
         if (!AuthUtils.hasRole("ADMIN")) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can update categories");
         }
-
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with this uuid"));
 
-        // Only update fields that are actually sent (not null)
         if (request.name() != null) {
             category.setName(request.name());
-            // Optional: Auto-update slug when name changes via PATCH
-            // String newSlug = generateUniqueSlug(slugify(request.name()));
-            // category.setSlug(newSlug);
         }
 
 
         if (request.slug() != null) {
-            // 1. Clean the slug (lowercase, spaces → hyphens, remove special chars)
             String cleanSlug = slugify(request.slug());
-
-            // 2. Check if this CLEAN slug is already used by another category
             if (categoryRepository.existsBySlugAndIdNot(cleanSlug, id)) {
                 throw new RuntimeException("Slug '" + cleanSlug + "' is already taken!");
             }
 
-            // 3. Set the cleaned slug
             category.setSlug(cleanSlug);
         }
 
