@@ -6,13 +6,17 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
-import java.util.UUID;@Entity
+import java.util.UUID;
+
+@Entity
 @Table(
         name = "categories",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_categories_scope_slug",
-                columnNames = { "slug"}
+                columnNames = {"scope", "slug"}
         )
 )
 @Getter
@@ -31,8 +35,13 @@ public class Category extends BasedEntity {
 
     @NotBlank
     @Size(max = 50)
-    @Column(nullable = false, unique = true, length = 50)
+    @Column(nullable = false, length = 50)
     private String slug;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "category_scope_enum")
+    private CategoryScope scope;
 
     @Size(max = 255)
     private String description;

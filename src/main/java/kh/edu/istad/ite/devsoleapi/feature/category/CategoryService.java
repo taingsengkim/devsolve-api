@@ -12,13 +12,13 @@ public interface CategoryService {
 
     CategoryResponse createCategory(CategoryRequest request);
 
-    List<CategoryResponse> getAllCategories();
+    List<CategoryResponse> getAllCategories(CategoryScope scope);
 
-    List<CategoryResponse> getActiveCategoriesSorted();
+    List<CategoryResponse> getActiveCategoriesSorted(CategoryScope scope);
 
     CategoryResponse getCategoryById(UUID id);
 
-    CategoryResponse getCategoryBySlug(String slug);
+    CategoryResponse getCategoryBySlug(String slug, CategoryScope scope);
 
 //    CategoryResponse updateCategory(Long id, CategoryPatchRequest request);
 

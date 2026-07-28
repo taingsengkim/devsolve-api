@@ -30,11 +30,12 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
         String baseSlug = slugify(request.name());
-        String uniqueSlug = generateUniqueSlug(baseSlug);
+        String uniqueSlug = generateUniqueSlug(baseSlug, request.scope());
 
         Category category = new Category();
         category.setName(request.name());
         category.setSlug(uniqueSlug);
+        category.setScope(request.scope());
         category.setDescription(request.description());
         category.setIconUrl(request.iconUrl());
         category.setSortOrder(request.sortOrder());
@@ -47,16 +48,25 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    public List<CategoryResponse> getAllCategories() {
-        return categoryRepository.findAll()
+    public List<CategoryResponse> getAllCategories(CategoryScope scope) {
+        List<Category> categories = scope == null
+                ? categoryRepository.findAll()
+                : categoryRepository.findAllByScope(scope);
+        return categories
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
 
     @Override
-    public List<CategoryResponse> getActiveCategoriesSorted() {
-        return categoryRepository.findByIsActiveTrueOrderBySortOrderAsc()
+    public List<CategoryResponse> getActiveCategoriesSorted(
+            CategoryScope scope
+    ) {
+        List<Category> categories = scope == null
+                ? categoryRepository.findByIsActiveTrueOrderBySortOrderAsc()
+                : categoryRepository
+                .findByScopeAndIsActiveTrueOrderBySortOrderAsc(scope);
+        return categories
                 .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
@@ -70,9 +80,31 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    public CategoryResponse getCategoryBySlug(String slug) {
-        Category category = categoryRepository.findBySlug(slug)
-                .orElseThrow(() -> new ResourceNotFoundException("Category not found with this slug"));
+    public CategoryResponse getCategoryBySlug(
+            String slug,
+            CategoryScope scope
+    ) {
+        if (scope == null) {
+            List<Category> matches = categoryRepository.findAllBySlug(slug);
+            if (matches.size() > 1) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Category scope is required because this slug exists "
+                                + "in multiple scopes"
+                );
+            }
+            Category category = matches.stream()
+                    .findFirst()
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Category not found with this slug"
+                    ));
+            return mapToResponse(category);
+        }
+        Category category = categoryRepository
+                .findByScopeAndSlug(scope, slug)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Category not found with this slug and scope"
+                ));
         return mapToResponse(category);
     }
 
@@ -97,6 +129,7 @@ public class CategoryServiceImpl implements CategoryService {
                 category.getId(),
                 category.getName(),
                 category.getSlug(),
+                category.getScope(),
                 category.getDescription(),
                 category.getIconUrl(),
                 category.getSortOrder(),
@@ -115,10 +148,13 @@ public class CategoryServiceImpl implements CategoryService {
                 .trim();
     }
 
-    private String generateUniqueSlug(String baseSlug) {
+    private String generateUniqueSlug(
+            String baseSlug,
+            CategoryScope scope
+    ) {
         String slug = baseSlug;
         int counter = 1;
-        while (categoryRepository.existsBySlug(slug)) {
+        while (categoryRepository.existsByScopeAndSlug(scope, slug)) {
             slug = baseSlug + "-" + counter++;
         }
         return slug;
@@ -138,13 +174,28 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
 
-        if (request.slug() != null) {
-            String cleanSlug = slugify(request.slug());
-            if (categoryRepository.existsBySlugAndIdNot(cleanSlug, id)) {
-                throw new RuntimeException("Slug '" + cleanSlug + "' is already taken!");
-            }
+        String effectiveSlug = request.slug() == null
+                ? category.getSlug()
+                : slugify(request.slug());
+        CategoryScope effectiveScope = request.scope() == null
+                ? category.getScope()
+                : request.scope();
+        if (categoryRepository.existsByScopeAndSlugAndIdNot(
+                effectiveScope,
+                effectiveSlug,
+                id
+        )) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Slug '" + effectiveSlug + "' is already used in this scope"
+            );
+        }
 
-            category.setSlug(cleanSlug);
+        if (request.slug() != null) {
+            category.setSlug(effectiveSlug);
+        }
+        if (request.scope() != null) {
+            category.setScope(request.scope());
         }
 
 
