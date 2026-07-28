@@ -7,7 +7,6 @@ import org.springframework.data.domain.Page;
 import java.util.UUID;
 
 public interface ContentFlagService {
-
     FlagResponse createFlag(
             CreateFlagRequest request
     );
@@ -17,6 +16,8 @@ public interface ContentFlagService {
             int pageSize
     );
 
-    FlagResponse dismissFlag(UUID id);
+    FlagResponse dismissFlag(
+            UUID id
+    );
 
 }

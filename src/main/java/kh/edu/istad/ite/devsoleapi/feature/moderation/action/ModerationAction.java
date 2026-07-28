@@ -7,7 +7,6 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.tool.schema.TargetType;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -21,11 +20,18 @@ public class ModerationAction extends BasedEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    @Column(name = "id", updatable = false, nullable = false)
+    @Column(
+            name = "id",
+            nullable = false,
+            updatable = false
+    )
     private UUID id;
 
     @ManyToOne(optional = false)
-    @JoinColumn(name = "admin_id", nullable = false)
+    @JoinColumn(
+            name = "admin_id",
+            nullable = false
+    )
     private UserProfile admin;
 
     @Enumerated(EnumType.STRING)
@@ -34,7 +40,7 @@ public class ModerationAction extends BasedEntity {
             nullable = false,
             length = 20
     )
-    private TargetType targetType;
+    private ModerationTargetType targetType;
 
     @Column(
             name = "target_id",
@@ -45,13 +51,31 @@ public class ModerationAction extends BasedEntity {
     @Enumerated(EnumType.STRING)
     @Column(
             name = "action",
-            nullable = false
+            nullable = false,
+            length = 20
     )
     private ModerationActionType action;
 
-    @Column(name = "reason", columnDefinition = "TEXT")
+    @Column(
+            name = "reason",
+            columnDefinition = "TEXT"
+    )
     private String reason;
 
     @Column(name = "expires_at")
     private LocalDateTime expiresAt;
+
+    @Column(
+            name = "created_at",
+            nullable = false,
+            updatable = false
+    )
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    public void prePersist() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+    }
 }

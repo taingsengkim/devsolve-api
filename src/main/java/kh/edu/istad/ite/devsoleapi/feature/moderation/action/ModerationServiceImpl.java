@@ -1,11 +1,15 @@
 package kh.edu.istad.ite.devsoleapi.feature.moderation.action;
 
+import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.action.dto.CreateModerationActionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.action.dto.ModerationActionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
 import lombok.RequiredArgsConstructor;
+import org.keycloak.admin.client.Keycloak;
+import org.keycloak.representations.idm.RoleRepresentation;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -20,69 +24,199 @@ public class ModerationServiceImpl implements ModerationService{
     private final UserProfileRepository userProfileRepository;
     private final ModerationActionMapper moderationActionMapper;
 
-    @Override
-    public ModerationActionResponse createModerationAction(UUID targetUserId, ModerationActionResponse moderationActionResponse) {
-//        // 1. Allow ADMIN only
-//        if (!AuthUtils.hasRole("ADMIN")) {
-//            throw new ResponseStatusException(
-//                    HttpStatus.FORBIDDEN,
-//                    "Only ADMIN can perform moderation actions"
-//            );
-//        }
+    private final Keycloak keycloak;
+    private final KeycloakAdminProps keycloakAdminProps;
 
-//        // 2. Extract logged-in admin ID
-//        UUID adminId = extractCurrentUserId();
-//
-//        // 3. Prevent admin from moderating their own account
-//        if (adminId.equals(targetUserId)) {
-//            throw new ResponseStatusException(
-//                    HttpStatus.BAD_REQUEST,
-//                    "You cannot perform a moderation action on your own account"
-//            );
-//        }
-//
-//        // 4. Find admin profile
-//        UserProfile admin = userProfileRepository.findById(adminId)
-//                .orElseThrow(() -> new ResponseStatusException(
-//                        HttpStatus.NOT_FOUND,
-//                        "Admin profile not found"
-//                ));
-//
-//        // 5. Find target user profile
-//        UserProfile targetUser = userProfileRepository.findById(targetUserId)
-//                .orElseThrow(() -> new ResponseStatusException(
-//                        HttpStatus.NOT_FOUND,
-//                        "Target user profile not found"
-//                ));
-//
-//        // 6. Validate action request
-//        validateRequest(request);
-//
-//        // 7. Apply action to target user
-//        applyUserAction(targetUser, request);
-//
-//        // 8. Save the changed user status
-//        userProfileRepository.save(targetUser);
-//
-//        // 9. Create moderation action audit record
-//        ModerationAction moderationAction =
-//                moderationActionMapper
-//                        .mapCreateModerationActionRequestToModerationAction(
-//                                request
-//                        );
-//
-//        moderationAction.setAdmin(admin);
-//        moderationAction.setTargetType(ModerationTargetType.USER);
-//        moderationAction.setTargetId(targetUserId);
-//
-//        ModerationAction savedAction =
-//                moderationActionRepository.save(moderationAction);
-//
-//        // 10. Map entity to response
-//        return moderationActionMapper
-//                .mapModerationActionToModerationActionResponse(
-//                        savedAction
-//                );
-        return null;
+
+    @Override
+    public ModerationActionResponse createModerationAction(
+            UUID targetUserId,
+            CreateModerationActionRequest request
+    ) {
+        // Only ADMIN can perform moderation actions
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can perform moderation actions"
+            );
+        }
+
+        UUID adminId = extractCurrentUserId();
+
+        // Admin cannot moderate their own account
+        if (adminId.equals(targetUserId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "You cannot moderate your own account"
+            );
+        }
+
+        UserProfile admin = userProfileRepository.findById(adminId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Admin profile not found"
+                ));
+
+        UserProfile targetUser = userProfileRepository
+                .findById(targetUserId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Target user profile not found"
+                ));
+
+        // Admin cannot moderate another ADMIN
+        if (targetUserHasAdminRole(targetUserId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "An ADMIN cannot moderate another ADMIN"
+            );
+        }
+
+        validateRequest(request);
+
+        applyUserAction(targetUser, request);
+
+        /*
+         * WARN does not change the status.
+         * SUSPEND, REMOVE and BAN change the status.
+         */
+        if (request.action() != ModerationActionType.WARN) {
+            userProfileRepository.save(targetUser);
+        }
+
+        ModerationAction moderationAction =
+                moderationActionMapper
+                        .mapCreateModerationActionRequestToModerationAction(
+                                request
+                        );
+
+        moderationAction.setAdmin(admin);
+        moderationAction.setTargetType(ModerationTargetType.USER);
+        moderationAction.setTargetId(targetUserId);
+
+        ModerationAction savedAction =
+                moderationActionRepository.save(moderationAction);
+
+        return moderationActionMapper
+                .mapModerationActionToModerationActionResponse(
+                        savedAction
+                );
+    }
+
+    private UUID extractCurrentUserId() {
+        try {
+            return UUID.fromString(
+                    AuthUtils.extractUserId()
+            );
+
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authenticated user ID is not a valid UUID",
+                    exception
+            );
+        }
+    }
+
+    private boolean targetUserHasAdminRole(
+            UUID targetUserId
+    ) {
+        try {
+            return keycloak
+                    .realm(keycloakAdminProps.getTargetRealm())
+                    .users()
+                    .get(targetUserId.toString())
+                    .roles()
+                    .realmLevel()
+                    .listAll()
+                    .stream()
+                    .map(RoleRepresentation::getName)
+                    .anyMatch(roleName ->
+                            roleName.equalsIgnoreCase("ADMIN")
+                    );
+
+        } catch (Exception exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Unable to verify target user's Keycloak roles",
+                    exception
+            );
+        }
+    }
+
+    private void validateRequest(
+            CreateModerationActionRequest request
+    ) {
+
+        if (request.action() == ModerationActionType.SUSPEND
+                && request.expiresAt() == null) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Expiration date is required for suspension"
+            );
+        }
+
+        if (request.action() != ModerationActionType.SUSPEND
+                && request.expiresAt() != null) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Expiration date is only allowed for suspension"
+            );
+        }
+    }
+
+    private void applyUserAction(
+            UserProfile targetUser,
+            CreateModerationActionRequest request
+    ) {
+
+        switch (request.action()) {
+
+            case WARN -> {
+                // Only save warning history in moderation_actions.
+            }
+
+            case SUSPEND -> suspendUser(targetUser);
+
+            case REMOVE, BAN -> removeUser(targetUser);
+        }
+    }
+
+    private void suspendUser(
+            UserProfile targetUser
+    ) {
+
+        if (targetUser.getStatus() == UserStatus.REMOVED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "A removed user cannot be suspended"
+            );
+        }
+
+        if (targetUser.getStatus() == UserStatus.SUSPENDED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "User account is already suspended"
+            );
+        }
+
+        targetUser.setStatus(UserStatus.SUSPENDED);
+    }
+
+    private void removeUser(
+            UserProfile targetUser
+    ) {
+
+        if (targetUser.getStatus() == UserStatus.REMOVED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "User account has already been removed"
+            );
+        }
+
+        targetUser.setStatus(UserStatus.REMOVED);
     }
 }
+

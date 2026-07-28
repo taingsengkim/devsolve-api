@@ -19,21 +19,10 @@ public abstract class ContentFlagMapper {
             CreateFlagRequest request
     );
 
-    @Mapping(
-            target = "reporterId",
-            source = "reporter.id"
-    )
-    @Mapping(
-            target = "reporterName",
-            source = "reporter.fullName"
-    )
-    @Mapping(
-            target = "reviewedBy",
-            source = "reviewedBy.id"
-    )
-    public abstract FlagResponse mapContentFlagToCreateFlagResponse(
+    @Mapping(target = "reporterId", source = "reporter.id")
+    @Mapping(target = "reporterName", source = "reporter.fullName")
+    @Mapping(target = "reviewedBy", source = "reviewedBy.id")
+    public abstract FlagResponse mapContentFlagToFlagResponse(
             ContentFlag flag
     );
-
-
 }

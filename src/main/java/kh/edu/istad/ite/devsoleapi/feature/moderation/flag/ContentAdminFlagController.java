@@ -11,27 +11,24 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/admin/flags")
 public class ContentAdminFlagController {
-    private final ContentFlagService service;
 
-    @GetMapping("/admin/flags")
+    private final ContentFlagService contentFlagService;
+
+    @GetMapping
     public Page<FlagResponse> getAdminFlags(
-
-            @RequestParam(defaultValue = "0")
-            int pageNumber,
-
-            @RequestParam(defaultValue = "10")
-            int pageSize
+            @RequestParam(defaultValue = "0") int pageNumber,
+            @RequestParam(defaultValue = "20") int pageSize
     ) {
-        return service.getAdminFlags(
+        return contentFlagService.getAdminFlags(
                 pageNumber,
                 pageSize
         );
     }
 
-    @PatchMapping("/admin/flags/{id}/dismiss")
+    @PatchMapping("/{id}/dismiss")
     public FlagResponse dismissFlag(
             @PathVariable UUID id
     ) {
-        return service.dismissFlag(id);
+        return contentFlagService.dismissFlag(id);
     }
 }

@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 
+import org.springframework.transaction.annotation.Transactional;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
@@ -24,21 +25,20 @@ public class ContentFlagServiceImpl implements ContentFlagService{
     private final ContentFlagRepository contentFlagRepository;
     private final ContentFlagMapper contentFlagMapper;
 
-
     @Override
-    public FlagResponse createFlag(CreateFlagRequest request) {
+    @Transactional
+    public FlagResponse createFlag(
+            CreateFlagRequest request
+    ) {
 
-        UUID userId = UUID.fromString(
-                AuthUtils.extractUserId()
-        );
+        UUID userId = extractCurrentUserId();
 
-        UserProfile reporter = userProfileRepository.findById(userId)
-                .orElseThrow(() ->
-                        new ResponseStatusException(
-                                HttpStatus.NOT_FOUND,
-                                "User profile has not been found"
-                        )
-                );
+        UserProfile reporter = userProfileRepository
+                .findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "User profile has not been found"
+                ));
 
         boolean alreadyReported =
                 contentFlagRepository
@@ -46,7 +46,7 @@ public class ContentFlagServiceImpl implements ContentFlagService{
                                 userId,
                                 request.flaggableType(),
                                 request.flaggableId()
-                        );;
+                        );
 
         if (alreadyReported) {
             throw new ResponseStatusException(
@@ -55,20 +55,119 @@ public class ContentFlagServiceImpl implements ContentFlagService{
             );
         }
 
-        ContentFlag flag = contentFlagMapper.mapCreateFlagRequestToContentFlag(request);
+        ContentFlag flag =
+                contentFlagMapper
+                        .mapCreateFlagRequestToContentFlag(request);
 
         flag.setReporter(reporter);
         flag.setStatus(FlagStatus.PENDING);
 
-        ContentFlag savedFlag = contentFlagRepository.save(flag);
+        ContentFlag savedFlag =
+                contentFlagRepository.save(flag);
 
-        return contentFlagMapper.mapContentFlagToCreateFlagResponse(savedFlag);
+        return contentFlagMapper
+                .mapContentFlagToFlagResponse(savedFlag);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public Page<FlagResponse> getAdminFlags(
             int pageNumber,
-            int pageSize) {
+            int pageSize
+    ) {
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can view flags"
+            );
+        }
+
+        validatePagination(pageNumber, pageSize);
+
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(
+                        Sort.Direction.DESC,
+                        "createdAt"
+                )
+        );
+
+        return contentFlagRepository
+                .findByStatus(
+                        FlagStatus.PENDING,
+                        pageable
+                )
+                .map(contentFlagMapper::mapContentFlagToFlagResponse);
+    }
+
+    @Override
+    @Transactional
+    public FlagResponse dismissFlag(
+            UUID id
+    ) {
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can dismiss flags"
+            );
+        }
+
+        UUID adminId = extractCurrentUserId();
+
+        ContentFlag flag = contentFlagRepository
+                .findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Flag not found"
+                ));
+
+        if (flag.getStatus() != FlagStatus.PENDING) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Flag has already been reviewed"
+            );
+        }
+
+        UserProfile admin = userProfileRepository
+                .findById(adminId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Admin profile not found"
+                ));
+
+        flag.setStatus(FlagStatus.DISMISSED);
+        flag.setReviewedBy(admin);
+        flag.setReviewedAt(LocalDateTime.now());
+
+        ContentFlag savedFlag =
+                contentFlagRepository.save(flag);
+
+        return contentFlagMapper
+                .mapContentFlagToFlagResponse(savedFlag);
+    }
+
+    private UUID extractCurrentUserId() {
+        try {
+            return UUID.fromString(
+                    AuthUtils.extractUserId()
+            );
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authenticated user ID is not a valid UUID",
+                    exception
+            );
+        }
+    }
+
+    private void validatePagination(
+            int pageNumber,
+            int pageSize
+    ) {
+
         if (pageNumber < 0) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -83,54 +182,12 @@ public class ContentFlagServiceImpl implements ContentFlagService{
             );
         }
 
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(Sort.Direction.ASC, "createdAt")
-        );
-
-        return contentFlagRepository
-                .findByStatus(FlagStatus.PENDING, pageable)
-                .map(contentFlagMapper::mapContentFlagToCreateFlagResponse);
-    }
-
-    @Override
-    public FlagResponse dismissFlag(UUID id) {
-
-        if (!AuthUtils.hasRole("ADMIN")) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only ADMIN can dismiss flags"
-            );
-        }
-
-        UUID adminId = UUID.fromString(AuthUtils.extractUserId());
-
-        ContentFlag flag = contentFlagRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Flag not found"
-                ));
-
-        UserProfile admin = userProfileRepository.findById(adminId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Admin profile not found"
-                ));
-
-        if (flag.getStatus() != FlagStatus.PENDING) {
+        if (pageSize > 100) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Flag has already been reviewed"
+                    "Page size must not exceed 100"
             );
         }
-
-        flag.setStatus(FlagStatus.DISMISSED);
-        flag.setReviewedBy(admin);
-        flag.setReviewedAt(LocalDateTime.now());
-
-        ContentFlag savedFlag = contentFlagRepository.save(flag);
-
-        return contentFlagMapper.mapContentFlagToCreateFlagResponse(savedFlag);
     }
+
 }
