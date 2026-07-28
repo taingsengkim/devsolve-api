@@ -50,8 +50,7 @@ public class OrganizationMember extends BasedEntity {
     @Column(
             name = "role",
             nullable = false,
-            length = 20,
-            columnDefinition = "VARCHAR(20) DEFAULT 'member'"
+            length = 20
     )
     private OrgRole role = OrgRole.MEMBER;
 
