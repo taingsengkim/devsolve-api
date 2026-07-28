@@ -1,7 +1,10 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem.enums;
 
 public enum ProblemStatus {
-    pending_approval,
-    published,
-    closed
+    DRAFT,
+    PENDING_APPROVAL,
+    PUBLISHED,
+    RESOLVED,
+    CLOSED,
+    REJECTED
 }

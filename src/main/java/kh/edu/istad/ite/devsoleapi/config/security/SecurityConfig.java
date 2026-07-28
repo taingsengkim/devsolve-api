@@ -48,6 +48,10 @@ public class SecurityConfig {
 
                 .requestMatchers(
                         HttpMethod.GET,
+                        "/api/v1/problems/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
                         "/api/v1/categories/**"
                 ).permitAll()
                 .requestMatchers(
@@ -62,6 +66,22 @@ public class SecurityConfig {
                         HttpMethod.PATCH,
                         "/api/v1/categories/**"
                 ).hasRole("ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/problems",
+                        "/api/v1/problems/*",
+                        "/api/v1/problems/*/attachments/*/download"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/v1/problems/*/views"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/admin/problems",
+                        "/api/v1/admin/problems/**"
+                ).hasRole("ADMIN")
+                .requestMatchers("/api/v1/problems/**").authenticated()
 
                 .requestMatchers(
                         HttpMethod.GET,

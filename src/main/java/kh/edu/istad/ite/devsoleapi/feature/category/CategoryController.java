@@ -27,13 +27,19 @@ public class CategoryController {
     }
 
     @GetMapping
-    public ResponseEntity<List<CategoryResponse>> getAllCategories() {
-        return ResponseEntity.ok(categoryService.getAllCategories());
+    public ResponseEntity<List<CategoryResponse>> getAllCategories(
+            @RequestParam(required = false) CategoryScope scope
+    ) {
+        return ResponseEntity.ok(categoryService.getAllCategories(scope));
     }
 
     @GetMapping("/active")
-    public ResponseEntity<List<CategoryResponse>> getActiveCategories() {
-        return ResponseEntity.ok(categoryService.getActiveCategoriesSorted());
+    public ResponseEntity<List<CategoryResponse>> getActiveCategories(
+            @RequestParam(required = false) CategoryScope scope
+    ) {
+        return ResponseEntity.ok(
+                categoryService.getActiveCategoriesSorted(scope)
+        );
     }
 
     @GetMapping("/{id}")
@@ -42,8 +48,13 @@ public class CategoryController {
     }
 
     @GetMapping("/slug/{slug}")
-    public ResponseEntity<CategoryResponse> getCategoryBySlug(@PathVariable String slug) {
-        return ResponseEntity.ok(categoryService.getCategoryBySlug(slug));
+    public ResponseEntity<CategoryResponse> getCategoryBySlug(
+            @PathVariable String slug,
+            @RequestParam(required = false) CategoryScope scope
+    ) {
+        return ResponseEntity.ok(
+                categoryService.getCategoryBySlug(slug, scope)
+        );
     }
 
 //    @PutMapping("/{id}")

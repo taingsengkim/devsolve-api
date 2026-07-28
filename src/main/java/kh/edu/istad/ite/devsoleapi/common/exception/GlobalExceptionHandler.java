@@ -7,6 +7,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -78,6 +79,18 @@ public class GlobalExceptionHandler {
                 status,
                 "Request validation failed",
                 violations
+        ));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<RestErrorResponse> handleMaxUploadSize(
+            MaxUploadSizeExceededException exception
+    ) {
+        HttpStatus status = HttpStatus.CONTENT_TOO_LARGE;
+        return ResponseEntity.status(status).body(buildError(
+                status,
+                "Attachment cannot exceed 10 MiB",
+                null
         ));
     }
 
