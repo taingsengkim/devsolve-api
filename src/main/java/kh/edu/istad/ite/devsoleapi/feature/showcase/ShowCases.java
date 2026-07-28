@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStep;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
@@ -18,7 +19,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @Entity
 @Table(name = "showcases")
-public class ShowCases {
+public class ShowCases extends BasedEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

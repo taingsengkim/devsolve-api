@@ -1,0 +1,136 @@
+package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
+
+import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+@Service
+@RequiredArgsConstructor
+
+public class ContentFlagServiceImpl implements ContentFlagService{
+    private final UserProfileRepository userProfileRepository;
+    private final ContentFlagRepository contentFlagRepository;
+    private final ContentFlagMapper contentFlagMapper;
+
+
+    @Override
+    public FlagResponse createFlag(CreateFlagRequest request) {
+
+        UUID userId = UUID.fromString(
+                AuthUtils.extractUserId()
+        );
+
+        UserProfile reporter = userProfileRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "User profile has not been found"
+                        )
+                );
+
+        boolean alreadyReported =
+                contentFlagRepository
+                        .existsByReporter_IdAndFlaggableTypeAndFlaggableId(
+                                userId,
+                                request.flaggableType(),
+                                request.flaggableId()
+                        );;
+
+        if (alreadyReported) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "You have already reported this content"
+            );
+        }
+
+        ContentFlag flag = contentFlagMapper.mapCreateFlagRequestToContentFlag(request);
+
+        flag.setReporter(reporter);
+        flag.setStatus(FlagStatus.PENDING);
+
+        ContentFlag savedFlag = contentFlagRepository.save(flag);
+
+        return contentFlagMapper.mapContentFlagToCreateFlagResponse(savedFlag);
+    }
+
+    @Override
+    public Page<FlagResponse> getAdminFlags(
+            int pageNumber,
+            int pageSize) {
+        if (pageNumber < 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page number must be greater than or equal to 0"
+            );
+        }
+
+        if (pageSize < 1) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page size must be greater than 0"
+            );
+        }
+
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.ASC, "createdAt")
+        );
+
+        return contentFlagRepository
+                .findByStatus(FlagStatus.PENDING, pageable)
+                .map(contentFlagMapper::mapContentFlagToCreateFlagResponse);
+    }
+
+    @Override
+    public FlagResponse dismissFlag(UUID id) {
+
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can dismiss flags"
+            );
+        }
+
+        UUID adminId = UUID.fromString(AuthUtils.extractUserId());
+
+        ContentFlag flag = contentFlagRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Flag not found"
+                ));
+
+        UserProfile admin = userProfileRepository.findById(adminId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Admin profile not found"
+                ));
+
+        if (flag.getStatus() != FlagStatus.PENDING) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Flag has already been reviewed"
+            );
+        }
+
+        flag.setStatus(FlagStatus.DISMISSED);
+        flag.setReviewedBy(admin);
+        flag.setReviewedAt(LocalDateTime.now());
+
+        ContentFlag savedFlag = contentFlagRepository.save(flag);
+
+        return contentFlagMapper.mapContentFlagToCreateFlagResponse(savedFlag);
+    }
+}
