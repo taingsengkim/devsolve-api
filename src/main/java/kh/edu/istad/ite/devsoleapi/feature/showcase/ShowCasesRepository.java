@@ -16,25 +16,31 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
     );
 
     Page<ShowCases> findByAuthor_IdAndReviewStatusAndDeletedAtIsNull(
-            String authorId,
+            UUID authorId,
             ReviewStatus reviewStatus,
             Pageable pageable
     );
 
-    Optional<ShowCases> findByIdAndDeletedAtIsNull(UUID id);
+    Optional<ShowCases> findByIdAndDeletedAtIsNull(
+            UUID id
+    );
 
     boolean existsByAuthor_IdAndTitleAndDeletedAtIsNull(
-            String authorId,
+            UUID authorId,
             String title
     );
 
     boolean existsByAuthor_IdAndTitleAndIdNotAndDeletedAtIsNull(
-            String authorId,
+            UUID authorId,
             String title,
             UUID id
     );
 
-    boolean existsByRepoUrl(String repoUrl);
+    boolean existsByRepoUrl(
+            String repoUrl
+    );
 
-    boolean existsByLiveUrl(String liveUrl);
+    boolean existsByLiveUrl(
+            String liveUrl
+    );
 }

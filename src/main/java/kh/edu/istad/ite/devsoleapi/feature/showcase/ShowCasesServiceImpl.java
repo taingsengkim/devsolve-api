@@ -69,63 +69,84 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     public ShowCasesResponse create(CreateShowCasesRequest request) {
-        String authorId = AuthUtils.extractUserId();
+        UUID authorId = UUID.fromString(
+                AuthUtils.extractUserId()
+        );
 
         UserProfile author = userProfileRepository
-                .findById(UUID.fromString(authorId))
+                .findById(authorId)
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.NOT_FOUND,
-                                "User not found."));
+                                "User not found."
+                        )
+                );
 
-        Category category =
-                categoryRepository.findById(request.categoryId())
-                        .orElseThrow(() ->
-                                new ResponseStatusException(
-                                        HttpStatus.NOT_FOUND,
-                                        "Category not found."));
+        Category category = categoryRepository
+                .findById(request.categoryId())
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Category not found."
+                        )
+                );
 
-        if (showCaseRepository.existsByAuthor_IdAndTitleAndDeletedAtIsNull(
-                authorId,
-                request.title())) {
-
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "You already have a showcase with this title.");
-        }
-
-        if (request.repoUrl() != null &&
-                showCaseRepository.existsByRepoUrl(request.repoUrl())) {
+        if (showCaseRepository
+                .existsByAuthor_IdAndTitleAndDeletedAtIsNull(
+                        authorId,
+                        request.title()
+                )) {
 
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Repository URL already exists.");
+                    "You already have a showcase with this title."
+            );
         }
 
-        if (request.liveUrl() != null &&
-                showCaseRepository.existsByLiveUrl(request.liveUrl())) {
+        if (request.repoUrl() != null
+                && showCaseRepository.existsByRepoUrl(
+                request.repoUrl()
+        )) {
 
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Live URL already exists.");
+                    "Repository URL already exists."
+            );
         }
 
-        ShowCases showCase = showCasesMapper.mapCreateShowCaseRequestToShowCase(request);
+        if (request.liveUrl() != null
+                && showCaseRepository.existsByLiveUrl(
+                request.liveUrl()
+        )) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Live URL already exists."
+            );
+        }
+
+        ShowCases showCase =
+                showCasesMapper
+                        .mapCreateShowCaseRequestToShowCase(request);
 
         showCase.setAuthor(author);
         showCase.setCategory(category);
-
         showCase.setReviewStatus(ReviewStatus.PENDING);
         showCase.setViewCount(0);
 
-        ShowCases saved = showCaseRepository.save(showCase);
+        ShowCases saved =
+                showCaseRepository.save(showCase);
 
-        return showCasesMapper.mapShowCaseToShowCaseResponse(saved);
+        return showCasesMapper
+                .mapShowCaseToShowCaseResponse(saved);
     }
 
     @Override
     public ShowCasesResponse update(UUID showcaseId, UpdateShowCasesRequest request) {
-        String authorId = AuthUtils.extractUserId();
+
+        UUID authorId = UUID.fromString(
+                AuthUtils.extractUserId()
+        );
 
         ShowCases showCase = showCaseRepository
                 .findByIdAndDeletedAtIsNull(showcaseId)
@@ -136,7 +157,6 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                         )
                 );
 
-        // Check ownership
         if (!showCase.getAuthor().getId().equals(authorId)) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
@@ -144,7 +164,6 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
-        // Update category
         if (request.categoryId() != null) {
 
             Category category = categoryRepository
@@ -159,14 +178,13 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             showCase.setCategory(category);
         }
 
-        // Check duplicate title
-        if (request.title() != null &&
-                showCaseRepository
-                        .existsByAuthor_IdAndTitleAndIdNotAndDeletedAtIsNull(
-                                authorId,
-                                request.title(),
-                                showcaseId
-                        )) {
+        if (request.title() != null
+                && showCaseRepository
+                .existsByAuthor_IdAndTitleAndIdNotAndDeletedAtIsNull(
+                        authorId,
+                        request.title(),
+                        showcaseId
+                )) {
 
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -174,7 +192,6 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
-        // Update fields
         if (request.title() != null) {
             showCase.setTitle(request.title());
         }
@@ -199,36 +216,38 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             showCase.setVideoUrl(request.videoUrl());
         }
 
-        /*
-         * When author edits the showcase,
-         * it must be reviewed again by admin.
-         */
         showCase.setReviewStatus(ReviewStatus.PENDING);
-
         showCase.setReviewedBy(null);
         showCase.setReviewedAt(null);
         showCase.setRejectionReason(null);
 
-        ShowCases saved = showCaseRepository.save(showCase);
+        ShowCases saved =
+                showCaseRepository.save(showCase);
 
-        return showCasesMapper.mapShowCaseToShowCaseResponse(saved);
+        return showCasesMapper
+                .mapShowCaseToShowCaseResponse(saved);
     }
 
     @Override
     public void softDelete(UUID showcaseId) {
-        String authorId = AuthUtils.extractUserId();
+        UUID authorId = UUID.fromString(
+                AuthUtils.extractUserId()
+        );
 
         ShowCases showCase = showCaseRepository
                 .findByIdAndDeletedAtIsNull(showcaseId)
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.NOT_FOUND,
-                                "Showcase not found."));
+                                "Showcase not found."
+                        )
+                );
 
         if (!showCase.getAuthor().getId().equals(authorId)) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "You can only delete your own showcase.");
+                    "You can only delete your own showcase."
+            );
         }
 
         showCase.setDeletedAt(LocalDateTime.now());
@@ -238,20 +257,26 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     public void hardDelete(UUID showcaseId) {
-        String authorId = AuthUtils.extractUserId();
+        UUID authorId = UUID.fromString(
+                AuthUtils.extractUserId()
+        );
 
         ShowCases showCase = showCaseRepository
                 .findById(showcaseId)
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.NOT_FOUND,
-                                "Showcase not found."));
+                                "Showcase not found."
+                        )
+                );
 
         if (!showCase.getAuthor().getId().equals(authorId)) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "You can only delete your own showcase.");
+                    "You can only delete your own showcase."
+            );
         }
+
         showCaseRepository.delete(showCase);
     }
 
