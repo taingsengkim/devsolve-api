@@ -51,7 +51,7 @@ public class ReportServiceImpl implements ReportService {
 
     private static final String ADMIN_ROLE = "ADMIN";
     private static final String COMPANY_ROLE = "COMPANY";
-    private static final String HACKER_ROLE = "HACKER";
+    private static final String USER_ROLE = "USER";
 
     private static final Set<DisputeStatus> ACTIVE_DISPUTE_STATUSES =
             EnumSet.of(
@@ -75,7 +75,7 @@ public class ReportServiceImpl implements ReportService {
             UUID programId,
             CreateReportRequest request
     ) {
-        requireRole(HACKER_ROLE);
+        requireRole(USER_ROLE);
         UUID reporterId = currentUserId();
         UserProfile reporter = findUserProfile(reporterId);
         Program program = findReportableProgram(programId);
@@ -150,7 +150,7 @@ public class ReportServiceImpl implements ReportService {
                     .map(reportMapper::toResponse);
         }
 
-        if (AuthUtils.hasRole(HACKER_ROLE)) {
+        if (AuthUtils.hasRole(USER_ROLE)) {
             specification = specification.and(
                     ReportSpecification.submittedBy(userId)
             );
@@ -164,7 +164,7 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> findMine(Pageable pageable) {
-        requireRole(HACKER_ROLE);
+        requireRole(USER_ROLE);
         return reportRepository
                 .findByReporterId(currentUserId(), pageable)
                 .map(reportMapper::toResponse);

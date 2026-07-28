@@ -93,7 +93,7 @@ class ReportServiceImplTest {
         UserProfile hacker = user(hackerId);
         Program program = activeApprovedProgram();
         ProgramAsset asset = program.getAssets().getFirst();
-        authenticate(hackerId, "HACKER");
+        authenticate(hackerId, "USER");
 
         when(userProfileRepository.findById(hackerId))
                 .thenReturn(Optional.of(hacker));
@@ -209,7 +209,7 @@ class ReportServiceImplTest {
     void unrelatedHackerCannotDiscoverPrivateReport() {
         UUID hackerId = UUID.randomUUID();
         Report report = newReport(Severity.LOW);
-        authenticate(hackerId, "HACKER");
+        authenticate(hackerId, "USER");
         when(reportRepository.findById(report.getId()))
                 .thenReturn(Optional.of(report));
 

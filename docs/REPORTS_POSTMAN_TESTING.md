@@ -22,8 +22,8 @@ Use these test accounts:
 
 | Account | Realm role | Organization role | Purpose |
 |---|---|---|---|
-| Hacker A | `HACKER` | None | Creates and reads their reports |
-| Hacker B | `HACKER` | None | Verifies private-report isolation |
+| Hacker A | `USER` | None | Creates and reads their reports |
+| Hacker B | `USER` | None | Verifies private-report isolation |
 | Company Owner | `COMPANY` | Owner | Reads, triages, and rewards reports |
 | Company Viewer | `COMPANY` | Viewer | Reads reports but cannot change them |
 | Admin | `ADMIN` | None | Reads all private reports |
