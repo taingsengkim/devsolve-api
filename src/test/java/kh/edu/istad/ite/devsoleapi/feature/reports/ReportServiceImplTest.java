@@ -1,10 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
-import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.*;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
@@ -236,11 +233,7 @@ class ReportServiceImplTest {
 
         when(reportRepository.findById(report.getId()))
                 .thenReturn(Optional.of(report));
-        when(organizationRepository
-                .findByIdAndStatusAndDeletedAtIsNull(
-                        organization.getId(),
-                        OrganizationStatus.ACTIVE
-                ))
+        when(organizationRepository.findById(organization.getId()))
                 .thenReturn(Optional.of(organization));
         when(organizationMemberRepository
                 .findByOrganizationIdAndUserId(
@@ -271,11 +264,7 @@ class ReportServiceImplTest {
     ) {
         when(reportRepository.findById(report.getId()))
                 .thenReturn(Optional.of(report));
-        when(organizationRepository
-                .findByIdAndStatusAndDeletedAtIsNull(
-                        organization.getId(),
-                        OrganizationStatus.ACTIVE
-                ))
+        when(organizationRepository.findById(organization.getId()))
                 .thenReturn(Optional.of(organization));
         when(userProfileRepository.findById(ownerId))
                 .thenReturn(Optional.of(organization.getOwner()));
@@ -289,8 +278,10 @@ class ReportServiceImplTest {
                 weaknessRepository,
                 programRepository,
                 userProfileRepository,
-                organizationRepository,
-                organizationMemberRepository,
+                new OrganizationAuthorizationService(
+                        organizationRepository,
+                        organizationMemberRepository
+                ),
                 reportMapper
         );
     }

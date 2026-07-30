@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
@@ -369,7 +370,10 @@ class ProgramServiceImplTest {
                 programUpdateRepository,
                 programMapper,
                 organizationRepository,
-                organizationMemberRepository
+                new OrganizationAuthorizationService(
+                        organizationRepository,
+                        organizationMemberRepository
+                )
         );
     }
 
