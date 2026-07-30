@@ -8,6 +8,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -85,6 +86,14 @@ public class OrganizationController {
             @Valid @RequestBody UpdateMemberRoleRequest request
     ) {
         return organizationService.updateMemberRole(userId, request);
+    }
+
+    @PatchMapping("/me/members/{userId}/permissions")
+    public MemberResponse updateMemberPermissions(
+            @PathVariable UUID userId,
+            @Valid @RequestBody UpdateMemberPermissionsRequest request
+    ) {
+        return organizationService.updateMemberPermissions(userId, request);
     }
 
     @DeleteMapping("/me/members/{userId}")
