@@ -3,11 +3,9 @@ package kh.edu.istad.ite.devsoleapi.feature.program;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
@@ -41,13 +39,12 @@ import java.util.UUID;
 public class ProgramServiceImpl implements ProgramService {
 
     private static final String ADMIN_ROLE = "ADMIN";
-    private static final String COMPANY_ROLE = "COMPANY";
 
     private final ProgramRepository programRepository;
     private final ProgramUpdateRepository programUpdateRepository;
     private final ProgramMapper mapper;
     private final OrganizationRepository organizationRepository;
-    private final OrganizationMemberRepository organizationMemberRepository;
+    private final OrganizationAuthorizationService organizationAuthorization;
 
     @Override
     @Transactional(readOnly = true)
@@ -87,7 +84,9 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProgramResponseDto> getMyPrograms(Pageable pageable) {
-        Organization organization = findManageableOrganization();
+        Organization organization = findAccessibleOrganization(
+                OrganizationPermission.VIEW_PROGRAMS
+        );
         return programRepository.findAll(
                         ProgramSpecification.organizationPrograms(
                                 organization.getId()
@@ -100,7 +99,9 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto createProgram(ProgramRequestDto request) {
-        Organization organization = findManageableOrganization();
+        Organization organization = findAccessibleOrganization(
+                OrganizationPermission.CREATE_PROGRAM
+        );
         requireUniqueHandle(request.handle(), null);
         requireAllowedVisibility(
                 request.visibility(),
@@ -124,7 +125,10 @@ public class ProgramServiceImpl implements ProgramService {
             UUID id,
             ProgramUpdateRequestDto request
     ) {
-        Program program = findProgramForManagement(id);
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.EDIT_PROGRAM
+        );
         if (program.getState() == ProgramState.CLOSED) {
             throw conflict("Closed programs cannot be updated");
         }
@@ -173,7 +177,10 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto submitProgram(UUID id) {
-        Program program = findProgramForManagement(id);
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.EDIT_PROGRAM
+        );
         if (program.getSubmissionState() != SubmissionState.REJECTED) {
             throw conflict(
                     "Only rejected programs can be resubmitted for review"
@@ -191,7 +198,10 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto publishProgram(UUID id) {
-        Program program = findProgramForManagement(id);
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.MANAGE_PROGRAM_STATE
+        );
         if (program.getState() != ProgramState.DRAFT) {
             throw conflict("Only draft programs can be launched");
         }
@@ -209,7 +219,10 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto pauseProgram(UUID id) {
-        Program program = findProgramForManagement(id);
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.MANAGE_PROGRAM_STATE
+        );
         if (program.getState() != ProgramState.ACTIVE) {
             throw conflict("Only active programs can be paused");
         }
@@ -222,7 +235,10 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto resumeProgram(UUID id) {
-        Program program = findProgramForManagement(id);
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.MANAGE_PROGRAM_STATE
+        );
         if (program.getState() != ProgramState.PAUSED) {
             throw conflict("Only paused programs can be resumed");
         }
@@ -240,7 +256,10 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional
     public ProgramResponseDto closeProgram(UUID id) {
-        Program program = findProgramForManagement(id);
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.MANAGE_PROGRAM_STATE
+        );
         if (program.getState() == ProgramState.CLOSED) {
             throw conflict("Program is already closed");
         }
@@ -318,11 +337,17 @@ public class ProgramServiceImpl implements ProgramService {
                 .orElseThrow(this::programNotFound);
     }
 
-    private Program findProgramForManagement(UUID id) {
-        requireRole(COMPANY_ROLE);
+    private Program findProgramForManagement(
+            UUID id,
+            OrganizationPermission permission
+    ) {
         Program program = programRepository.findById(id)
                 .orElseThrow(this::programNotFound);
-        requireManagementAccess(program.getOrganizationId());
+        organizationAuthorization.requirePermission(
+                program.getOrganizationId(),
+                extractCurrentUserId(),
+                permission
+        );
         return program;
     }
 
@@ -335,70 +360,13 @@ public class ProgramServiceImpl implements ProgramService {
         return program;
     }
 
-    private Organization findManageableOrganization() {
-        requireRole(COMPANY_ROLE);
-        UUID userId = extractCurrentUserId();
-
-        return organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId)
-                .map(this::requireApprovedOrganization)
-                .orElseGet(() -> findManagedOrganization(userId));
-    }
-
-    private Organization findManagedOrganization(UUID userId) {
-        List<OrganizationMember> managedMemberships =
-                organizationMemberRepository
-                        .findByUserIdAndStatus(
-                                userId,
-                                MembershipStatus.ACTIVE
-                        )
-                        .stream()
-                        .filter(member -> member.getRole() == OrgRole.MANAGER)
-                        .toList();
-
-        if (managedMemberships.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "The authenticated company cannot manage an organization"
-            );
-        }
-        if (managedMemberships.size() > 1) {
-            throw conflict(
-                    "The authenticated user manages multiple organizations"
-            );
-        }
-        return requireApprovedOrganization(
-                managedMemberships.getFirst().getOrganization()
+    private Organization findAccessibleOrganization(
+            OrganizationPermission permission
+    ) {
+        return organizationAuthorization.findSingleAccessibleOrganization(
+                extractCurrentUserId(),
+                permission
         );
-    }
-
-    private void requireManagementAccess(UUID organizationId) {
-        UUID userId = extractCurrentUserId();
-        Organization organization = organizationRepository
-                .findById(organizationId)
-                .filter(candidate -> candidate.getDeletedAt() == null)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Organization not found for this program"
-                ));
-        requireApprovedOrganization(organization);
-
-        if (organization.getOwner().getId().equals(userId)) {
-            return;
-        }
-
-        boolean isActiveManager = organizationMemberRepository
-                .findByOrganizationIdAndUserId(organizationId, userId)
-                .filter(member ->
-                        member.getStatus() == MembershipStatus.ACTIVE
-                )
-                .map(OrganizationMember::getRole)
-                .filter(role -> role == OrgRole.MANAGER)
-                .isPresent();
-        if (!isActiveManager) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only the organization owner or a manager can manage this program"
-            );
-        }
     }
 
     private Organization requireApprovedOrganization(

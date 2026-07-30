@@ -8,6 +8,8 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.Set;
+
 @Component
 @RequiredArgsConstructor
 public class OrganizationMapper {
@@ -78,6 +80,7 @@ public class OrganizationMapper {
                 .name(member.getUser().getFullName())
                 .email(member.getUser().getEmail())
                 .role(member.getRole())
+                .permissions(Set.copyOf(member.getPermissions()))
                 .status(member.getStatus())
                 .invitationPending(member.isInvitationPending())
                 .joinedAt(member.getJoinedAt())

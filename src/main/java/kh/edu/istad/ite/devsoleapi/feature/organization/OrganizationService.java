@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +33,11 @@ public interface OrganizationService {
     MemberResponse updateMemberRole(
             UUID targetUserId,
             UpdateMemberRoleRequest request
+    );
+
+    MemberResponse updateMemberPermissions(
+            UUID targetUserId,
+            UpdateMemberPermissionsRequest request
     );
 
     void removeMember(UUID targetUserId);

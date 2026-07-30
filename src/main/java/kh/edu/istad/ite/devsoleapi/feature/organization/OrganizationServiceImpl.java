@@ -8,6 +8,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
@@ -232,6 +233,11 @@ public class OrganizationServiceImpl implements OrganizationService {
                 )
         );
         member.setRole(request.role());
+        if (request.permissions() == null) {
+            member.applyRoleDefaults();
+        } else {
+            member.setPermissions(request.permissions());
+        }
         member.setStatus(MembershipStatus.SUSPENDED);
         member.setInvitedBy(invitedBy);
         member.setInvitationEmail(invitedUser.getEmail());
@@ -270,6 +276,30 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
 
         member.setRole(request.role());
+        member.applyRoleDefaults();
+        return organizationMapper.toMemberResponse(member);
+    }
+
+    @Override
+    @Transactional
+    public MemberResponse updateMemberPermissions(
+            UUID targetUserId,
+            UpdateMemberPermissionsRequest request
+    ) {
+        Organization organization = findMyOrganization();
+        OrganizationMember member = findMembership(
+                organization.getId(),
+                targetUserId
+        );
+
+        if (member.getStatus() == MembershipStatus.REMOVED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "A removed membership cannot be updated"
+            );
+        }
+
+        member.setPermissions(request.permissions());
         return organizationMapper.toMemberResponse(member);
     }
 
