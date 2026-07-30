@@ -1,13 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
-import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.*;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 import java.util.UUID;
@@ -47,4 +41,9 @@ public interface OrganizationService {
     OrganizationResponse approve(UUID id);
 
     OrganizationResponse reject(UUID id);
+
+    Page<OrganizationResponse> getPendingOrganizations(
+            int pageNumber,
+            int pageSize
+    );
 }
