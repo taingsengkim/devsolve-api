@@ -136,6 +136,20 @@ public class SecurityConfig {
                         "/api/v1/admin/**"
                 ).hasRole("ADMIN")
 
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/showcases/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/showcases",
+                        "/api/v1/showcases/*"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/v1/showcases/*/views"
+                ).permitAll()
+
                 .anyRequest().authenticated()
         );
 

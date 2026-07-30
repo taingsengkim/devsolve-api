@@ -9,8 +9,19 @@ import java.util.UUID;
 public interface ShowCaseStepRepository extends JpaRepository<ShowcaseStep, UUID> {
     List<ShowcaseStep> findByShowcase_IdOrderByStepNumberAsc(UUID showcaseId);
 
-    Optional<ShowcaseStep> findByIdAndShowcase_Id(
+    Optional<ShowcaseStep> findByIdAndShowcase_IdAndShowcase_DeletedAtIsNull(
             UUID stepId,
             UUID showcaseId
+    );
+
+    boolean existsByShowcase_IdAndStepNumber(
+            UUID showcaseId,
+            Integer stepNumber
+    );
+
+    boolean existsByShowcase_IdAndStepNumberAndIdNot(
+            UUID showcaseId,
+            Integer stepNumber,
+            UUID stepId
     );
 }

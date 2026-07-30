@@ -14,9 +14,40 @@ public abstract class ShowcaseStepMapper {
     @Mapping(target = "updatedAt", ignore = true)
     public abstract ShowcaseStep mapCreateShowcaseStepRequestToShowcaseStep(CreateShowcaseStepRequest request);
 
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "revision", ignore = true)
+    @Mapping(target = "sourceStepId", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "updatedAt", ignore = true)
+    public abstract ShowcaseStepRevision
+    mapCreateShowcaseStepRequestToShowcaseStepRevision(
+            CreateShowcaseStepRequest request
+    );
+
     public ShowcaseStepResponse mapShowcaseStepToShowcaseStepResponse(ShowcaseStep step) {
         return ShowcaseStepResponse.builder()
                 .id(step.getId())
+                .stepNumber(step.getStepNumber())
+                .title(step.getTitle())
+                .description(step.getDescription())
+                .codeSnippet(step.getCodeSnippet())
+                .imageUrl(step.getImageUrl())
+                .diagramUrl(step.getDiagramUrl())
+                .createdAt(step.getCreatedAt())
+                .updatedAt(step.getUpdatedAt())
+                .build();
+    }
+
+    public ShowcaseStepResponse
+    mapShowcaseStepRevisionToShowcaseStepResponse(
+            ShowcaseStepRevision step
+    ) {
+        return ShowcaseStepResponse.builder()
+                .id(
+                        step.getSourceStepId() != null
+                                ? step.getSourceStepId()
+                                : step.getId()
+                )
                 .stepNumber(step.getStepNumber())
                 .title(step.getTitle())
                 .description(step.getDescription())

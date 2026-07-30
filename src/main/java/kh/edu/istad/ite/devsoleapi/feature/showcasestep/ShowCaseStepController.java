@@ -14,7 +14,7 @@ import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/showcase-steps")
+@RequestMapping("/api/v1/showcase-steps/{showcaseId}")
 public class ShowCaseStepController {
     private final ShowCaseStepService showcaseStepService;
 
