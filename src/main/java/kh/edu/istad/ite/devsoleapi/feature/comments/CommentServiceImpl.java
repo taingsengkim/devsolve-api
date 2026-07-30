@@ -1,10 +1,10 @@
-package kh.edu.istad.ite.devsoleapi.comments;
+package kh.edu.istad.ite.devsoleapi.feature.comments;
 
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
-import kh.edu.istad.ite.devsoleapi.comments.dto.CommentMapper;
-import kh.edu.istad.ite.devsoleapi.comments.dto.CommentResponse;
-import kh.edu.istad.ite.devsoleapi.comments.dto.CreateCommentRequest;
-import kh.edu.istad.ite.devsoleapi.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentMapper;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

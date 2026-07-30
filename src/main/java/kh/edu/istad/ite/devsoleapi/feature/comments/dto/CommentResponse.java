@@ -1,6 +1,6 @@
-package kh.edu.istad.ite.devsoleapi.comments.dto;
+package kh.edu.istad.ite.devsoleapi.feature.comments.dto;
 
-import kh.edu.istad.ite.devsoleapi.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import lombok.Builder;
 import lombok.Getter;
 

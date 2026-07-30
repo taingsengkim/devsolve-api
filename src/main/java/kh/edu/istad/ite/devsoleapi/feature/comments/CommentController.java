@@ -1,8 +1,8 @@
-package kh.edu.istad.ite.devsoleapi.comments;
+package kh.edu.istad.ite.devsoleapi.feature.comments;
 
 import jakarta.validation.Valid;
-import kh.edu.istad.ite.devsoleapi.comments.dto.CommentResponse;
-import kh.edu.istad.ite.devsoleapi.comments.dto.CreateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;

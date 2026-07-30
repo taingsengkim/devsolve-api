@@ -1,4 +1,4 @@
-package kh.edu.istad.ite.devsoleapi.comments.dto;
+package kh.edu.istad.ite.devsoleapi.feature.comments.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;

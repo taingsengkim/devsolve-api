@@ -1,6 +1,6 @@
-package kh.edu.istad.ite.devsoleapi.comments.dto;
+package kh.edu.istad.ite.devsoleapi.feature.comments.dto;
 
-import kh.edu.istad.ite.devsoleapi.comments.Comment;
+import kh.edu.istad.ite.devsoleapi.feature.comments.Comment;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingConstants;

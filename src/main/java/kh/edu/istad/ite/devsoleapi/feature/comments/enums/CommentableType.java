@@ -1,4 +1,4 @@
-package kh.edu.istad.ite.devsoleapi.comments.enums;
+package kh.edu.istad.ite.devsoleapi.feature.comments.enums;
 
 public enum CommentableType {
     REPORT,

@@ -1,6 +1,6 @@
-package kh.edu.istad.ite.devsoleapi.comments;
+package kh.edu.istad.ite.devsoleapi.feature.comments;
 
-import kh.edu.istad.ite.devsoleapi.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

@@ -1,7 +1,7 @@
-package kh.edu.istad.ite.devsoleapi.comments;
+package kh.edu.istad.ite.devsoleapi.feature.comments;
 
-import kh.edu.istad.ite.devsoleapi.comments.dto.CommentResponse;
-import kh.edu.istad.ite.devsoleapi.comments.dto.CreateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
 
 import java.util.List;
 import java.util.UUID;

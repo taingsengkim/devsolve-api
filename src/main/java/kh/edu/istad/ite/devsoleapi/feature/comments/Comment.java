@@ -1,7 +1,7 @@
-package kh.edu.istad.ite.devsoleapi.comments;
+package kh.edu.istad.ite.devsoleapi.feature.comments;
 
 import jakarta.persistence.*;
-import kh.edu.istad.ite.devsoleapi.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
