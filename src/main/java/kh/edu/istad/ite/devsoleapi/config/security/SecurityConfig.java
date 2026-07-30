@@ -114,6 +114,41 @@ public class SecurityConfig {
                         "/api/v1/organizations/*"
                 ).permitAll()
                 .requestMatchers("/api/v1/organizations/**").authenticated()
+                // Admin flag moderation endpoints
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/admin/flags"
+                ).hasRole("ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.PATCH,
+                        "/api/v1/admin/flags/*/dismiss"
+                ).hasRole("ADMIN")
+
+                // Admin moderation action endpoint
+                .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/v1/admin/*/moderation-actions"
+                ).hasRole("ADMIN")
+
+                // Protect any other admin endpoint
+                .requestMatchers(
+                        "/api/v1/admin/**"
+                ).hasRole("ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/showcases/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/showcases",
+                        "/api/v1/showcases/*"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/v1/showcases/*/views"
+                ).permitAll()
 
                 .anyRequest().authenticated()
         );
