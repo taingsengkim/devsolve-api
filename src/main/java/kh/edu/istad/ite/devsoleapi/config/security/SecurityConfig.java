@@ -71,6 +71,7 @@ public class SecurityConfig {
                         HttpMethod.GET,
                         "/api/v1/problems",
                         "/api/v1/problems/*",
+                        "/api/v1/problems/*/solutions",
                         "/api/v1/problems/*/attachments/*/download"
                 ).permitAll()
                 .requestMatchers(
@@ -82,6 +83,58 @@ public class SecurityConfig {
                         "/api/v1/admin/problems/**"
                 ).hasRole("ADMIN")
                 .requestMatchers("/api/v1/problems/**").authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/solutions/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/solutions/*"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/solutions/**"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/comments/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/comments",
+                        "/api/v1/comments/*"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/comments/**"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/votes/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/votes/*/*/summary"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/votes/**"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/follows/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/follows/*/*/summary",
+                        "/api/v1/follows/*/*/followers",
+                        "/api/v1/follows/users/*/following"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/follows/**",
+                        "/api/v1/notifications/**"
+                ).authenticated()
 
                 .requestMatchers(
                         HttpMethod.GET,
@@ -114,6 +167,41 @@ public class SecurityConfig {
                         "/api/v1/organizations/*"
                 ).permitAll()
                 .requestMatchers("/api/v1/organizations/**").authenticated()
+                // Admin flag moderation endpoints
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/admin/flags"
+                ).hasRole("ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.PATCH,
+                        "/api/v1/admin/flags/*/dismiss"
+                ).hasRole("ADMIN")
+
+                // Admin moderation action endpoint
+                .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/v1/admin/*/moderation-actions"
+                ).hasRole("ADMIN")
+
+                // Protect any other admin endpoint
+                .requestMatchers(
+                        "/api/v1/admin/**"
+                ).hasRole("ADMIN")
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/showcases/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/showcases",
+                        "/api/v1/showcases/*"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/v1/showcases/*/views"
+                ).permitAll()
 
                 .anyRequest().authenticated()
         );
@@ -168,6 +256,7 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of(
                 "GET",
                 "POST",
+                "PUT",
                 "PATCH",
                 "DELETE",
                 "OPTIONS"

@@ -1,7 +1,11 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
@@ -38,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +64,8 @@ class ProgramServiceImplTest {
 
     @Mock
     private OrganizationMemberRepository organizationMemberRepository;
+    @Mock
+    private FollowNotificationService followNotificationService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -223,6 +230,16 @@ class ProgramServiceImplTest {
         assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
         assertEquals(ProgramState.ACTIVE, program.getState());
         assertEquals(Visibility.PUBLIC, program.getVisibility());
+        verify(followNotificationService).notifyFollowers(
+                FollowType.ORGANIZATION,
+                organization.getId(),
+                ownerId,
+                "New program published",
+                program.getName(),
+                NotificationType.PROGRAM,
+                program.getId(),
+                "program-published:" + program.getId()
+        );
 
         ArgumentCaptor<ProgramUpdate> updateCaptor =
                 ArgumentCaptor.forClass(ProgramUpdate.class);
@@ -364,12 +381,24 @@ class ProgramServiceImplTest {
     }
 
     private ProgramServiceImpl service() {
+        lenient().when(programUpdateRepository.save(any(ProgramUpdate.class)))
+                .thenAnswer(invocation -> {
+                    ProgramUpdate update = invocation.getArgument(0);
+                    if (update.getId() == null) {
+                        update.setId(UUID.randomUUID());
+                    }
+                    return update;
+                });
         return new ProgramServiceImpl(
                 programRepository,
                 programUpdateRepository,
                 programMapper,
                 organizationRepository,
-                organizationMemberRepository
+                new OrganizationAuthorizationService(
+                        organizationRepository,
+                        organizationMemberRepository
+                ),
+                followNotificationService
         );
     }
 

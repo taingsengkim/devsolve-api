@@ -13,9 +13,6 @@ spring:
 
   flyway:
     enabled: false
-    baseline-on-migrate: true
-    baseline-version: "20260727"
-    locations: classpath:db/migration
 
   sql:
     init:

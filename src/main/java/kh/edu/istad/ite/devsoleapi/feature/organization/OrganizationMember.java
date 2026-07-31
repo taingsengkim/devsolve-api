@@ -5,12 +5,15 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import jakarta.persistence.*;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Getter
@@ -54,6 +57,15 @@ public class OrganizationMember extends BasedEntity {
     )
     private OrgRole role = OrgRole.MEMBER;
 
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(
+            name = "organization_member_permissions",
+            joinColumns = @JoinColumn(name = "organization_member_id")
+    )
+    @Enumerated(EnumType.STRING)
+    @Column(name = "permission", nullable = false, length = 50)
+    private Set<OrganizationPermission> permissions = new HashSet<>();
+
     @Column(name = "invitation_token", unique = true, length = 36)
     private String invitationToken;
 
@@ -64,6 +76,7 @@ public class OrganizationMember extends BasedEntity {
         this.organization = organization;
         this.user = user;
         this.role = role;
+        setPermissions(OrganizationPermission.defaultsFor(role));
     }
 
     public void accept() {
@@ -79,5 +92,20 @@ public class OrganizationMember extends BasedEntity {
     public void markAsRemoved() {
         this.status = MembershipStatus.REMOVED;
         this.invitationToken = null;
+    }
+
+    public void applyRoleDefaults() {
+        setPermissions(OrganizationPermission.defaultsFor(role));
+    }
+
+    public void setPermissions(Set<OrganizationPermission> permissions) {
+        this.permissions.clear();
+        if (permissions != null) {
+            this.permissions.addAll(permissions);
+        }
+    }
+
+    public boolean hasPermission(OrganizationPermission permission) {
+        return permissions.contains(permission);
     }
 }

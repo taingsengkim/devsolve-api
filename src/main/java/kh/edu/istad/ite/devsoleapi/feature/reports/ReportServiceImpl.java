@@ -2,13 +2,11 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
-import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
@@ -41,7 +39,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
@@ -50,7 +47,6 @@ import java.util.UUID;
 public class ReportServiceImpl implements ReportService {
 
     private static final String ADMIN_ROLE = "ADMIN";
-    private static final String COMPANY_ROLE = "COMPANY";
     private static final String USER_ROLE = "USER";
 
     private static final Set<DisputeStatus> ACTIVE_DISPUTE_STATUSES =
@@ -65,9 +61,9 @@ public class ReportServiceImpl implements ReportService {
     private final WeaknessRepository weaknessRepository;
     private final ProgramRepository programRepository;
     private final UserProfileRepository userProfileRepository;
-    private final OrganizationRepository organizationRepository;
-    private final OrganizationMemberRepository organizationMemberRepository;
+    private final OrganizationAuthorizationService organizationAuthorization;
     private final ReportMapper reportMapper;
+    private final FollowNotificationService followNotificationService;
 
     @Override
     @Transactional
@@ -140,10 +136,15 @@ public class ReportServiceImpl implements ReportService {
                     .map(reportMapper::toResponse);
         }
 
-        if (AuthUtils.hasRole(COMPANY_ROLE)) {
+        Set<UUID> organizationIds =
+                organizationAuthorization.findAccessibleOrganizationIds(
+                        userId,
+                        OrganizationPermission.VIEW_REPORTS
+                );
+        if (!organizationIds.isEmpty()) {
             specification = specification.and(
                     ReportSpecification.forOrganizations(
-                            companyOrganizationIds(userId)
+                            organizationIds
                     )
             );
             return reportRepository.findAll(specification, pageable)
@@ -176,7 +177,10 @@ public class ReportServiceImpl implements ReportService {
             UUID id,
             TriageReportRequest request
     ) {
-        Report report = findReportForCompanyAction(id);
+        Report report = findReportForOrganizationAction(
+                id,
+                OrganizationPermission.TRIAGE_REPORTS
+        );
         requireNoActiveDispute(report.getId());
 
         ReportState targetState = request.state() == null
@@ -221,7 +225,10 @@ public class ReportServiceImpl implements ReportService {
             UUID id,
             UpdateDisclosureStateRequest request
     ) {
-        Report report = findReportForCompanyAction(id);
+        Report report = findReportForOrganizationAction(
+                id,
+                OrganizationPermission.MANAGE_DISCLOSURE
+        );
         if (request.disclosureStatus() == DisclosureStatus.DISCLOSED
                 && report.getState() != ReportState.RESOLVED) {
             throw conflict(
@@ -229,7 +236,22 @@ public class ReportServiceImpl implements ReportService {
             );
         }
 
+        boolean newlyDisclosed = report.getDisclosureStatus()
+                != DisclosureStatus.DISCLOSED
+                && request.disclosureStatus() == DisclosureStatus.DISCLOSED;
         report.setDisclosureStatus(request.disclosureStatus());
+        if (newlyDisclosed) {
+            followNotificationService.notifyFollowers(
+                    FollowType.USER,
+                    report.getReporter().getId(),
+                    currentUserId(),
+                    "New disclosed security report",
+                    report.getTitle(),
+                    NotificationType.REPORT,
+                    report.getId(),
+                    "report-disclosed:" + report.getId()
+            );
+        }
         return reportMapper.toResponse(report);
     }
 
@@ -239,7 +261,10 @@ public class ReportServiceImpl implements ReportService {
             UUID id,
             RewardReportRequest request
     ) {
-        Report report = findReportForCompanyAction(id);
+        Report report = findReportForOrganizationAction(
+                id,
+                OrganizationPermission.AWARD_REWARDS
+        );
         if (request.amount() == null && request.points() == null) {
             throw badRequest(
                     "A reward must contain an amount, points, or both"
@@ -276,7 +301,53 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional(readOnly = true)
     public void requireViewAccess(UUID reportId) {
-        findReportWithViewAccess(reportId);
+        requireDiscussionAccess(reportId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReportDiscussionAccess requireDiscussionAccess(UUID reportId) {
+        Report report = findReportableProgramReport(reportId);
+        UUID userId = currentUserId();
+        return resolveDiscussionAccess(report, userId);
+    }
+
+    private ReportDiscussionAccess resolveDiscussionAccess(
+            Report report,
+            UUID userId
+    ) {
+        boolean admin = AuthUtils.hasRole(ADMIN_ROLE);
+        if (admin) {
+            return new ReportDiscussionAccess(true, true, true);
+        }
+
+        boolean canTriageForOrganization =
+                organizationAuthorization.hasPermission(
+                        report.getProgram().getOrganizationId(),
+                        userId,
+                        OrganizationPermission.TRIAGE_REPORTS
+                );
+        boolean canViewForOrganization =
+                canTriageForOrganization
+                        || organizationAuthorization.hasPermission(
+                                report.getProgram().getOrganizationId(),
+                                userId,
+                                OrganizationPermission.VIEW_REPORTS
+                        );
+
+        if (canViewForOrganization) {
+            return new ReportDiscussionAccess(
+                    true,
+                    canTriageForOrganization,
+                    canTriageForOrganization
+            );
+        }
+        if (report.getReporter().getId().equals(userId)) {
+            return new ReportDiscussionAccess(false, true, false);
+        }
+
+        // Hide private-report existence from unrelated authenticated users.
+        throw reportNotFound();
     }
 
     private Report findReportableProgramReport(UUID reportId) {
@@ -286,57 +357,23 @@ public class ReportServiceImpl implements ReportService {
 
     private Report findReportWithViewAccess(UUID reportId) {
         Report report = findReportableProgramReport(reportId);
-        UUID userId = currentUserId();
-
-        if (AuthUtils.hasRole(ADMIN_ROLE)
-                || report.getReporter().getId().equals(userId)
-                || canViewOrganizationReports(
-                        report.getProgram().getOrganizationId(),
-                        userId
-                )) {
-            return report;
-        }
-
-        // Hide private-report existence from unrelated authenticated users.
-        throw reportNotFound();
+        resolveDiscussionAccess(report, currentUserId());
+        return report;
     }
 
-    private Report findReportForCompanyAction(UUID reportId) {
-        requireRole(COMPANY_ROLE);
+    private Report findReportForOrganizationAction(
+            UUID reportId,
+            OrganizationPermission permission
+    ) {
         Report report = findReportableProgramReport(reportId);
         UUID userId = currentUserId();
         UUID organizationId = report.getProgram().getOrganizationId();
 
-        Organization organization = organizationRepository
-                .findByIdAndStatusAndDeletedAtIsNull(
-                        organizationId,
-                        OrganizationStatus.ACTIVE
-                )
-                .orElseThrow(() -> forbidden(
-                        "The report's organization is not active"
-                ));
-
-        if (organization.getOwner().getId().equals(userId)) {
-            return report;
-        }
-
-        boolean canManage = organizationMemberRepository
-                .findByOrganizationIdAndUserId(organizationId, userId)
-                .filter(member ->
-                        member.getStatus() == MembershipStatus.ACTIVE
-                )
-                .map(OrganizationMember::getRole)
-                .filter(role ->
-                        role == OrgRole.MANAGER
-                                || role == OrgRole.MEMBER
-                )
-                .isPresent();
-        if (!canManage) {
-            throw forbidden(
-                    "Only an organization owner, manager, or member can update reports"
-            );
-        }
-
+        organizationAuthorization.requirePermission(
+                organizationId,
+                userId,
+                permission
+        );
         return report;
     }
 
@@ -467,47 +504,6 @@ public class ReportServiceImpl implements ReportService {
                     "Only a valid confirmed report can be resolved"
             );
         }
-    }
-
-    private boolean canViewOrganizationReports(
-            UUID organizationId,
-            UUID userId
-    ) {
-        if (!AuthUtils.hasRole(COMPANY_ROLE)) {
-            return false;
-        }
-
-        return companyOrganizationIds(userId).contains(organizationId);
-    }
-
-    private Set<UUID> companyOrganizationIds(UUID userId) {
-        Set<UUID> organizationIds = new HashSet<>();
-
-        organizationRepository
-                .findByOwnerIdAndDeletedAtIsNull(userId)
-                .filter(organization ->
-                        organization.getStatus()
-                                == OrganizationStatus.ACTIVE
-                )
-                .map(Organization::getId)
-                .ifPresent(organizationIds::add);
-
-        organizationMemberRepository
-                .findByUserIdAndStatus(
-                        userId,
-                        MembershipStatus.ACTIVE
-                )
-                .stream()
-                .map(OrganizationMember::getOrganization)
-                .filter(organization ->
-                        organization.getDeletedAt() == null
-                                && organization.getStatus()
-                                == OrganizationStatus.ACTIVE
-                )
-                .map(Organization::getId)
-                .forEach(organizationIds::add);
-
-        return organizationIds;
     }
 
     private UserProfile findUserProfile(UUID userId) {

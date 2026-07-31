@@ -71,6 +71,7 @@ class ProblemMigrationPostgreSqlTest {
                 .locations("classpath:db/migration")
                 .baselineOnMigrate(true)
                 .baselineVersion(MigrationVersion.fromVersion("20260727"))
+                .target(MigrationVersion.fromVersion("20260728.01"))
                 .load()
                 .migrate();
     }

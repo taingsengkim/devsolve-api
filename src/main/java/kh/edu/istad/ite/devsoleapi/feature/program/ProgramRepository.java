@@ -1,6 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
-
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -14,6 +16,14 @@ import java.util.UUID;
 @Repository
 public interface ProgramRepository extends JpaRepository<Program, UUID>, JpaSpecificationExecutor<Program> {
     Optional<Program> findByHandle(String handle);
+
+    Optional<Program>
+    findByIdAndStateAndSubmissionStateAndVisibility(
+            UUID id,
+            ProgramState state,
+            SubmissionState submissionState,
+            Visibility visibility
+    );
 
     boolean existsByHandleIgnoreCase(String handle);
 

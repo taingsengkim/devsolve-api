@@ -6,6 +6,9 @@ import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
@@ -84,6 +87,7 @@ public class ProblemServiceImpl implements ProblemService {
     private final ProblemContentSafety contentSafety;
     private final ProblemAttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
+    private final FollowNotificationService followNotificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -230,7 +234,20 @@ public class ProblemServiceImpl implements ProblemService {
             problem.setPublishedAt(null);
         }
         problem.setStatus(request.status());
-        return toResponse(problemRepository.saveAndFlush(problem));
+        Problem saved = problemRepository.saveAndFlush(problem);
+        if (saved.getStatus() == ProblemStatus.PUBLISHED) {
+            followNotificationService.notifyFollowers(
+                    FollowType.USER,
+                    saved.getAuthorId(),
+                    saved.getAuthorId(),
+                    "New problem published",
+                    saved.getTitle(),
+                    NotificationType.PROBLEM,
+                    saved.getId(),
+                    "problem-published:" + saved.getId()
+            );
+        }
+        return toResponse(saved);
     }
 
     @Override

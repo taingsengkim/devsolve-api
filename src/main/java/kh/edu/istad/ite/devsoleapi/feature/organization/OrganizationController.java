@@ -1,6 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
@@ -8,17 +10,11 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
@@ -87,6 +83,14 @@ public class OrganizationController {
         return organizationService.updateMemberRole(userId, request);
     }
 
+    @PatchMapping("/me/members/{userId}/permissions")
+    public MemberResponse updateMemberPermissions(
+            @PathVariable UUID userId,
+            @Valid @RequestBody UpdateMemberPermissionsRequest request
+    ) {
+        return organizationService.updateMemberPermissions(userId, request);
+    }
+
     @DeleteMapping("/me/members/{userId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeMember(@PathVariable UUID userId) {
@@ -107,4 +111,5 @@ public class OrganizationController {
     public OrganizationResponse reject(@PathVariable UUID id) {
         return organizationService.reject(id);
     }
+
 }

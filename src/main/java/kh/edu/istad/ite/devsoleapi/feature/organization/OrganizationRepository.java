@@ -1,5 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 
@@ -17,4 +19,9 @@ public interface OrganizationRepository extends JpaRepository<Organization, UUID
     Optional<Organization> findBySlugAndStatusAndDeletedAtIsNull(String slug, OrganizationStatus status);
 
     Optional<Organization> findByOwnerIdAndDeletedAtIsNull(UUID ownerId);
+
+    Page<Organization> findByStatusAndDeletedAtIsNull(
+            OrganizationStatus status,
+            Pageable pageable
+    );
 }
