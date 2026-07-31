@@ -1,30 +1,25 @@
 package kh.edu.istad.ite.devsoleapi.feature.bookmark;
 
-import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkRequest;
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkResponse;
+import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkStatusResponse;
+import org.springframework.data.domain.Page;
 
-import java.util.List;
+import java.util.UUID;
 
 public interface BookmarkService {
 
-    // Create a bookmark
-    BookmarkResponse bookmark(BookmarkRequest request);
+    BookmarkResponse bookmark(BookmarkType type, UUID targetId);
 
-    // Remove a bookmark
-    void unbookmark(String userId, String bookmarkableType, String bookmarkableId);
+    void unbookmark(BookmarkType type, UUID targetId);
 
-    // Get all bookmarks by user
-    List<BookmarkResponse> getUserBookmarks(String userId);
+    BookmarkStatusResponse getStatus(
+            BookmarkType type,
+            UUID targetId
+    );
 
-    // Get all users who bookmarked an entity
-    List<BookmarkResponse> getBookmarkers(String bookmarkableType, String bookmarkableId);
-
-    // Check if user bookmarked
-    boolean isBookmarked(String userId, String bookmarkableType, String bookmarkableId);
-
-    // Count bookmarks by user
-    long countUserBookmarks(String userId);
-
-    // Count bookmarks for an entity
-    long countBookmarks(String bookmarkableType, String bookmarkableId);
+    Page<BookmarkResponse> getMine(
+            BookmarkType type,
+            int pageNumber,
+            int pageSize
+    );
 }
