@@ -7,6 +7,7 @@ import lombok.Builder;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.List;
 
 @Builder
 public record UserProfileResponse(
@@ -21,6 +22,7 @@ public record UserProfileResponse(
         LocalDate dateOfBirth,
         GenderStatus gender,
         String country,
+        List<SocialLinkResponse> socialLinks,
         UserStatus status,
         int reputation,
         int totalReports,

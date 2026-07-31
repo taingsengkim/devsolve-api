@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.SocialLinkRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 import java.util.Locale;
+import java.util.EnumMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +34,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final KeycloakAdminProps keycloakAdminProps;
     private final UserProfileRepository userProfileRepository;
     private final UserProfileMapper userProfileMapper;
+    private final SocialLinkValidator socialLinkValidator;
 
     @Override
     @Transactional(readOnly = true)
@@ -50,6 +54,9 @@ public class UserProfileServiceImpl implements UserProfileService {
         UserRepresentation keycloakUser = keycloakUserResource.toRepresentation();
 
         userProfileMapper.mapUpdateUserProfileRequestToUserProfile(request, userProfile);
+        if (request.socialLinks() != null) {
+            replaceSocialLinks(userProfile, request.socialLinks());
+        }
 
         if (request.firstName() != null || request.lastName() != null) {
             String firstName = request.firstName() != null
@@ -183,6 +190,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                 profile.getBiography(),
                 profile.getAvatarUrl(),
                 profile.getCountry(),
+                userProfileMapper.toSocialLinkResponses(profile),
                 profile.getReputation(),
                 profile.getTotalReports(),
                 profile.getValidReports(),
@@ -190,6 +198,49 @@ public class UserProfileServiceImpl implements UserProfileService {
                 profile.getRecognitionCount(),
                 profile.getCreatedAt()
         );
+    }
+
+    private void replaceSocialLinks(
+            UserProfile profile,
+            java.util.List<SocialLinkRequest> requests
+    ) {
+        Map<SocialPlatform, String> requestedLinks =
+                new EnumMap<>(SocialPlatform.class);
+        for (SocialLinkRequest request : requests) {
+            String previous = requestedLinks.putIfAbsent(
+                    request.platform(),
+                    socialLinkValidator.normalize(
+                            request.platform(),
+                            request.url()
+                    )
+            );
+            if (previous != null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Only one link is allowed for each social platform"
+                );
+            }
+        }
+
+        Map<SocialPlatform, UserSocialLink> existingLinks =
+                new EnumMap<>(SocialPlatform.class);
+        profile.getSocialLinks().forEach(link ->
+                existingLinks.put(link.getPlatform(), link));
+        profile.getSocialLinks().removeIf(link ->
+                !requestedLinks.containsKey(link.getPlatform()));
+
+        requestedLinks.forEach((platform, url) -> {
+            UserSocialLink link = existingLinks.get(platform);
+            if (link == null) {
+                profile.getSocialLinks().add(UserSocialLink.builder()
+                        .user(profile)
+                        .platform(platform)
+                        .url(url)
+                        .build());
+            } else {
+                link.setUrl(url);
+            }
+        });
     }
 
     private UserProfile findUserProfile(UUID userId) {

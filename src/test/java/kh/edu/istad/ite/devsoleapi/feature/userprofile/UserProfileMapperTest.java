@@ -34,7 +34,8 @@ class UserProfileMapperTest {
                 "https://cdn.example.com/avatar.png",
                 LocalDate.of(2000, 1, 1),
                 GenderStatus.OTHER,
-                "Cambodia"
+                "Cambodia",
+                null
         );
 
         mapper.mapUpdateUserProfileRequestToUserProfile(request, profile);
@@ -59,7 +60,17 @@ class UserProfileMapperTest {
         profile.setCountry("Cambodia");
 
         mapper.mapUpdateUserProfileRequestToUserProfile(
-                new UpdateUserProfileRequest(null, null, null, null, null, null, null, null),
+                new UpdateUserProfileRequest(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
                 profile
         );
 
@@ -81,6 +92,11 @@ class UserProfileMapperTest {
         profile.setValidReports(5);
         profile.setCriticalReports(2);
         profile.setRecognitionCount(3);
+        profile.getSocialLinks().add(UserSocialLink.builder()
+                .user(profile)
+                .platform(SocialPlatform.GITHUB)
+                .url("https://github.com/member")
+                .build());
 
         UserRepresentation keycloakUser = new UserRepresentation();
         keycloakUser.setEmail("member@example.com");
@@ -98,5 +114,10 @@ class UserProfileMapperTest {
         assertEquals(5, response.validReports());
         assertEquals(2, response.criticalReports());
         assertEquals(3, response.recognitionCount());
+        assertEquals(1, response.socialLinks().size());
+        assertEquals(
+                SocialPlatform.GITHUB,
+                response.socialLinks().getFirst().platform()
+        );
     }
 }
