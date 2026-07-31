@@ -21,12 +21,17 @@ public class CommentResponse {
 
     private UUID authorId;
 
+    private String authorName;
+
+    private String authorAvatarUrl;
+
     private String content;
+
+    private boolean internal;
+
+    private long replyCount;
 
     private LocalDateTime createdAt;
 
-
     private LocalDateTime updatedAt;
-
-    private LocalDateTime deletedAt;
 }

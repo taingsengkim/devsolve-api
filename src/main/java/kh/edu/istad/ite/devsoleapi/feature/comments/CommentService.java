@@ -2,28 +2,35 @@ package kh.edu.istad.ite.devsoleapi.feature.comments;
 
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.UpdateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
+import org.springframework.data.domain.Page;
 
-import java.util.List;
 import java.util.UUID;
 
 public interface CommentService {
 
-    /**
-     * Creates a new comment for a specific report.
-     *
-     * @param reportId the unique identifier of the report
-     * @param request  the payload containing the comment details
-     * @return a {@link CommentResponse} representing the created comment
-     */
-    CommentResponse createReportComment(UUID reportId, CreateCommentRequest request);
+    CommentResponse create(CreateCommentRequest request);
 
-    /**
-     * Retrieves all comments associated with a specific report.
-     *
-     * @param reportId the unique identifier of the report
-     * @return a list of {@link CommentResponse} representing comments on the report
-     */
-    List<CommentResponse> findReportComments(UUID reportId);
+    Page<CommentResponse> findByTarget(
+            CommentableType commentableType,
+            UUID commentableId,
+            UUID parentCommentId,
+            int pageNumber,
+            int pageSize
+    );
+
+    CommentResponse findById(UUID id);
+
+    Page<CommentResponse> findMine(
+            CommentableType commentableType,
+            int pageNumber,
+            int pageSize
+    );
+
+    CommentResponse update(UUID id, UpdateCommentRequest request);
+
+    void delete(UUID id);
 }
 
 

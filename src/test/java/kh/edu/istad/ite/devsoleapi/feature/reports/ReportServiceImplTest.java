@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.organization.*;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
@@ -36,12 +37,15 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
@@ -214,6 +218,95 @@ class ReportServiceImplTest {
                 ResourceNotFoundException.class,
                 () -> service().findById(report.getId())
         );
+    }
+
+    @Test
+    void reporterCanDiscussButCannotSeeOrCreateInternalNotes() {
+        Report report = newReport(Severity.LOW);
+        UUID reporterId = report.getReporter().getId();
+        authenticate(reporterId, "USER");
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+
+        ReportDiscussionAccess access =
+                service().requireDiscussionAccess(report.getId());
+
+        assertFalse(access.canViewInternal());
+        assertTrue(access.canComment());
+        assertFalse(access.canCreateInternal());
+    }
+
+    @Test
+    void organizationViewerSeesInternalNotesButCannotWriteThem() {
+        UUID viewerId = UUID.randomUUID();
+        Report report = newReport(Severity.MEDIUM);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                UUID.randomUUID()
+        );
+        OrganizationMember viewer = new OrganizationMember();
+        viewer.setOrganization(organization);
+        viewer.setUser(user(viewerId));
+        viewer.setStatus(MembershipStatus.ACTIVE);
+        viewer.setPermissions(Set.of(
+                OrganizationPermission.VIEW_REPORTS
+        ));
+        authenticate(viewerId, "COMPANY");
+
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+        when(organizationMemberRepository
+                .findByOrganizationIdAndUserId(
+                        organization.getId(),
+                        viewerId
+                ))
+                .thenReturn(Optional.of(viewer));
+
+        ReportDiscussionAccess access =
+                service().requireDiscussionAccess(report.getId());
+
+        assertTrue(access.canViewInternal());
+        assertFalse(access.canComment());
+        assertFalse(access.canCreateInternal());
+    }
+
+    @Test
+    void organizationTriagerCanParticipateAndCreateInternalNotes() {
+        UUID triagerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                UUID.randomUUID()
+        );
+        OrganizationMember triager = new OrganizationMember();
+        triager.setOrganization(organization);
+        triager.setUser(user(triagerId));
+        triager.setStatus(MembershipStatus.ACTIVE);
+        triager.setPermissions(Set.of(
+                OrganizationPermission.VIEW_REPORTS,
+                OrganizationPermission.TRIAGE_REPORTS
+        ));
+        authenticate(triagerId, "COMPANY");
+
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+        when(organizationMemberRepository
+                .findByOrganizationIdAndUserId(
+                        organization.getId(),
+                        triagerId
+                ))
+                .thenReturn(Optional.of(triager));
+
+        ReportDiscussionAccess access =
+                service().requireDiscussionAccess(report.getId());
+
+        assertTrue(access.canViewInternal());
+        assertTrue(access.canComment());
+        assertTrue(access.canCreateInternal());
     }
 
     @Test
