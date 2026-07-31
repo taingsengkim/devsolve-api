@@ -12,7 +12,7 @@ spring:
     defer-datasource-initialization: false
 
   flyway:
-    enabled: true
+    enabled: false
     baseline-on-migrate: true
     baseline-version: "20260727"
     locations: classpath:db/migration
