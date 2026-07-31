@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import jakarta.validation.Valid;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRejectionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
@@ -28,7 +29,7 @@ public class ProgramAdminController {
     private final ProgramService programService;
 
     @GetMapping
-    public Page<ProgramResponseDto> getProgramsForReview(
+    public Page<ProgramManagementSummaryResponseDto> getProgramsForReview(
             @RequestParam(
                     defaultValue = "PENDING_REVIEW"
             )

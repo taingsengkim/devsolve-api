@@ -12,7 +12,9 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
@@ -64,7 +66,7 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProgramResponseDto> getPublicPrograms(
+    public Page<ProgramSummaryResponseDto> getPublicPrograms(
             UUID organizationId,
             EngagementType engagementType,
             Boolean offersBounties,
@@ -82,7 +84,7 @@ public class ProgramServiceImpl implements ProgramService {
                         ),
                         validatedPageable
                 )
-                .map(mapper::toResponseDto);
+                .map(mapper::toSummaryDto);
     }
 
     @Override
@@ -103,7 +105,9 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProgramResponseDto> getMyPrograms(Pageable pageable) {
+    public Page<ProgramManagementSummaryResponseDto> getMyPrograms(
+            Pageable pageable
+    ) {
         Organization organization = findAccessibleOrganization(
                 OrganizationPermission.VIEW_PROGRAMS
         );
@@ -117,7 +121,7 @@ public class ProgramServiceImpl implements ProgramService {
                         ),
                         validatedPageable
                 )
-                .map(mapper::toResponseDto);
+                .map(mapper::toManagementSummaryDto);
     }
 
     @Override
@@ -309,7 +313,7 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProgramResponseDto> getProgramsForReview(
+    public Page<ProgramManagementSummaryResponseDto> getProgramsForReview(
             SubmissionState submissionState,
             Pageable pageable
     ) {
@@ -324,7 +328,7 @@ public class ProgramServiceImpl implements ProgramService {
                         ),
                         validatedPageable
                 )
-                .map(mapper::toResponseDto);
+                .map(mapper::toManagementSummaryDto);
     }
 
     @Override

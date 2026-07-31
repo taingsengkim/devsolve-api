@@ -1,7 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
@@ -13,7 +15,7 @@ import java.util.UUID;
 
 public interface ProgramService {
 
-    Page<ProgramResponseDto> getPublicPrograms(
+    Page<ProgramSummaryResponseDto> getPublicPrograms(
             UUID organizationId,
             EngagementType engagementType,
             Boolean offersBounties,
@@ -24,7 +26,9 @@ public interface ProgramService {
 
     ProgramResponseDto getPublicProgramByHandle(String handle);
 
-    Page<ProgramResponseDto> getMyPrograms(Pageable pageable);
+    Page<ProgramManagementSummaryResponseDto> getMyPrograms(
+            Pageable pageable
+    );
 
     ProgramResponseDto createProgram(ProgramRequestDto request);
 
@@ -48,7 +52,7 @@ public interface ProgramService {
             Pageable pageable
     );
 
-    Page<ProgramResponseDto> getProgramsForReview(
+    Page<ProgramManagementSummaryResponseDto> getProgramsForReview(
             SubmissionState submissionState,
             Pageable pageable
     );

@@ -2,7 +2,9 @@ package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
@@ -33,7 +35,7 @@ public class ProgramController {
     private final ProgramService programService;
 
     @GetMapping("/programs")
-    public Page<ProgramResponseDto> getPublicPrograms(
+    public Page<ProgramSummaryResponseDto> getPublicPrograms(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) EngagementType engagementType,
             @RequestParam(required = false) Boolean offersBounties,
@@ -80,7 +82,7 @@ public class ProgramController {
     }
 
     @GetMapping("/organizations/me/programs")
-    public Page<ProgramResponseDto> getMyPrograms(
+    public Page<ProgramManagementSummaryResponseDto> getMyPrograms(
             @PageableDefault(
                     size = 20,
                     sort = "updatedAt",
