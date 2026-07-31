@@ -1,7 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
@@ -18,6 +20,8 @@ import java.util.Locale;
 
 @Component
 public class ProgramMapper {
+
+    private static final int DESCRIPTION_PREVIEW_LENGTH = 240;
 
     public Program toEntity(ProgramRequestDto request) {
         Program program = Program.builder()
@@ -105,6 +109,40 @@ public class ProgramMapper {
         );
     }
 
+    public ProgramSummaryResponseDto toSummaryDto(Program program) {
+        return new ProgramSummaryResponseDto(
+                program.getId(),
+                program.getOrganizationId(),
+                program.getHandle(),
+                program.getName(),
+                descriptionPreview(program.getDescription()),
+                program.getEngagementType(),
+                program.getOffersBounties(),
+                program.getMinimumBounty(),
+                program.getMaximumBounty(),
+                program.getUpdatedAt()
+        );
+    }
+
+    public ProgramManagementSummaryResponseDto toManagementSummaryDto(
+            Program program
+    ) {
+        return new ProgramManagementSummaryResponseDto(
+                program.getId(),
+                program.getOrganizationId(),
+                program.getHandle(),
+                program.getName(),
+                program.getEngagementType(),
+                program.getState(),
+                program.getSubmissionState(),
+                program.getVisibility(),
+                program.getOffersBounties(),
+                program.getMaximumBounty(),
+                program.getCreatedAt(),
+                program.getUpdatedAt()
+        );
+    }
+
     public ProgramUpdateChangeLogDto toUpdateDto(ProgramUpdate update) {
         return new ProgramUpdateChangeLogDto(
                 update.getId(),
@@ -186,5 +224,16 @@ public class ProgramMapper {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String descriptionPreview(String description) {
+        String normalized = trimToNull(description);
+        if (normalized == null
+                || normalized.length() <= DESCRIPTION_PREVIEW_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, DESCRIPTION_PREVIEW_LENGTH - 1)
+                .stripTrailing()
+                + "…";
     }
 }

@@ -6,6 +6,8 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
@@ -358,7 +360,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Transactional
     public OrganizationResponse approve(UUID id) {
         requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
-        Organization organization = findOrganizationForReview(id);
+        Organization organization = findPendingOrganizationForReview(id);
         if (!companyIdentityService.isEmailVerified(
                 organization.getOwner().getId()
         )) {
@@ -376,16 +378,18 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Transactional
     public OrganizationResponse reject(UUID id) {
         requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
-        Organization organization = findOrganizationForReview(id);
+        Organization organization = findPendingOrganizationForReview(id);
         organization.setStatus(OrganizationStatus.REJECTED);
         organization.setVerifiedAt(null);
         return organizationMapper.toOrganizationResponse(organization);
     }
 
     @Override
-    public Page<OrganizationResponse> getPendingOrganizations(
+    @Transactional(readOnly = true)
+    public Page<OrganizationReviewSummaryResponse> getPendingOrganizations(
             int pageNumber,
-            int pageSize) {
+            int pageSize
+    ) {
 
         requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
 
@@ -417,7 +421,23 @@ public class OrganizationServiceImpl implements OrganizationService {
                         OrganizationStatus.PENDING,
                         pageable
                 )
-                .map(organizationMapper::toOrganizationResponse);
+                .map(organizationMapper::toReviewSummary);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OrganizationReviewResponse getForReview(UUID id) {
+        requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
+        Organization organization = organizationRepository
+                .findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> organizationNotFound());
+        boolean emailVerified = companyIdentityService.isEmailVerified(
+                organization.getOwner().getId()
+        );
+        return organizationMapper.toReviewResponse(
+                organization,
+                emailVerified
+        );
     }
 
     private Organization findMyOrganization() {
@@ -433,15 +453,15 @@ public class OrganizationServiceImpl implements OrganizationService {
                 ));
     }
 
-    private Organization findOrganizationForReview(UUID id) {
-        Organization organization = organizationRepository.findById(id)
-                .filter(candidate -> candidate.getDeletedAt() == null)
+    private Organization findPendingOrganizationForReview(UUID id) {
+        Organization organization = organizationRepository
+                .findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> organizationNotFound());
 
-        if (organization.getStatus() == OrganizationStatus.ACTIVE) {
+        if (organization.getStatus() != OrganizationStatus.PENDING) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Organization has already been approved"
+                    "Only pending organization registrations can be reviewed"
             );
         }
         return organization;

@@ -187,7 +187,7 @@ class ShowCasesServiceImplTest {
 
         when(showCasesRepository.searchPublished(
                 eq(ReviewStatus.APPROVED),
-                eq("traffic"),
+                eq("%traffic%"),
                 eq(categoryId),
                 any(Pageable.class)
         )).thenReturn(new PageImpl<>(List.of(showcase)));
@@ -207,7 +207,7 @@ class ShowCasesServiceImplTest {
         assertEquals(List.of(response), result.getContent());
         verify(showCasesRepository).searchPublished(
                 eq(ReviewStatus.APPROVED),
-                eq("traffic"),
+                eq("%traffic%"),
                 eq(categoryId),
                 pageableCaptor.capture()
         );
@@ -219,6 +219,71 @@ class ShowCasesServiceImplTest {
                 pageable.getSort()
                         .getOrderFor("viewCount")
                         .getDirection()
+        );
+    }
+
+    @Test
+    void getAllPublishedWithoutSearchDoesNotUseLikeQuery() {
+        when(showCasesRepository
+                .findByReviewStatusAndDeletedAtIsNull(
+                        eq(ReviewStatus.APPROVED),
+                        any(Pageable.class)
+                )).thenReturn(Page.empty());
+
+        Page<ShowCasesResponse> result = service.getAllPublished(
+                null,
+                null,
+                "createdAt",
+                "DESC",
+                0,
+                20
+        );
+
+        assertEquals(0, result.getTotalElements());
+        verify(showCasesRepository)
+                .findByReviewStatusAndDeletedAtIsNull(
+                        eq(ReviewStatus.APPROVED),
+                        any(Pageable.class)
+                );
+        verify(showCasesRepository, never()).searchPublished(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void getAllPublishedWithBlankSearchStillFiltersByCategory() {
+        UUID categoryId = UUID.randomUUID();
+        when(showCasesRepository
+                .findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
+                        eq(ReviewStatus.APPROVED),
+                        eq(categoryId),
+                        any(Pageable.class)
+                )).thenReturn(Page.empty());
+
+        Page<ShowCasesResponse> result = service.getAllPublished(
+                "   ",
+                categoryId,
+                "createdAt",
+                "DESC",
+                0,
+                20
+        );
+
+        assertEquals(0, result.getTotalElements());
+        verify(showCasesRepository)
+                .findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
+                        eq(ReviewStatus.APPROVED),
+                        eq(categoryId),
+                        any(Pageable.class)
+                );
+        verify(showCasesRepository, never()).searchPublished(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
         );
     }
 

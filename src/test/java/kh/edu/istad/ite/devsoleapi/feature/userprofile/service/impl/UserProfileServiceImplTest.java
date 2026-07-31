@@ -78,7 +78,7 @@ class UserProfileServiceImplTest {
         ArgumentCaptor<Pageable> pageableCaptor =
                 ArgumentCaptor.forClass(Pageable.class);
         when(userProfileRepository.findForAdmin(
-                eq("sokha chan"),
+                eq("%sokha chan%"),
                 eq(UserStatus.ACTIVE),
                 pageableCaptor.capture()
         )).thenReturn(new PageImpl<>(List.of(profile)));
@@ -105,6 +105,58 @@ class UserProfileServiceImplTest {
     }
 
     @Test
+    void adminWithoutSearchAndStatusListsAllProfiles() {
+        authenticate(UUID.randomUUID(), "ADMIN");
+        when(userProfileRepository.findAll(
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        Page<AdminUserSummaryResponse> result = service().getAllForAdmin(
+                null,
+                null,
+                0,
+                20
+        );
+
+        assertEquals(0, result.getTotalElements());
+        verify(userProfileRepository).findAll(
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
+        verify(userProfileRepository, never()).findForAdmin(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void adminWithoutSearchFiltersByStatusWithoutUsingLikeQuery() {
+        authenticate(UUID.randomUUID(), "ADMIN");
+        when(userProfileRepository.findAllByStatus(
+                eq(UserStatus.ACTIVE),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        Page<AdminUserSummaryResponse> result = service().getAllForAdmin(
+                "   ",
+                UserStatus.ACTIVE,
+                0,
+                20
+        );
+
+        assertEquals(0, result.getTotalElements());
+        verify(userProfileRepository).findAllByStatus(
+                eq(UserStatus.ACTIVE),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
+        verify(userProfileRepository, never()).findForAdmin(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
     void nonAdminCannotListUsersEvenIfServiceIsCalledDirectly() {
         authenticate(UUID.randomUUID(), "USER");
 
@@ -127,7 +179,7 @@ class UserProfileServiceImplTest {
         ArgumentCaptor<Pageable> pageableCaptor =
                 ArgumentCaptor.forClass(Pageable.class);
         when(userProfileRepository.findPublicProfiles(
-                eq("cambodia"),
+                eq("%cambodia%"),
                 eq(UserStatus.ACTIVE),
                 pageableCaptor.capture()
         )).thenReturn(new PageImpl<>(List.of(profile)));
@@ -145,6 +197,50 @@ class UserProfileServiceImplTest {
                 pageableCaptor.getValue().getSort()
                         .getOrderFor("reputation")
                         .getDirection()
+        );
+    }
+
+    @Test
+    void publicDirectoryWithoutSearchDoesNotUseLikeQuery() {
+        when(userProfileRepository.findAllByStatus(
+                eq(UserStatus.ACTIVE),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        Page<PublicUserProfileResponse> result = service()
+                .getPublicProfiles(null, 0, 20);
+
+        assertEquals(0, result.getTotalElements());
+        verify(userProfileRepository).findAllByStatus(
+                eq(UserStatus.ACTIVE),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
+        verify(userProfileRepository, never()).findPublicProfiles(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
+    void publicDirectoryWithBlankSearchDoesNotUseLikeQuery() {
+        when(userProfileRepository.findAllByStatus(
+                eq(UserStatus.ACTIVE),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        Page<PublicUserProfileResponse> result = service()
+                .getPublicProfiles("   ", 0, 20);
+
+        assertEquals(0, result.getTotalElements());
+        verify(userProfileRepository).findAllByStatus(
+                eq(UserStatus.ACTIVE),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        );
+        verify(userProfileRepository, never()).findPublicProfiles(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
         );
     }
 

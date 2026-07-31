@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
@@ -48,6 +49,19 @@ public class ReportServiceImpl implements ReportService {
 
     private static final String ADMIN_ROLE = "ADMIN";
     private static final String USER_ROLE = "USER";
+    private static final Set<String> REPORT_SORT_PROPERTIES = Set.of(
+            "id",
+            "submittedAt",
+            "createdAt",
+            "updatedAt",
+            "title",
+            "state",
+            "reportedSeverity",
+            "triageSeverity",
+            "severity",
+            "disclosureStatus",
+            "resolvedAt"
+    );
 
     private static final Set<DisputeStatus> ACTIVE_DISPUTE_STATUSES =
             EnumSet.of(
@@ -131,43 +145,45 @@ public class ReportServiceImpl implements ReportService {
                 ReportSpecification.forProgram(programId)
                         .and(ReportSpecification.withState(state));
 
-        if (AuthUtils.hasRole(ADMIN_ROLE)) {
-            return reportRepository.findAll(specification, pageable)
-                    .map(reportMapper::toResponse);
-        }
-
-        Set<UUID> organizationIds =
-                organizationAuthorization.findAccessibleOrganizationIds(
-                        userId,
-                        OrganizationPermission.VIEW_REPORTS
+        if (!AuthUtils.hasRole(ADMIN_ROLE)) {
+            Set<UUID> organizationIds =
+                    organizationAuthorization.findAccessibleOrganizationIds(
+                            userId,
+                            OrganizationPermission.VIEW_REPORTS
+                    );
+            if (!organizationIds.isEmpty()) {
+                specification = specification.and(
+                        ReportSpecification.forOrganizations(
+                                organizationIds
+                        )
                 );
-        if (!organizationIds.isEmpty()) {
-            specification = specification.and(
-                    ReportSpecification.forOrganizations(
-                            organizationIds
-                    )
-            );
-            return reportRepository.findAll(specification, pageable)
-                    .map(reportMapper::toResponse);
+            } else if (AuthUtils.hasRole(USER_ROLE)) {
+                specification = specification.and(
+                        ReportSpecification.submittedBy(userId)
+                );
+            } else {
+                throw forbidden("A DevSolve platform role is required");
+            }
         }
 
-        if (AuthUtils.hasRole(USER_ROLE)) {
-            specification = specification.and(
-                    ReportSpecification.submittedBy(userId)
-            );
-            return reportRepository.findAll(specification, pageable)
-                    .map(reportMapper::toResponse);
-        }
-
-        throw forbidden("A DevSolve platform role is required");
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                REPORT_SORT_PROPERTIES
+        );
+        return reportRepository.findAll(specification, validatedPageable)
+                .map(reportMapper::toResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ReportResponse> findMine(Pageable pageable) {
         requireRole(USER_ROLE);
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                REPORT_SORT_PROPERTIES
+        );
         return reportRepository
-                .findByReporterId(currentUserId(), pageable)
+                .findByReporterId(currentUserId(), validatedPageable)
                 .map(reportMapper::toResponse);
     }
 

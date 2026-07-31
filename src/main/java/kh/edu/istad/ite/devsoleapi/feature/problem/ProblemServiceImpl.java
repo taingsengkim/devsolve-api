@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
@@ -75,6 +76,15 @@ public class ProblemServiceImpl implements ProblemService {
     );
     private static final Set<ProblemStatus> AUTHOR_EDITABLE_STATUSES =
             EnumSet.of(ProblemStatus.DRAFT, ProblemStatus.REJECTED);
+    private static final Set<String> PROBLEM_SORT_PROPERTIES = Set.of(
+            "id",
+            "createdAt",
+            "updatedAt",
+            "publishedAt",
+            "title",
+            "viewCount",
+            "status"
+    );
 
     private final ProblemRepository problemRepository;
     private final ProblemTechnologyRepository technologyRepository;
@@ -98,6 +108,10 @@ public class ProblemServiceImpl implements ProblemService {
             String technology,
             Pageable pageable
     ) {
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROBLEM_SORT_PROPERTIES
+        );
         String tagSlug = tag == null ? null : normalizeSlug(tag);
         String technologyName = trimToNull(technology);
         if (technologyName != null) {
@@ -108,16 +122,21 @@ public class ProblemServiceImpl implements ProblemService {
                 sdlcPhase,
                 tagSlug,
                 technologyName,
-                pageable
+                validatedPageable
         ).map(this::toResponse);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<ProblemResponse> findMine(Pageable pageable) {
+        UUID authorId = currentUserId();
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROBLEM_SORT_PROPERTIES
+        );
         return problemRepository.findAllByAuthorId(
-                currentUserId(),
-                pageable
+                authorId,
+                validatedPageable
         ).map(this::toResponse);
     }
 
@@ -127,10 +146,14 @@ public class ProblemServiceImpl implements ProblemService {
             UUID authorId,
             Pageable pageable
     ) {
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROBLEM_SORT_PROPERTIES
+        );
         return problemRepository.findAllByAuthorIdAndStatusIn(
                 authorId,
                 PUBLIC_STATUSES,
-                pageable
+                validatedPageable
         ).map(this::toResponse);
     }
 
@@ -141,12 +164,16 @@ public class ProblemServiceImpl implements ProblemService {
             Pageable pageable
     ) {
         requireAdmin();
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROBLEM_SORT_PROPERTIES
+        );
         ProblemStatus effectiveStatus = status == null
                 ? ProblemStatus.PENDING_APPROVAL
                 : status;
         return problemRepository.findAllByStatus(
                 effectiveStatus,
-                pageable
+                validatedPageable
         ).map(this::toResponse);
     }
 

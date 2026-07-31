@@ -3,6 +3,8 @@ package kh.edu.istad.ite.devsoleapi.feature.organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.RequiredArgsConstructor;
@@ -68,6 +70,57 @@ public class OrganizationMapper {
                 organization.getCompanySize(),
                 organization.getCountry(),
                 organization.getStatus(),
+                organization.getVerifiedAt(),
+                organization.getCreatedAt(),
+                organization.getUpdatedAt()
+        );
+    }
+
+    public OrganizationReviewSummaryResponse toReviewSummary(
+            Organization organization
+    ) {
+        UserProfile owner = organization.getOwner();
+        return new OrganizationReviewSummaryResponse(
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug(),
+                organization.getWebsiteUrl(),
+                organization.getIndustry(),
+                organization.getCompanySize(),
+                organization.getCountry(),
+                organization.getStatus(),
+                owner.getId(),
+                owner.getFullName(),
+                owner.getEmail(),
+                organization.getCreatedAt()
+        );
+    }
+
+    public OrganizationReviewResponse toReviewResponse(
+            Organization organization,
+            boolean emailVerified
+    ) {
+        UserProfile owner = organization.getOwner();
+        return new OrganizationReviewResponse(
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug(),
+                websiteUrlService.extractDomain(
+                        organization.getWebsiteUrl()
+                ),
+                organization.getWebsiteUrl(),
+                organization.getLogoUrl(),
+                organization.getDescription(),
+                organization.getIndustry(),
+                organization.getCompanySize(),
+                organization.getCountry(),
+                organization.getStatus(),
+                owner.getId(),
+                owner.getFullName(),
+                owner.getEmail(),
+                organization.getOwnerJobTitle(),
+                organization.getJoiningReason(),
+                emailVerified,
                 organization.getVerifiedAt(),
                 organization.getCreatedAt(),
                 organization.getUpdatedAt()

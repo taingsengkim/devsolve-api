@@ -74,14 +74,30 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 )
         );
 
-        return showCaseRepository
-                .searchPublished(
+        String normalizedQuery = normalizeQuery(query);
+        Page<ShowCases> showcases;
+        if (normalizedQuery == null) {
+            showcases = categoryId == null
+                    ? showCaseRepository
+                            .findByReviewStatusAndDeletedAtIsNull(
+                                    ReviewStatus.APPROVED,
+                                    pageable
+                            )
+                    : showCaseRepository
+                            .findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
+                                    ReviewStatus.APPROVED,
+                                    categoryId,
+                                    pageable
+                            );
+        } else {
+            showcases = showCaseRepository.searchPublished(
                         ReviewStatus.APPROVED,
-                        normalizeQuery(query),
+                        containsPattern(normalizedQuery),
                         categoryId,
                         pageable
-                )
-                .map(showCasesMapper::mapShowCaseToShowCaseResponse);
+                );
+        }
+        return showcases.map(showCasesMapper::mapShowCaseToShowCaseResponse);
     }
 
     @Override
@@ -974,7 +990,11 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         if (query == null || query.isBlank()) {
             return null;
         }
-        return query.trim();
+        return query.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String containsPattern(String normalizedQuery) {
+        return "%" + normalizedQuery + "%";
     }
 
     private String validatePublishedSortProperty(String sortBy) {

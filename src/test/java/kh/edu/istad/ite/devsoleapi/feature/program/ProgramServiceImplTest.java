@@ -26,6 +26,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -45,6 +48,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -103,29 +107,76 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void createProgramRejectsPublicVisibilityBeforeAdminApproval() {
+    void createProgramAllowsPublicVisibilityWhilePendingApproval() {
         UUID userId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(userId);
+        Program program = validProgram(organization.getId());
+        program.setVisibility(Visibility.PUBLIC);
         authenticate(userId, "COMPANY");
         when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
                 .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(program);
+        when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        ResponseStatusException exception = assertThrows(
-                ResponseStatusException.class,
-                () -> service().createProgram(ProgramRequestDto.builder()
-                        .handle("public-before-approval")
-                        .name("Unapproved Public Program")
-                        .engagementType(EngagementType.BOUNTY)
-                        .visibility(Visibility.PUBLIC)
-                        .build())
+        service().createProgram(ProgramRequestDto.builder()
+                .handle("public-before-approval")
+                .name("Public Program Awaiting Approval")
+                .engagementType(EngagementType.BOUNTY)
+                .visibility(Visibility.PUBLIC)
+                .build());
+
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
         );
+        assertEquals(Visibility.PUBLIC, program.getVisibility());
+        verify(programRepository).saveAndFlush(program);
+    }
+
+    @Test
+    void pendingProgramCanChangeVisibilityWithoutAnotherReview() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setVisibility(Visibility.PRIVATE);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ProgramUpdateRequestDto request = new ProgramUpdateRequestDto(
+                null,
+                null,
+                null,
+                null,
+                Visibility.PUBLIC,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        doAnswer(invocation -> {
+            Program target = invocation.getArgument(1);
+            target.setVisibility(request.visibility());
+            return null;
+        }).when(programMapper).updateEntity(eq(request), eq(program));
+
+        service().updateProgram(program.getId(), request);
 
         assertEquals(
-                "Only admin-approved programs can be public",
-                exception.getReason()
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
         );
-        verify(programRepository, never())
-                .saveAndFlush(any(Program.class));
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(Visibility.PUBLIC, program.getVisibility());
+        verifyNoInteractions(followNotificationService);
     }
 
     @Test
@@ -378,6 +429,41 @@ class ProgramServiceImplTest {
                 ResourceNotFoundException.class,
                 () -> service().getPublicProgramById(program.getId())
         );
+    }
+
+    @Test
+    void publicLookupDoesNotRevealUnapprovedPublicProgram() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setVisibility(Visibility.PUBLIC);
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().getPublicProgramById(program.getId())
+        );
+    }
+
+    @Test
+    void reviewListRejectsSwaggerPlaceholderSortBeforeRepositoryCall() {
+        authenticate(UUID.randomUUID(), "ADMIN");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().getProgramsForReview(
+                        SubmissionState.PENDING_REVIEW,
+                        PageRequest.of(
+                                0,
+                                20,
+                                Sort.by("[\"string\"]")
+                        )
+                )
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verifyNoInteractions(programRepository);
     }
 
     private ProgramServiceImpl service() {
