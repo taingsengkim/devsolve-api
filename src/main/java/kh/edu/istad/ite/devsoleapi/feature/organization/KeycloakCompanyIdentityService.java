@@ -17,7 +17,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +49,7 @@ public class KeycloakCompanyIdentityService
         user.setLastName(names.length > 1 ? names[1] : "");
         user.setEnabled(true);
         user.setEmailVerified(false);
+        user.setRequiredActions(List.of("VERIFY_EMAIL"));
         user.setCredentials(List.of(passwordCredential(password)));
 
         UsersResource users = realmUsers();
@@ -94,6 +98,30 @@ public class KeycloakCompanyIdentityService
     }
 
     @Override
+    public void sendVerificationEmail(UUID companyUserId) {
+        UserResource userResource = realmUsers().get(companyUserId.toString());
+        if (!Boolean.TRUE.equals(
+                userResource.toRepresentation().isEmailVerified()
+        )) {
+            userResource.sendVerifyEmail();
+        }
+    }
+
+    @Override
+    public Set<UUID> findUserIdsByRealmRole(String role) {
+        return keycloak.realm(keycloakAdminProps.getTargetRealm())
+                .roles()
+                .get(role)
+                .getUserMembers()
+                .stream()
+                .map(UserRepresentation::getId)
+                .filter(Objects::nonNull)
+                .map(this::parseUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    @Override
     public void delete(RegisteredCompany company) {
         try {
             realmUsers().get(company.id().toString()).remove();
@@ -126,5 +154,14 @@ public class KeycloakCompanyIdentityService
         credential.setValue(password);
         credential.setTemporary(false);
         return credential;
+    }
+
+    private UUID parseUserId(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException exception) {
+            log.warn("Ignoring Keycloak user with non-UUID id: {}", value);
+            return null;
+        }
     }
 }

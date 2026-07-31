@@ -5,6 +5,9 @@ import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.RejectOrganizationRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.validation.annotation.Validated;
@@ -13,6 +16,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -54,7 +58,24 @@ public class OrganizationAdminController {
     }
 
     @PatchMapping("/{id}/reject")
-    public OrganizationResponse reject(@PathVariable UUID id) {
-        return organizationService.reject(id);
+    public OrganizationResponse reject(
+            @PathVariable UUID id,
+            @Valid @RequestBody RejectOrganizationRequest request
+    ) {
+        return organizationService.reject(id, request);
+    }
+
+    @GetMapping("/{id}/review-history")
+    public Page<OrganizationReviewHistoryResponse> getReviewHistory(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "pageNumber must be >= 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "pageSize must be >= 1")
+            @Max(value = 100, message = "pageSize must be <= 100")
+            int pageSize
+    ) {
+        return organizationService.getReviewHistory(id, pageNumber, pageSize);
     }
 }

@@ -68,6 +68,21 @@ public class Organization extends BasedEntity {
     @Column(name = "verified_at")
     private LocalDateTime verifiedAt;
 
+    @Column(name = "reviewed_by")
+    private UUID reviewedBy;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
+    @Column(name = "rejection_reason", columnDefinition = "TEXT")
+    private String rejectionReason;
+
+    @Column(name = "submission_version", nullable = false)
+    private int submissionVersion = 1;
+
+    @Column(name = "verification_email_sent_at")
+    private LocalDateTime verificationEmailSentAt;
+
     @ManyToOne(optional = false)
     @JoinColumn(name = "owner_id", nullable = false)
     private UserProfile owner;

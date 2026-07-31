@@ -19,6 +19,9 @@ public record OrganizationResponse(
         String companySize,
         String country,
         OrganizationStatus status,
+        int submissionVersion,
+        String rejectionReason,
+        LocalDateTime reviewedAt,
         LocalDateTime verifiedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

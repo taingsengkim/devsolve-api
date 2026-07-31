@@ -179,11 +179,6 @@ public class SecurityConfig {
                         "/api/v1/organizations/invitations/**"
                 ).authenticated()
                 .requestMatchers(
-                        HttpMethod.PATCH,
-                        "/api/v1/organizations/*/approve",
-                        "/api/v1/organizations/*/reject"
-                ).hasRole("ADMIN")
-                .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/organizations/slug/**",
                         "/api/v1/organizations/*"

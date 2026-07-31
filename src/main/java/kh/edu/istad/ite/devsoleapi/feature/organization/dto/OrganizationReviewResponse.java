@@ -24,6 +24,10 @@ public record OrganizationReviewResponse(
         String ownerJobTitle,
         String joiningReason,
         boolean emailVerified,
+        int submissionVersion,
+        UUID reviewedBy,
+        LocalDateTime reviewedAt,
+        String rejectionReason,
         LocalDateTime verifiedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

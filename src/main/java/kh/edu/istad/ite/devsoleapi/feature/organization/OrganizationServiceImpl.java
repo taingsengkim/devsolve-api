@@ -8,11 +8,16 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.RejectOrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationReviewDecision;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +26,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -45,6 +51,7 @@ public class OrganizationServiceImpl implements OrganizationService {
 
     private static final String ADMIN_ROLE = "ADMIN";
     private static final long INVITATION_VALID_DAYS = 7;
+    private static final long VERIFICATION_EMAIL_COOLDOWN_MINUTES = 1;
 
     private final OrganizationRepository organizationRepository;
     private final OrganizationMemberRepository memberRepository;
@@ -52,6 +59,8 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationMapper organizationMapper;
     private final WebsiteUrlService websiteUrlService;
     private final CompanyIdentityService companyIdentityService;
+    private final OrganizationReviewHistoryRepository reviewHistoryRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -108,10 +117,18 @@ public class OrganizationServiceImpl implements OrganizationService {
                     slug
             );
             organization.setStatus(OrganizationStatus.PENDING);
+            organization.setSubmissionVersion(1);
+            organization.setVerificationEmailSentAt(LocalDateTime.now());
 
-            return organizationMapper.toOrganizationResponse(
-                    organizationRepository.saveAndFlush(organization)
+            Organization saved = organizationRepository.saveAndFlush(
+                    organization
             );
+            publishLifecycleEvent(
+                    saved,
+                    OrganizationLifecycleEventType.REGISTERED,
+                    null
+            );
+            return organizationMapper.toOrganizationResponse(saved);
         } catch (RuntimeException exception) {
             deleteCompanyIdentity(registeredCompany, identityDeleted);
             throw exception;
@@ -122,6 +139,49 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Transactional(readOnly = true)
     public OrganizationResponse me() {
         return organizationMapper.toOrganizationResponse(findMyOrganization());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OrganizationVerificationResponse getVerificationStatus() {
+        Organization organization = findMyOrganization();
+        boolean emailVerified = companyIdentityService.isEmailVerified(
+                organization.getOwner().getId()
+        );
+        return new OrganizationVerificationResponse(
+                organization.getId(),
+                organization.getStatus(),
+                emailVerified,
+                nextAction(organization.getStatus(), emailVerified),
+                verificationEmailCanBeResentAt(organization)
+        );
+    }
+
+    @Override
+    @Transactional
+    public void resendVerificationEmail() {
+        Organization organization = findMyOrganization();
+        UUID ownerId = organization.getOwner().getId();
+        if (companyIdentityService.isEmailVerified(ownerId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Company email is already verified"
+            );
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime canResendAt = verificationEmailCanBeResentAt(
+                organization
+        );
+        if (canResendAt != null && now.isBefore(canResendAt)) {
+            throw new ResponseStatusException(
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "Verification email can be resent after " + canResendAt
+            );
+        }
+
+        companyIdentityService.sendVerificationEmail(ownerId);
+        organization.setVerificationEmailSentAt(now);
     }
 
     @Override
@@ -143,8 +203,17 @@ public class OrganizationServiceImpl implements OrganizationService {
             String normalizedWebsiteUrl = websiteUrlService.normalize(request.websiteUrl());
             if (!normalizedWebsiteUrl.equals(organization.getWebsiteUrl())) {
                 organization.setWebsiteUrl(normalizedWebsiteUrl);
-                organization.setStatus(OrganizationStatus.PENDING);
-                organization.setVerifiedAt(null);
+                if (organization.getStatus() == OrganizationStatus.ACTIVE) {
+                    prepareForReview(organization);
+                    organization.setSubmissionVersion(
+                            organization.getSubmissionVersion() + 1
+                    );
+                    publishLifecycleEvent(
+                            organization,
+                            OrganizationLifecycleEventType.RESUBMITTED,
+                            null
+                    );
+                }
             }
         }
 
@@ -179,7 +248,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(readOnly = true)
     public List<MemberResponse> getMyMembers() {
-        Organization organization = findMyOrganization();
+        Organization organization = findMyActiveOrganization();
         return memberRepository
                 .findByOrganizationIdAndStatusNot(
                         organization.getId(),
@@ -193,7 +262,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public InvitationResponse inviteMember(InviteMemberRequest request) {
-        Organization organization = findMyOrganization();
+        Organization organization = findMyActiveOrganization();
         UserProfile invitedBy = organization.getOwner();
         UserProfile invitedUser = userProfileRepository
                 .findByEmailIgnoreCase(request.email().trim())
@@ -268,7 +337,7 @@ public class OrganizationServiceImpl implements OrganizationService {
             UUID targetUserId,
             UpdateMemberRoleRequest request
     ) {
-        Organization organization = findMyOrganization();
+        Organization organization = findMyActiveOrganization();
         OrganizationMember member = findMembership(
                 organization.getId(),
                 targetUserId
@@ -292,7 +361,7 @@ public class OrganizationServiceImpl implements OrganizationService {
             UUID targetUserId,
             UpdateMemberPermissionsRequest request
     ) {
-        Organization organization = findMyOrganization();
+        Organization organization = findMyActiveOrganization();
         OrganizationMember member = findMembership(
                 organization.getId(),
                 targetUserId
@@ -312,7 +381,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public void removeMember(UUID targetUserId) {
-        Organization organization = findMyOrganization();
+        Organization organization = findMyActiveOrganization();
         OrganizationMember member = findMembership(
                 organization.getId(),
                 targetUserId
@@ -351,6 +420,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                     "Organization invitation has expired"
             );
         }
+        requireActiveOrganization(member.getOrganization());
 
         member.accept();
         return organizationMapper.toMemberResponse(member);
@@ -359,7 +429,8 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public OrganizationResponse approve(UUID id) {
-        requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
+        Jwt jwt = getCurrentJwt();
+        requireRealmRole(jwt, ADMIN_ROLE);
         Organization organization = findPendingOrganizationForReview(id);
         if (!companyIdentityService.isEmailVerified(
                 organization.getOwner().getId()
@@ -369,18 +440,100 @@ public class OrganizationServiceImpl implements OrganizationService {
                     "Company email must be verified before approval"
             );
         }
+        LocalDateTime reviewedAt = LocalDateTime.now();
+        UUID reviewerId = extractCurrentUserId(jwt);
         organization.setStatus(OrganizationStatus.ACTIVE);
-        organization.setVerifiedAt(LocalDateTime.now());
+        organization.setVerifiedAt(reviewedAt);
+        organization.setReviewedBy(reviewerId);
+        organization.setReviewedAt(reviewedAt);
+        organization.setRejectionReason(null);
+        recordReview(
+                organization,
+                OrganizationReviewDecision.APPROVED,
+                reviewerId,
+                null,
+                reviewedAt
+        );
+        publishLifecycleEvent(
+                organization,
+                OrganizationLifecycleEventType.APPROVED,
+                null
+        );
         return organizationMapper.toOrganizationResponse(organization);
     }
 
     @Override
     @Transactional
-    public OrganizationResponse reject(UUID id) {
-        requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
+    public OrganizationResponse reject(
+            UUID id,
+            RejectOrganizationRequest request
+    ) {
+        Jwt jwt = getCurrentJwt();
+        requireRealmRole(jwt, ADMIN_ROLE);
         Organization organization = findPendingOrganizationForReview(id);
+        LocalDateTime reviewedAt = LocalDateTime.now();
+        UUID reviewerId = extractCurrentUserId(jwt);
+        String reason = request == null
+                ? null
+                : trimToNull(request.reason());
+        if (reason == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Rejection reason is required"
+            );
+        }
         organization.setStatus(OrganizationStatus.REJECTED);
         organization.setVerifiedAt(null);
+        organization.setReviewedBy(reviewerId);
+        organization.setReviewedAt(reviewedAt);
+        organization.setRejectionReason(reason);
+        recordReview(
+                organization,
+                OrganizationReviewDecision.REJECTED,
+                reviewerId,
+                reason,
+                reviewedAt
+        );
+        publishLifecycleEvent(
+                organization,
+                OrganizationLifecycleEventType.REJECTED,
+                reason
+        );
+        return organizationMapper.toOrganizationResponse(organization);
+    }
+
+    @Override
+    @Transactional
+    public OrganizationResponse resubmit() {
+        Jwt jwt = getCurrentJwt();
+        Organization organization = findMyOrganization(
+                extractCurrentUserId(jwt)
+        );
+        if (organization.getStatus() != OrganizationStatus.REJECTED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Only rejected organization registrations can be resubmitted"
+            );
+        }
+        if (!websiteUrlService.matchesEmailDomain(
+                requireEmail(jwt),
+                organization.getWebsiteUrl()
+        )) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Business email domain must match the organization website domain"
+            );
+        }
+
+        organization.setSubmissionVersion(
+                organization.getSubmissionVersion() + 1
+        );
+        prepareForReview(organization);
+        publishLifecycleEvent(
+                organization,
+                OrganizationLifecycleEventType.RESUBMITTED,
+                null
+        );
         return organizationMapper.toOrganizationResponse(organization);
     }
 
@@ -393,19 +546,7 @@ public class OrganizationServiceImpl implements OrganizationService {
 
         requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
 
-        if (pageNumber < 0) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Page number must be greater than or equal to 0"
-            );
-        }
-
-        if (pageSize < 1 || pageSize > 100) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Page size must be between 1 and 100"
-            );
-        }
+        validatePagination(pageNumber, pageSize);
 
         Pageable pageable = PageRequest.of(
                 pageNumber,
@@ -440,6 +581,28 @@ public class OrganizationServiceImpl implements OrganizationService {
         );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<OrganizationReviewHistoryResponse> getReviewHistory(
+            UUID id,
+            int pageNumber,
+            int pageSize
+    ) {
+        requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
+        validatePagination(pageNumber, pageSize);
+        if (!organizationRepository.existsByIdAndDeletedAtIsNull(id)) {
+            throw organizationNotFound();
+        }
+        return reviewHistoryRepository.findByOrganization_Id(
+                id,
+                PageRequest.of(
+                        pageNumber,
+                        pageSize,
+                        Sort.by(Sort.Direction.DESC, "reviewedAt")
+                )
+        ).map(organizationMapper::toReviewHistoryResponse);
+    }
+
     private Organization findMyOrganization() {
         return findMyOrganization(extractCurrentUserId(getCurrentJwt()));
     }
@@ -453,9 +616,105 @@ public class OrganizationServiceImpl implements OrganizationService {
                 ));
     }
 
+    private Organization findMyActiveOrganization() {
+        return requireActiveOrganization(findMyOrganization());
+    }
+
+    private Organization requireActiveOrganization(
+            Organization organization
+    ) {
+        if (organization.getStatus() != OrganizationStatus.ACTIVE) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Organization must be approved before managing members"
+            );
+        }
+        return organization;
+    }
+
+    private OrganizationNextAction nextAction(
+            OrganizationStatus status,
+            boolean emailVerified
+    ) {
+        if (status == OrganizationStatus.ACTIVE) {
+            return OrganizationNextAction.NONE;
+        }
+        if (status == OrganizationStatus.REJECTED) {
+            return OrganizationNextAction.CORRECT_AND_RESUBMIT;
+        }
+        return emailVerified
+                ? OrganizationNextAction.WAIT_FOR_REVIEW
+                : OrganizationNextAction.VERIFY_EMAIL;
+    }
+
+    private LocalDateTime verificationEmailCanBeResentAt(
+            Organization organization
+    ) {
+        return organization.getVerificationEmailSentAt() == null
+                ? null
+                : organization.getVerificationEmailSentAt().plusMinutes(
+                        VERIFICATION_EMAIL_COOLDOWN_MINUTES
+                );
+    }
+
+    private void prepareForReview(Organization organization) {
+        organization.setStatus(OrganizationStatus.PENDING);
+        organization.setVerifiedAt(null);
+        organization.setReviewedBy(null);
+        organization.setReviewedAt(null);
+        organization.setRejectionReason(null);
+    }
+
+    private void recordReview(
+            Organization organization,
+            OrganizationReviewDecision decision,
+            UUID reviewerId,
+            String reason,
+            LocalDateTime reviewedAt
+    ) {
+        OrganizationReviewHistory history = new OrganizationReviewHistory();
+        history.setOrganization(organization);
+        history.setSubmissionVersion(organization.getSubmissionVersion());
+        history.setDecision(decision);
+        history.setReviewerId(reviewerId);
+        history.setReason(reason);
+        history.setReviewedAt(reviewedAt);
+        reviewHistoryRepository.save(history);
+    }
+
+    private void publishLifecycleEvent(
+            Organization organization,
+            OrganizationLifecycleEventType type,
+            String reason
+    ) {
+        eventPublisher.publishEvent(new OrganizationLifecycleEvent(
+                type,
+                organization.getId(),
+                organization.getOwner().getId(),
+                organization.getName(),
+                organization.getSubmissionVersion(),
+                reason
+        ));
+    }
+
+    private void validatePagination(int pageNumber, int pageSize) {
+        if (pageNumber < 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page number must be greater than or equal to 0"
+            );
+        }
+        if (pageSize < 1 || pageSize > 100) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page size must be between 1 and 100"
+            );
+        }
+    }
+
     private Organization findPendingOrganizationForReview(UUID id) {
         Organization organization = organizationRepository
-                .findByIdAndDeletedAtIsNull(id)
+                .findByIdForReview(id)
                 .orElseThrow(() -> organizationNotFound());
 
         if (organization.getStatus() != OrganizationStatus.PENDING) {
