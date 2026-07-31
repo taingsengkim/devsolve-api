@@ -20,15 +20,14 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
                     or profile.status = :status
             )
               and (
-                    :query is null
-                    or lower(profile.fullName)
-                        like concat('%', :query, '%')
+                    lower(profile.fullName)
+                        like :queryPattern
                     or lower(profile.email)
-                        like concat('%', :query, '%')
+                        like :queryPattern
               )
             """)
     Page<UserProfile> findForAdmin(
-            @Param("query") String query,
+            @Param("queryPattern") String queryPattern,
             @Param("status") UserStatus status,
             Pageable pageable
     );
@@ -38,16 +37,20 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             from UserProfile profile
             where profile.status = :activeStatus
               and (
-                    :query is null
-                    or lower(profile.fullName)
-                        like concat('%', :query, '%')
+                    lower(profile.fullName)
+                        like :queryPattern
                     or lower(profile.country)
-                        like concat('%', :query, '%')
+                        like :queryPattern
               )
             """)
     Page<UserProfile> findPublicProfiles(
-            @Param("query") String query,
+            @Param("queryPattern") String queryPattern,
             @Param("activeStatus") UserStatus activeStatus,
+            Pageable pageable
+    );
+
+    Page<UserProfile> findAllByStatus(
+            UserStatus status,
             Pageable pageable
     );
 

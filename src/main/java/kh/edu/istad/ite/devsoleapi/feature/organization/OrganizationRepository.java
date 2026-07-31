@@ -20,6 +20,8 @@ public interface OrganizationRepository extends JpaRepository<Organization, UUID
 
     Optional<Organization> findByOwnerIdAndDeletedAtIsNull(UUID ownerId);
 
+    Optional<Organization> findByIdAndDeletedAtIsNull(UUID id);
+
     Page<Organization> findByStatusAndDeletedAtIsNull(
             OrganizationStatus status,
             Pageable pageable

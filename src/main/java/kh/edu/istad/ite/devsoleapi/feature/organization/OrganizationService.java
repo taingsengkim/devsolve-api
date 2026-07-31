@@ -42,8 +42,10 @@ public interface OrganizationService {
 
     OrganizationResponse reject(UUID id);
 
-    Page<OrganizationResponse> getPendingOrganizations(
+    Page<OrganizationReviewSummaryResponse> getPendingOrganizations(
             int pageNumber,
             int pageSize
     );
+
+    OrganizationReviewResponse getForReview(UUID id);
 }

@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
@@ -42,6 +43,17 @@ import java.util.UUID;
 public class ProgramServiceImpl implements ProgramService {
 
     private static final String ADMIN_ROLE = "ADMIN";
+    private static final Set<String> PROGRAM_SORT_PROPERTIES = Set.of(
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name",
+            "handle",
+            "state",
+            "submissionState"
+    );
+    private static final Set<String> PROGRAM_UPDATE_SORT_PROPERTIES =
+            Set.of("id", "createdAt");
 
     private final ProgramRepository programRepository;
     private final ProgramUpdateRepository programUpdateRepository;
@@ -58,13 +70,17 @@ public class ProgramServiceImpl implements ProgramService {
             Boolean offersBounties,
             Pageable pageable
     ) {
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_SORT_PROPERTIES
+        );
         return programRepository.findAll(
                         ProgramSpecification.publicPrograms(
                                 organizationId,
                                 engagementType,
                                 offersBounties
                         ),
-                        pageable
+                        validatedPageable
                 )
                 .map(mapper::toResponseDto);
     }
@@ -91,11 +107,15 @@ public class ProgramServiceImpl implements ProgramService {
         Organization organization = findAccessibleOrganization(
                 OrganizationPermission.VIEW_PROGRAMS
         );
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_SORT_PROPERTIES
+        );
         return programRepository.findAll(
                         ProgramSpecification.organizationPrograms(
                                 organization.getId()
                         ),
-                        pageable
+                        validatedPageable
                 )
                 .map(mapper::toResponseDto);
     }
@@ -107,10 +127,6 @@ public class ProgramServiceImpl implements ProgramService {
                 OrganizationPermission.CREATE_PROGRAM
         );
         requireUniqueHandle(request.handle(), null);
-        requireAllowedVisibility(
-                request.visibility(),
-                SubmissionState.PENDING_REVIEW
-        );
 
         Program program = mapper.toEntity(request);
         program.setOrganizationId(organization.getId());
@@ -142,12 +158,6 @@ public class ProgramServiceImpl implements ProgramService {
 
         if (request.handle() != null) {
             requireUniqueHandle(request.handle(), program.getId());
-        }
-        if (request.visibility() != null) {
-            requireAllowedVisibility(
-                    request.visibility(),
-                    program.getSubmissionState()
-            );
         }
 
         boolean requiresNewReview =
@@ -288,8 +298,12 @@ public class ProgramServiceImpl implements ProgramService {
             Pageable pageable
     ) {
         findPublicProgramById(id);
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_UPDATE_SORT_PROPERTIES
+        );
         return programUpdateRepository
-                .findByProgramId(id, pageable)
+                .findByProgramId(id, validatedPageable)
                 .map(mapper::toUpdateDto);
     }
 
@@ -300,11 +314,15 @@ public class ProgramServiceImpl implements ProgramService {
             Pageable pageable
     ) {
         requireRole(ADMIN_ROLE);
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_SORT_PROPERTIES
+        );
         return programRepository.findAll(
                         ProgramSpecification.programsForReview(
                                 submissionState
                         ),
-                        pageable
+                        validatedPageable
                 )
                 .map(mapper::toResponseDto);
     }
@@ -396,16 +414,6 @@ public class ProgramServiceImpl implements ProgramService {
         return program.getState() == ProgramState.ACTIVE
                 && program.getSubmissionState() == SubmissionState.APPROVED
                 && program.getVisibility() == Visibility.PUBLIC;
-    }
-
-    private void requireAllowedVisibility(
-            Visibility visibility,
-            SubmissionState submissionState
-    ) {
-        if (visibility == Visibility.PUBLIC
-                && submissionState != SubmissionState.APPROVED) {
-            throw conflict("Only admin-approved programs can be public");
-        }
     }
 
     private void requireUniqueHandle(String handle, UUID excludedId) {

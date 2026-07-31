@@ -95,15 +95,27 @@ public class UserProfileServiceImpl implements UserProfileService {
     ) {
         requireAdmin();
         String normalizedQuery = normalizeQuery(query);
-        return userProfileRepository.findForAdmin(
-                normalizedQuery,
-                status,
-                PageRequest.of(
-                        pageNumber,
-                        pageSize,
-                        Sort.by(Sort.Direction.DESC, "createdAt")
-                )
-        ).map(this::toAdminSummary);
+        PageRequest pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+        Page<UserProfile> profiles;
+        if (normalizedQuery == null) {
+            profiles = status == null
+                    ? userProfileRepository.findAll(pageable)
+                    : userProfileRepository.findAllByStatus(
+                            status,
+                            pageable
+                    );
+        } else {
+            profiles = userProfileRepository.findForAdmin(
+                    containsPattern(normalizedQuery),
+                    status,
+                    pageable
+            );
+        }
+        return profiles.map(this::toAdminSummary);
     }
 
     @Override
@@ -113,19 +125,27 @@ public class UserProfileServiceImpl implements UserProfileService {
             int pageNumber,
             int pageSize
     ) {
-        return userProfileRepository.findPublicProfiles(
-                normalizeQuery(query),
-                UserStatus.ACTIVE,
-                PageRequest.of(
-                        pageNumber,
-                        pageSize,
-                        Sort.by(Sort.Direction.DESC, "reputation")
-                                .and(Sort.by(
-                                        Sort.Direction.DESC,
-                                        "createdAt"
-                                ))
+        String normalizedQuery = normalizeQuery(query);
+        PageRequest pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.DESC, "reputation")
+                        .and(Sort.by(
+                                Sort.Direction.DESC,
+                                "createdAt"
+                        ))
+        );
+        Page<UserProfile> profiles = normalizedQuery == null
+                ? userProfileRepository.findAllByStatus(
+                        UserStatus.ACTIVE,
+                        pageable
                 )
-        ).map(this::toPublicProfile);
+                : userProfileRepository.findPublicProfiles(
+                        containsPattern(normalizedQuery),
+                        UserStatus.ACTIVE,
+                        pageable
+                );
+        return profiles.map(this::toPublicProfile);
     }
 
     @Override
@@ -167,6 +187,10 @@ public class UserProfileServiceImpl implements UserProfileService {
             return null;
         }
         return query.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String containsPattern(String normalizedQuery) {
+        return "%" + normalizedQuery + "%";
     }
 
     private AdminUserSummaryResponse toAdminSummary(

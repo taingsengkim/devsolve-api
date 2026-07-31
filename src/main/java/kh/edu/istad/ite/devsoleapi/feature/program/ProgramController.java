@@ -11,6 +11,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -41,6 +42,7 @@ public class ProgramController {
                     sort = "createdAt",
                     direction = Sort.Direction.DESC
             )
+            @ParameterObject
             Pageable pageable
     ) {
         return programService.getPublicPrograms(
@@ -71,6 +73,7 @@ public class ProgramController {
                     sort = "createdAt",
                     direction = Sort.Direction.DESC
             )
+            @ParameterObject
             Pageable pageable
     ) {
         return programService.getPublicProgramUpdates(id, pageable);
@@ -83,6 +86,7 @@ public class ProgramController {
                     sort = "updatedAt",
                     direction = Sort.Direction.DESC
             )
+            @ParameterObject
             Pageable pageable
     ) {
         return programService.getMyPrograms(pageable);
