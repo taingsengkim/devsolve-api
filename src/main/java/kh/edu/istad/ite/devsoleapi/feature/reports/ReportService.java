@@ -35,4 +35,6 @@ public interface ReportService {
     ReportResponse recordReward(UUID id, RewardReportRequest request);
 
     void requireViewAccess(UUID reportId);
+
+    ReportDiscussionAccess requireDiscussionAccess(UUID reportId);
 }

@@ -98,6 +98,19 @@ public class SecurityConfig {
 
                 .requestMatchers(
                         HttpMethod.GET,
+                        "/api/v1/comments/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/comments",
+                        "/api/v1/comments/*"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/comments/**"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
                         "/api/v1/programs",
                         "/api/v1/programs/*",
                         "/api/v1/programs/handle/*",

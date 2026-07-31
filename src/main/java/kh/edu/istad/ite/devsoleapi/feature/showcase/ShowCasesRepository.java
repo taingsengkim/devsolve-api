@@ -160,6 +160,11 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
             UUID id
     );
 
+    Optional<ShowCases> findByIdAndReviewStatusAndDeletedAtIsNull(
+            UUID id,
+            ReviewStatus reviewStatus
+    );
+
     @Modifying(
             flushAutomatically = true,
             clearAutomatically = true

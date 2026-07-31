@@ -1,17 +1,25 @@
 package kh.edu.istad.ite.devsoleapi.feature.comments.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import lombok.Getter;
-import lombok.Setter;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 
 import java.util.UUID;
 
-@Getter
-@Setter
-public class CreateCommentRequest {
+public record CreateCommentRequest(
+        @NotNull(message = "Commentable type is required")
+        CommentableType commentableType,
 
-    @NotBlank(message = "Content is required.")
-    private String content;
+        @NotNull(message = "Commentable ID is required")
+        UUID commentableId,
 
-    private UUID parentCommentId;
+        @NotBlank(message = "Content is required")
+        @Size(max = 5000, message = "Content must not exceed 5000 characters")
+        String content,
+
+        UUID parentCommentId,
+
+        boolean internal
+) {
 }

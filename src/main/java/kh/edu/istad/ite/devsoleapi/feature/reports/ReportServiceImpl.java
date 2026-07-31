@@ -282,7 +282,53 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional(readOnly = true)
     public void requireViewAccess(UUID reportId) {
-        findReportWithViewAccess(reportId);
+        requireDiscussionAccess(reportId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ReportDiscussionAccess requireDiscussionAccess(UUID reportId) {
+        Report report = findReportableProgramReport(reportId);
+        UUID userId = currentUserId();
+        return resolveDiscussionAccess(report, userId);
+    }
+
+    private ReportDiscussionAccess resolveDiscussionAccess(
+            Report report,
+            UUID userId
+    ) {
+        boolean admin = AuthUtils.hasRole(ADMIN_ROLE);
+        if (admin) {
+            return new ReportDiscussionAccess(true, true, true);
+        }
+
+        boolean canTriageForOrganization =
+                organizationAuthorization.hasPermission(
+                        report.getProgram().getOrganizationId(),
+                        userId,
+                        OrganizationPermission.TRIAGE_REPORTS
+                );
+        boolean canViewForOrganization =
+                canTriageForOrganization
+                        || organizationAuthorization.hasPermission(
+                                report.getProgram().getOrganizationId(),
+                                userId,
+                                OrganizationPermission.VIEW_REPORTS
+                        );
+
+        if (canViewForOrganization) {
+            return new ReportDiscussionAccess(
+                    true,
+                    canTriageForOrganization,
+                    canTriageForOrganization
+            );
+        }
+        if (report.getReporter().getId().equals(userId)) {
+            return new ReportDiscussionAccess(false, true, false);
+        }
+
+        // Hide private-report existence from unrelated authenticated users.
+        throw reportNotFound();
     }
 
     private Report findReportableProgramReport(UUID reportId) {
@@ -292,20 +338,8 @@ public class ReportServiceImpl implements ReportService {
 
     private Report findReportWithViewAccess(UUID reportId) {
         Report report = findReportableProgramReport(reportId);
-        UUID userId = currentUserId();
-
-        if (AuthUtils.hasRole(ADMIN_ROLE)
-                || report.getReporter().getId().equals(userId)
-                || organizationAuthorization.hasPermission(
-                        report.getProgram().getOrganizationId(),
-                        userId,
-                        OrganizationPermission.VIEW_REPORTS
-                )) {
-            return report;
-        }
-
-        // Hide private-report existence from unrelated authenticated users.
-        throw reportNotFound();
+        resolveDiscussionAccess(report, currentUserId());
+        return report;
     }
 
     private Report findReportForOrganizationAction(
