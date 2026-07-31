@@ -3,7 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.SocialPlatform;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 
 public record SocialLinkRequest(
         @NotNull(message = "Social platform is required")

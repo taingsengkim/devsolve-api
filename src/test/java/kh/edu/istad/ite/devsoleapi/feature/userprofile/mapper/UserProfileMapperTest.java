@@ -1,5 +1,10 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.mapper;
 
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.GenderStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserSocialLink;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import org.keycloak.representations.idm.UserRepresentation;

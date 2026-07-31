@@ -21,8 +21,8 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagId;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.Tag;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagRepository;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -117,6 +117,19 @@ public class ProblemServiceImpl implements ProblemService {
     public Page<ProblemResponse> findMine(Pageable pageable) {
         return problemRepository.findAllByAuthorId(
                 currentUserId(),
+                pageable
+        ).map(this::toResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ProblemResponse> findPublishedByAuthor(
+            UUID authorId,
+            Pageable pageable
+    ) {
+        return problemRepository.findAllByAuthorIdAndStatusIn(
+                authorId,
+                PUBLIC_STATUSES,
                 pageable
         ).map(this::toResponse);
     }

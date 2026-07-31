@@ -3,7 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.showcase;
 import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStep;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

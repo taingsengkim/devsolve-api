@@ -11,7 +11,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.Solution;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;

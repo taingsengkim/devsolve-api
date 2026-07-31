@@ -10,8 +10,8 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

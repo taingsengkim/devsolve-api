@@ -18,8 +18,8 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.UpdateShowcaseStatusRequ
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowCaseStepRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepMapper;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -135,6 +135,30 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                     : showCasesMapper
                             .mapRevisionToSummaryResponse(revision);
         });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ShowCasesSummaryResponse> getPublishedByAuthor(
+            UUID authorId,
+            int pageNumber,
+            int pageSize
+    ) {
+        validatePagination(pageNumber, pageSize);
+        return showCaseRepository
+                .findByAuthor_IdAndReviewStatusAndDeletedAtIsNull(
+                        authorId,
+                        ReviewStatus.APPROVED,
+                        PageRequest.of(
+                                pageNumber,
+                                pageSize,
+                                Sort.by(
+                                        Sort.Direction.DESC,
+                                        "createdAt"
+                                )
+                        )
+                )
+                .map(showCasesMapper::mapShowCaseToSummaryResponse);
     }
 
     @Override

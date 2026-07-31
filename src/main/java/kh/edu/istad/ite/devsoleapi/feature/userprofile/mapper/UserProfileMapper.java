@@ -1,5 +1,6 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.mapper;
 
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.SocialLinkResponse;
