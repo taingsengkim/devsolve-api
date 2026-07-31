@@ -4,7 +4,9 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.GenderStatus;
 import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
 import java.time.LocalDate;
+import java.util.List;
 
 public record UpdateUserProfileRequest(
         @Size(max = 70, message = "First name must not exceed 70 characters")
@@ -34,6 +36,10 @@ public record UpdateUserProfileRequest(
         GenderStatus gender,
 
         @Size(max = 100, message = "Country cannot exceed 100 characters")
-        String country
+        String country,
+
+        @Valid
+        @Size(max = 7, message = "A profile can have at most 7 social links")
+        List<SocialLinkRequest> socialLinks
 ) {
 }

@@ -2,12 +2,16 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile;
 
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.SocialLinkResponse;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
+
+import java.util.Comparator;
+import java.util.List;
 
 @Mapper(componentModel = "spring")
 public abstract class UserProfileMapper {
@@ -22,6 +26,7 @@ public abstract class UserProfileMapper {
     @Mapping(target = "criticalReports", ignore = true)
     @Mapping(target = "recognitionCount", ignore = true)
     @Mapping(target = "lastLoginAt", ignore = true)
+    @Mapping(target = "socialLinks", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     public abstract void mapUpdateUserProfileRequestToUserProfile(
@@ -46,6 +51,7 @@ public abstract class UserProfileMapper {
                 .dateOfBirth(userProfile.getDateOfBirth())
                 .gender(userProfile.getGender())
                 .country(userProfile.getCountry())
+                .socialLinks(toSocialLinkResponses(userProfile))
                 .reputation(userProfile.getReputation())
                 .totalReports(userProfile.getTotalReports())
                 .validReports(userProfile.getValidReports())
@@ -55,5 +61,18 @@ public abstract class UserProfileMapper {
                 .createdAt(userProfile.getCreatedAt())
                 .updatedAt(userProfile.getUpdatedAt())
                 .build();
+    }
+
+    public List<SocialLinkResponse> toSocialLinkResponses(
+            UserProfile userProfile
+    ) {
+        return userProfile.getSocialLinks().stream()
+                .sorted(Comparator.comparing(link ->
+                        link.getPlatform().name()))
+                .map(link -> new SocialLinkResponse(
+                        link.getPlatform(),
+                        link.getUrl()
+                ))
+                .toList();
     }
 }

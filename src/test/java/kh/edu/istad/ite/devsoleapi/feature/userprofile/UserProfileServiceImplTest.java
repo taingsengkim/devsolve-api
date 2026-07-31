@@ -4,10 +4,16 @@ import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.SocialLinkRequest;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.keycloak.admin.client.Keycloak;
+import org.keycloak.admin.client.resource.RealmResource;
+import org.keycloak.admin.client.resource.UserResource;
+import org.keycloak.admin.client.resource.UsersResource;
+import org.keycloak.representations.idm.UserRepresentation;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -45,6 +51,12 @@ class UserProfileServiceImplTest {
     private UserProfileRepository userProfileRepository;
     @Mock
     private UserProfileMapper userProfileMapper;
+    @Mock
+    private RealmResource realmResource;
+    @Mock
+    private UsersResource usersResource;
+    @Mock
+    private UserResource userResource;
 
     @AfterEach
     void clearSecurityContext() {
@@ -158,12 +170,65 @@ class UserProfileServiceImplTest {
         );
     }
 
+    @Test
+    void updateMeReplacesSocialLinksWhenCollectionIsProvided() {
+        UUID userId = UUID.randomUUID();
+        UserProfile profile = profile();
+        profile.setId(userId);
+        profile.getSocialLinks().add(UserSocialLink.builder()
+                .user(profile)
+                .platform(SocialPlatform.FACEBOOK)
+                .url("https://facebook.com/old-profile")
+                .build());
+        authenticate(userId, "USER");
+        when(userProfileRepository.findById(userId))
+                .thenReturn(Optional.of(profile));
+        when(keycloakAdminProps.getTargetRealm()).thenReturn("devsolve");
+        when(keycloak.realm("devsolve")).thenReturn(realmResource);
+        when(realmResource.users()).thenReturn(usersResource);
+        when(usersResource.get(userId.toString()))
+                .thenReturn(userResource);
+        when(userResource.toRepresentation())
+                .thenReturn(new UserRepresentation());
+
+        service().updateMe(new UpdateUserProfileRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(
+                        new SocialLinkRequest(
+                                SocialPlatform.GITHUB,
+                                "https://github.com/sokha-chan"
+                        ),
+                        new SocialLinkRequest(
+                                SocialPlatform.WEBSITE,
+                                "https://sokha.dev"
+                        )
+                )
+        ));
+
+        assertEquals(2, profile.getSocialLinks().size());
+        assertEquals(
+                List.of(SocialPlatform.GITHUB, SocialPlatform.WEBSITE),
+                profile.getSocialLinks().stream()
+                        .map(UserSocialLink::getPlatform)
+                        .sorted()
+                        .toList()
+        );
+    }
+
     private UserProfileServiceImpl service() {
         return new UserProfileServiceImpl(
                 keycloak,
                 keycloakAdminProps,
                 userProfileRepository,
-                userProfileMapper
+                userProfileMapper,
+                new SocialLinkValidator()
         );
     }
 
