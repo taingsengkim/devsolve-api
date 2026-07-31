@@ -123,6 +123,21 @@ public class SecurityConfig {
 
                 .requestMatchers(
                         HttpMethod.GET,
+                        "/api/v1/follows/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/follows/*/*/summary",
+                        "/api/v1/follows/*/*/followers",
+                        "/api/v1/follows/users/*/following"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/follows/**",
+                        "/api/v1/notifications/**"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
                         "/api/v1/programs",
                         "/api/v1/programs/*",
                         "/api/v1/programs/handle/*",

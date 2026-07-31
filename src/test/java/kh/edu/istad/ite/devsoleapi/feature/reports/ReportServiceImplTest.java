@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.*;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
@@ -82,6 +83,8 @@ class ReportServiceImplTest {
 
     @Mock
     private ReportMapper reportMapper;
+    @Mock
+    private FollowNotificationService followNotificationService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -375,7 +378,8 @@ class ReportServiceImplTest {
                         organizationRepository,
                         organizationMemberRepository
                 ),
-                reportMapper
+                reportMapper,
+                followNotificationService
         );
     }
 

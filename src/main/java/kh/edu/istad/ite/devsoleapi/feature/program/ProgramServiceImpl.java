@@ -2,6 +2,9 @@ package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
@@ -45,6 +48,7 @@ public class ProgramServiceImpl implements ProgramService {
     private final ProgramMapper mapper;
     private final OrganizationRepository organizationRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final FollowNotificationService followNotificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -149,6 +153,8 @@ public class ProgramServiceImpl implements ProgramService {
         boolean requiresNewReview =
                 program.getSubmissionState() == SubmissionState.APPROVED
                         && hasReviewSensitiveChanges(request);
+        boolean becomingPublic = program.getVisibility() != Visibility.PUBLIC
+                && request.visibility() == Visibility.PUBLIC;
         mapper.updateEntity(request, program);
         validateProgramConfiguration(program);
         if (requiresNewReview) {
@@ -170,6 +176,9 @@ public class ProgramServiceImpl implements ProgramService {
             );
         } else {
             logUpdate(program, "Program details updated");
+        }
+        if (becomingPublic && isPubliclyAccessible(program)) {
+            notifyOrganizationFollowersOfPublishedProgram(program);
         }
         return mapper.toResponseDto(program);
     }
@@ -213,6 +222,9 @@ public class ProgramServiceImpl implements ProgramService {
 
         program.setState(ProgramState.ACTIVE);
         logUpdate(program, "Program launched");
+        if (program.getVisibility() == Visibility.PUBLIC) {
+            notifyOrganizationFollowersOfPublishedProgram(program);
+        }
         return mapper.toResponseDto(program);
     }
 
@@ -510,11 +522,42 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     private void logUpdate(Program program, String summary) {
-        programUpdateRepository.save(ProgramUpdate.builder()
+        UUID actorId = extractCurrentUserId();
+        ProgramUpdate update = programUpdateRepository.save(
+                ProgramUpdate.builder()
                 .program(program)
                 .changeSummary(summary)
-                .changedBy(extractCurrentUserId())
-                .build());
+                .changedBy(actorId)
+                .build()
+        );
+        if (program.getSubmissionState() == SubmissionState.APPROVED
+                && program.getVisibility() == Visibility.PUBLIC) {
+            followNotificationService.notifyFollowers(
+                    FollowType.PROGRAM,
+                    program.getId(),
+                    actorId,
+                    "Program updated",
+                    summary,
+                    NotificationType.PROGRAM,
+                    program.getId(),
+                    "program-update:" + update.getId()
+            );
+        }
+    }
+
+    private void notifyOrganizationFollowersOfPublishedProgram(
+            Program program
+    ) {
+        followNotificationService.notifyFollowers(
+                FollowType.ORGANIZATION,
+                program.getOrganizationId(),
+                extractCurrentUserId(),
+                "New program published",
+                program.getName(),
+                NotificationType.PROGRAM,
+                program.getId(),
+                "program-published:" + program.getId()
+        );
     }
 
     private void requireRole(String role) {

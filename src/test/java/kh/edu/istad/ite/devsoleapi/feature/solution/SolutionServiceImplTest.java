@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.solution;
 
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
@@ -44,6 +45,8 @@ class SolutionServiceImplTest {
 
     @Mock
     private ProblemRepository problemRepository;
+    @Mock
+    private FollowNotificationService followNotificationService;
 
     private SolutionServiceImpl service;
 
@@ -51,7 +54,8 @@ class SolutionServiceImplTest {
     void setUp() {
         service = new SolutionServiceImpl(
                 solutionRepository,
-                problemRepository
+                problemRepository,
+                followNotificationService
         );
     }
 

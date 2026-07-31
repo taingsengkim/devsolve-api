@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemTechnologyRequest;
@@ -74,6 +75,8 @@ class ProblemServiceImplTest {
     private ProblemAttachmentValidator attachmentValidator;
     @Mock
     private ObjectStorageService objectStorageService;
+    @Mock
+    private FollowNotificationService followNotificationService;
 
     private ProblemServiceImpl service;
 
@@ -91,7 +94,8 @@ class ProblemServiceImplTest {
                 problemMapper,
                 contentSafety,
                 attachmentValidator,
-                objectStorageService
+                objectStorageService,
+                followNotificationService
         );
         lenient().when(contentSafety.normalizeText(any(String.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));

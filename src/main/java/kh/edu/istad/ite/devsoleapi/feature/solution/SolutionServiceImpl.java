@@ -2,6 +2,9 @@ package kh.edu.istad.ite.devsoleapi.feature.solution;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
@@ -38,6 +41,7 @@ public class SolutionServiceImpl implements SolutionService {
 
     private final SolutionRepository solutionRepository;
     private final ProblemRepository problemRepository;
+    private final FollowNotificationService followNotificationService;
 
     @Override
     @Transactional
@@ -307,6 +311,19 @@ public class SolutionServiceImpl implements SolutionService {
         );
 
         Solution updated = solutionRepository.save(solution);
+        if (updated.getReviewStatus() == ReviewStatus.APPROVED) {
+            followNotificationService.notifyFollowers(
+                    FollowType.PROBLEM,
+                    updated.getProblem().getId(),
+                    reviewerId,
+                    "New solution posted",
+                    "A new solution was approved for: "
+                            + updated.getProblem().getTitle(),
+                    NotificationType.SOLUTION,
+                    updated.getId(),
+                    "solution-approved:" + updated.getId()
+            );
+        }
         log.info(
                 "Solution {} reviewed by admin {} as {}",
                 solutionId,
