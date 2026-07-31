@@ -28,7 +28,7 @@ import java.util.UUID;
 public class Vote {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @Column(name = "user_id", nullable = false)
@@ -42,7 +42,7 @@ public class Vote {
     private UUID votableId;
 
     @Column(name = "vote_value", nullable = false)
-    private Short voteValue;
+    private short voteValue;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
