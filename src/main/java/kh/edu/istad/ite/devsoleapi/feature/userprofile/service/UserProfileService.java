@@ -1,10 +1,11 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.service;
 
 
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
 
 import java.util.UUID;

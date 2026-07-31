@@ -4,7 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

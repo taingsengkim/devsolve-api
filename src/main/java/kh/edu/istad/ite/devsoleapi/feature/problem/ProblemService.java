@@ -25,6 +25,11 @@ public interface ProblemService {
 
     Page<ProblemResponse> findMine(Pageable pageable);
 
+    Page<ProblemResponse> findPublishedByAuthor(
+            UUID authorId,
+            Pageable pageable
+    );
+
     Page<ProblemResponse> findForModeration(
             ProblemStatus status,
             Pageable pageable

@@ -149,6 +149,12 @@ public class SecurityConfig {
                         "/api/v1/user-profiles/*"
                 ).permitAll()
                 .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/user-profiles/*/problems",
+                        "/api/v1/user-profiles/*/solutions",
+                        "/api/v1/user-profiles/*/showcases"
+                ).permitAll()
+                .requestMatchers(
                         "/api/v1/user-profiles/**"
                 ).authenticated()
 

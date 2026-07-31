@@ -26,6 +26,13 @@ public interface SolutionRepository extends JpaRepository<Solution, UUID> {
             Pageable pageable
     );
 
+    Page<Solution>
+    findAllByAuthorIdAndReviewStatusInAndDeletedAtIsNull(
+            UUID authorId,
+            Collection<ReviewStatus> reviewStatuses,
+            Pageable pageable
+    );
+
     @Query("""
             SELECT solution
             FROM Solution solution

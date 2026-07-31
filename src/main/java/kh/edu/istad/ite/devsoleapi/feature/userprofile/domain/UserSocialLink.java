@@ -1,4 +1,4 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

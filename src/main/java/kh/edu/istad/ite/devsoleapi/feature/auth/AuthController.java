@@ -2,7 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.auth;
 
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterRequest;
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileService;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserProfileService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

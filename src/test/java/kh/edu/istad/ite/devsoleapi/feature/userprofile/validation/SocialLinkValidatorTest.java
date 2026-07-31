@@ -1,5 +1,6 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.validation;
 
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;

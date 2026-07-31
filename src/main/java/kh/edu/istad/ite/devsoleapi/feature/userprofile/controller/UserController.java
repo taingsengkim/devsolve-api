@@ -1,9 +1,10 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.controller;
 
 
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserProfileService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;

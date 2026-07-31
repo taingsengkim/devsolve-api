@@ -2,8 +2,8 @@ package kh.edu.istad.ite.devsoleapi.feature.bookmark;
 
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkResponse;
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkStatusResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

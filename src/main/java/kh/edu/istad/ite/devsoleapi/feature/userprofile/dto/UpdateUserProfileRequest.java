@@ -1,6 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.userprofile.dto;
 
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.GenderStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.GenderStatus;
 import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
