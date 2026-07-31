@@ -2,13 +2,14 @@ package kh.edu.istad.ite.devsoleapi.feature.vote.dto;
 
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
-public record VoteResponse(
-        UUID id,
+
+public record VoteSummaryResponse(
         VoteType type,
         UUID targetId,
-        short value,
-        LocalDateTime createdAt
+        long score,
+        long upvotes,
+        long downvotes,
+        Short currentUserVote
 ) {
 }

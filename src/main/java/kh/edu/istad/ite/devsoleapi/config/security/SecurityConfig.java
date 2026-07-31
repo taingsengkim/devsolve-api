@@ -111,6 +111,18 @@ public class SecurityConfig {
 
                 .requestMatchers(
                         HttpMethod.GET,
+                        "/api/v1/votes/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/votes/*/*/summary"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/votes/**"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
                         "/api/v1/programs",
                         "/api/v1/programs/*",
                         "/api/v1/programs/handle/*",
@@ -229,6 +241,7 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of(
                 "GET",
                 "POST",
+                "PUT",
                 "PATCH",
                 "DELETE",
                 "OPTIONS"
