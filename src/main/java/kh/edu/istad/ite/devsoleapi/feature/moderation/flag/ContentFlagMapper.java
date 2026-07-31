@@ -13,6 +13,7 @@ public abstract class ContentFlagMapper {
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "reviewedBy", ignore = true)
     @Mapping(target = "reviewedAt", ignore = true)
+    @Mapping(target = "resolutionNote", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
     public abstract ContentFlag mapCreateFlagRequestToContentFlag(

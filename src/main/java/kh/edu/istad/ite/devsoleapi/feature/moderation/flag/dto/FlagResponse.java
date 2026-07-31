@@ -29,6 +29,8 @@ public record FlagResponse(
 
         LocalDateTime reviewedAt,
 
+        String resolutionNote,
+
         LocalDateTime createdAt
 ) {
 }

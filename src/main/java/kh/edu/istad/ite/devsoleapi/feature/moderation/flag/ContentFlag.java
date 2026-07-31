@@ -59,4 +59,7 @@ public class ContentFlag extends BasedEntity {
 
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
+
+    @Column(name = "resolution_note", columnDefinition = "TEXT")
+    private String resolutionNote;
 }

@@ -8,10 +8,15 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
@@ -29,17 +34,13 @@ public class ModerationServiceImpl implements ModerationService{
 
 
     @Override
+    @Transactional
     public ModerationActionResponse createModerationAction(
             UUID targetUserId,
             CreateModerationActionRequest request
     ) {
         // Only ADMIN can perform moderation actions
-        if (!AuthUtils.hasRole("ADMIN")) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only ADMIN can perform moderation actions"
-            );
-        }
+        requireAdmin();
 
         UUID adminId = extractCurrentUserId();
 
@@ -103,6 +104,67 @@ public class ModerationServiceImpl implements ModerationService{
                 );
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ModerationActionResponse> getModerationHistory(
+            ModerationTargetType targetType,
+            UUID targetId,
+            ModerationActionType action,
+            int pageNumber,
+            int pageSize
+    ) {
+        requireAdmin();
+        validatePagination(pageNumber, pageSize);
+
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(
+                        Sort.Direction.DESC,
+                        "createdAt"
+                )
+        );
+
+        return moderationActionRepository
+                .searchHistory(
+                        targetType,
+                        targetId,
+                        action,
+                        pageable
+                )
+                .map(moderationActionMapper
+                        ::mapModerationActionToModerationActionResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ModerationActionResponse getModerationActionById(
+            UUID actionId
+    ) {
+        requireAdmin();
+
+        ModerationAction action = moderationActionRepository
+                .findById(actionId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Moderation action not found"
+                ));
+
+        return moderationActionMapper
+                .mapModerationActionToModerationActionResponse(
+                        action
+                );
+    }
+
+    private void requireAdmin() {
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can perform moderation actions"
+            );
+        }
+    }
+
     private UUID extractCurrentUserId() {
         try {
             return UUID.fromString(
@@ -114,6 +176,24 @@ public class ModerationServiceImpl implements ModerationService{
                     HttpStatus.UNAUTHORIZED,
                     "Authenticated user ID is not a valid UUID",
                     exception
+            );
+        }
+    }
+
+    private void validatePagination(
+            int pageNumber,
+            int pageSize
+    ) {
+        if (pageNumber < 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page number must be greater than or equal to 0"
+            );
+        }
+        if (pageSize < 1 || pageSize > 100) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Page size must be between 1 and 100"
             );
         }
     }
