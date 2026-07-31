@@ -1,47 +1,89 @@
 package kh.edu.istad.ite.devsoleapi.feature.follow;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
-public interface FollowRepository extends JpaRepository<Follow, String> {
+public interface FollowRepository extends JpaRepository<Follow, UUID> {
 
-    // Find specific follow relationship
-    Optional<Follow> findByFollowerIdAndFollowableTypeAndFollowableId(
-            String followerId,
-            String followableType,
-            String followableId);
+    Optional<Follow> findByFollower_IdAndFollowableTypeAndFollowableId(
+            UUID followerId,
+            FollowType followableType,
+            UUID followableId
+    );
 
-    // Check if relationship exists
-    boolean existsByFollowerIdAndFollowableTypeAndFollowableId(
-            String followerId,
-            String followableType,
-            String followableId);
+    boolean existsByFollower_IdAndFollowableTypeAndFollowableId(
+            UUID followerId,
+            FollowType followableType,
+            UUID followableId
+    );
 
-    // Get all follows by follower
-    List<Follow> findByFollowerId(String followerId);
+    long deleteByFollower_IdAndFollowableTypeAndFollowableId(
+            UUID followerId,
+            FollowType followableType,
+            UUID followableId
+    );
 
-    // Get all follows by followable
-    List<Follow> findByFollowableTypeAndFollowableId(String followableType, String followableId);
+    long countByFollowableTypeAndFollowableId(
+            FollowType followableType,
+            UUID followableId
+    );
 
-    // Count followers
-    long countByFollowableTypeAndFollowableId(String followableType, String followableId);
+    @Query("""
+            select follow
+            from Follow follow
+            where follow.follower.id = :followerId
+              and (
+                    :followableType is null
+                    or follow.followableType = :followableType
+              )
+            """)
+    Page<Follow> findFollowing(
+            @Param("followerId") UUID followerId,
+            @Param("followableType") FollowType followableType,
+            Pageable pageable
+    );
 
-    // Count following
-    long countByFollowerId(String followerId);
+    @EntityGraph(attributePaths = "follower")
+    Page<Follow> findByFollowableTypeAndFollowableId(
+            FollowType followableType,
+            UUID followableId,
+            Pageable pageable
+    );
 
-    // Check if user is following any entity of a type
-    boolean existsByFollowerIdAndFollowableType(String followerId, String followableType);
-
-    // Custom query to get follows with pagination
-    @Query("SELECT f FROM Follow f WHERE f.follower.id = :followerId ORDER BY f.createdAt DESC")
-    List<Follow> findRecentFollowsByFollower(@Param("followerId") String followerId);
-
-    // Delete all follows for a user (useful for account deletion)
-    void deleteByFollowerId(String followerId);
-
-    void deleteByFollowableTypeAndFollowableId(String followableType, String followableId);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            INSERT INTO public.follows (
+                id,
+                follower_id,
+                followable_type,
+                followable_id,
+                created_at
+            )
+            VALUES (
+                :id,
+                :followerId,
+                :followableType,
+                :followableId,
+                CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (
+                follower_id,
+                followable_type,
+                followable_id
+            ) DO NOTHING
+            """, nativeQuery = true)
+    int insertIfAbsent(
+            @Param("id") UUID id,
+            @Param("followerId") UUID followerId,
+            @Param("followableType") String followableType,
+            @Param("followableId") UUID followableId
+    );
 }

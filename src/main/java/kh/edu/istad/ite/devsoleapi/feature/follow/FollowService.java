@@ -1,21 +1,37 @@
 package kh.edu.istad.ite.devsoleapi.feature.follow;
 
-import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowRequest;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowResponse;
+import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowSummaryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowerResponse;
+import org.springframework.data.domain.Page;
 
-import java.util.List;
+import java.util.UUID;
 
 public interface FollowService {
-    /**
-     *
-     * @param request
-     * @return
-     */
-    FollowResponse follow(FollowRequest request);
-    void unfollow(String followerId, String followableType, String followableId);
-    List<FollowResponse> getFollowing(String followerId);
-    List<FollowResponse> getFollowers(String followableId, String followableType);
-    boolean isFollowing(String followerId, String followableType, String followableId);
-    long countFollowers(String followableType, String followableId);
-    long countFollowing(String followerId);
+
+    FollowResponse follow(FollowType type, UUID targetId);
+
+    void unfollow(FollowType type, UUID targetId);
+
+    FollowSummaryResponse getSummary(FollowType type, UUID targetId);
+
+    Page<FollowResponse> getMine(
+            FollowType type,
+            int pageNumber,
+            int pageSize
+    );
+
+    Page<FollowResponse> getFollowing(
+            UUID userId,
+            FollowType type,
+            int pageNumber,
+            int pageSize
+    );
+
+    Page<FollowerResponse> getFollowers(
+            FollowType type,
+            UUID targetId,
+            int pageNumber,
+            int pageSize
+    );
 }

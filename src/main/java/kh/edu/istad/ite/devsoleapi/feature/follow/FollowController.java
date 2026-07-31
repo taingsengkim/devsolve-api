@@ -1,70 +1,109 @@
 package kh.edu.istad.ite.devsoleapi.feature.follow;
 
-import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowRequest;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowResponse;
-import jakarta.validation.Valid;
+import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowSummaryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowerResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import java.util.UUID;
 
+@Validated
 @RestController
 @RequestMapping("/api/v1/follows")
 @RequiredArgsConstructor
 public class FollowController {
+
     private final FollowService followService;
 
-    @PostMapping
-    public ResponseEntity<FollowResponse> follow(@Valid @RequestBody FollowRequest request) {
-        FollowResponse response = followService.follow(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    @PutMapping("/{type}/{targetId}")
+    public FollowResponse follow(
+            @PathVariable FollowType type,
+            @PathVariable UUID targetId
+    ) {
+        return followService.follow(type, targetId);
     }
 
-    @GetMapping("/followers")
-    public ResponseEntity<List<FollowResponse>> getFollowers(
-            @RequestParam String followableType,
-            @RequestParam String followableId) {
-        List<FollowResponse> followers = followService.getFollowers(followableId, followableType);
-        return ResponseEntity.ok(followers);
+    @DeleteMapping("/{type}/{targetId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unfollow(
+            @PathVariable FollowType type,
+            @PathVariable UUID targetId
+    ) {
+        followService.unfollow(type, targetId);
     }
 
-    @GetMapping("/following/{followerId}")
-    public ResponseEntity<List<FollowResponse>> getFollowing(@PathVariable String followerId) {
-        List<FollowResponse> follows = followService.getFollowing(followerId);
-        return ResponseEntity.ok(follows);
+    @GetMapping("/{type}/{targetId}/summary")
+    public FollowSummaryResponse getSummary(
+            @PathVariable FollowType type,
+            @PathVariable UUID targetId
+    ) {
+        return followService.getSummary(type, targetId);
     }
 
-    @GetMapping("/check")
-    public ResponseEntity<Boolean> isFollowing(
-            @RequestParam String followerId,
-            @RequestParam String followableType,
-            @RequestParam String followableId) {
-        boolean isFollowing = followService.isFollowing(followerId, followableType, followableId);
-        return ResponseEntity.ok(isFollowing);
+    @GetMapping("/mine")
+    public Page<FollowResponse> getMine(
+            @RequestParam(required = false) FollowType type,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "Page number must be at least 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "Page size must be at least 1")
+            @Max(value = 100, message = "Page size must not exceed 100")
+            int pageSize
+    ) {
+        return followService.getMine(type, pageNumber, pageSize);
     }
 
-    @GetMapping("/count/following/{followerId}")
-    public ResponseEntity<Long> countFollowing(@PathVariable String followerId) {
-        long count = followService.countFollowing(followerId);
-        return ResponseEntity.ok(count);
+    @GetMapping("/users/{userId}/following")
+    public Page<FollowResponse> getFollowing(
+            @PathVariable UUID userId,
+            @RequestParam(required = false) FollowType type,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "Page number must be at least 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "Page size must be at least 1")
+            @Max(value = 100, message = "Page size must not exceed 100")
+            int pageSize
+    ) {
+        return followService.getFollowing(
+                userId,
+                type,
+                pageNumber,
+                pageSize
+        );
     }
 
-    @GetMapping("/count/followers")
-    public ResponseEntity<Long> countFollowers(
-            @RequestParam String followableType,
-            @RequestParam String followableId) {
-        long count = followService.countFollowers(followableType, followableId);
-        return ResponseEntity.ok(count);
-    }
-
-    @DeleteMapping("/unfollow")
-    public ResponseEntity<Void> unfollow(
-            @RequestParam String followerId,
-            @RequestParam String followableType,
-            @RequestParam String followableId) {
-        followService.unfollow(followerId, followableType, followableId);
-        return ResponseEntity.noContent().build();  // ✅ Added proper response
+    @GetMapping("/{type}/{targetId}/followers")
+    public Page<FollowerResponse> getFollowers(
+            @PathVariable FollowType type,
+            @PathVariable UUID targetId,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "Page number must be at least 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "Page size must be at least 1")
+            @Max(value = 100, message = "Page size must not exceed 100")
+            int pageSize
+    ) {
+        return followService.getFollowers(
+                type,
+                targetId,
+                pageNumber,
+                pageSize
+        );
     }
 }

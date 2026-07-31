@@ -2,6 +2,9 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
@@ -60,6 +63,7 @@ public class ReportServiceImpl implements ReportService {
     private final UserProfileRepository userProfileRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
     private final ReportMapper reportMapper;
+    private final FollowNotificationService followNotificationService;
 
     @Override
     @Transactional
@@ -232,7 +236,22 @@ public class ReportServiceImpl implements ReportService {
             );
         }
 
+        boolean newlyDisclosed = report.getDisclosureStatus()
+                != DisclosureStatus.DISCLOSED
+                && request.disclosureStatus() == DisclosureStatus.DISCLOSED;
         report.setDisclosureStatus(request.disclosureStatus());
+        if (newlyDisclosed) {
+            followNotificationService.notifyFollowers(
+                    FollowType.USER,
+                    report.getReporter().getId(),
+                    currentUserId(),
+                    "New disclosed security report",
+                    report.getTitle(),
+                    NotificationType.REPORT,
+                    report.getId(),
+                    "report-disclosed:" + report.getId()
+            );
+        }
         return reportMapper.toResponse(report);
     }
 

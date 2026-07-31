@@ -3,6 +3,9 @@ package kh.edu.istad.ite.devsoleapi.feature.showcase;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
@@ -49,6 +52,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ShowcaseRevisionWorkflow showcaseRevisionWorkflow;
     private final ShowcaseReviewHistoryRepository
             showcaseReviewHistoryRepository;
+    private final FollowNotificationService followNotificationService;
 
     @Override
     public Page<ShowCasesResponse> getAllPublished(
@@ -611,6 +615,19 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 )
         );
 
+        if (saved.getReviewStatus() == ReviewStatus.APPROVED) {
+            followNotificationService.notifyFollowers(
+                    FollowType.USER,
+                    saved.getAuthor().getId(),
+                    saved.getAuthor().getId(),
+                    "New showcase published",
+                    saved.getTitle(),
+                    NotificationType.SHOWCASE,
+                    saved.getId(),
+                    "showcase-published:" + saved.getId()
+            );
+        }
+
         return showCasesMapper.mapShowCaseToShowCaseResponse(saved);
     }
 
@@ -669,6 +686,16 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                         revision,
                         submittedAt
                 )
+        );
+        followNotificationService.notifyFollowers(
+                FollowType.SHOWCASE,
+                saved.getId(),
+                saved.getAuthor().getId(),
+                "Showcase updated",
+                saved.getTitle() + " has a newly approved revision.",
+                NotificationType.SHOWCASE,
+                saved.getId(),
+                "showcase-revision-approved:" + revision.getId()
         );
         showcaseRevisionWorkflow.discard(revision);
 

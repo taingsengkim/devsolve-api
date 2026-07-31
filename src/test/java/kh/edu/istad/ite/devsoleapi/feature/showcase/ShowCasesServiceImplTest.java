@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewQueueItemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewHistoryResponse;
@@ -81,6 +82,8 @@ class ShowCasesServiceImplTest {
     @Mock
     private ShowcaseReviewHistoryRepository
             showcaseReviewHistoryRepository;
+    @Mock
+    private FollowNotificationService followNotificationService;
 
     private ShowCasesServiceImpl service;
 
@@ -95,7 +98,8 @@ class ShowCasesServiceImplTest {
                 showcaseStepRepository,
                 showcaseStepMapper,
                 showcaseRevisionWorkflow,
-                showcaseReviewHistoryRepository
+                showcaseReviewHistoryRepository,
+                followNotificationService
         );
     }
 
