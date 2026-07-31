@@ -12,6 +12,10 @@ public interface OrganizationService {
 
     OrganizationResponse me();
 
+    OrganizationVerificationResponse getVerificationStatus();
+
+    void resendVerificationEmail();
+
     OrganizationResponse updateMe(OrganizationUpdateRequest request);
 
     void deleteMe();
@@ -40,7 +44,9 @@ public interface OrganizationService {
 
     OrganizationResponse approve(UUID id);
 
-    OrganizationResponse reject(UUID id);
+    OrganizationResponse reject(UUID id, RejectOrganizationRequest request);
+
+    OrganizationResponse resubmit();
 
     Page<OrganizationReviewSummaryResponse> getPendingOrganizations(
             int pageNumber,
@@ -48,4 +54,10 @@ public interface OrganizationService {
     );
 
     OrganizationReviewResponse getForReview(UUID id);
+
+    Page<OrganizationReviewHistoryResponse> getReviewHistory(
+            UUID id,
+            int pageNumber,
+            int pageSize
+    );
 }

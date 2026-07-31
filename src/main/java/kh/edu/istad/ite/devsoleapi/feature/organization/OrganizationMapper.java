@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.RequiredArgsConstructor;
@@ -70,6 +71,9 @@ public class OrganizationMapper {
                 organization.getCompanySize(),
                 organization.getCountry(),
                 organization.getStatus(),
+                organization.getSubmissionVersion(),
+                organization.getRejectionReason(),
+                organization.getReviewedAt(),
                 organization.getVerifiedAt(),
                 organization.getCreatedAt(),
                 organization.getUpdatedAt()
@@ -92,6 +96,7 @@ public class OrganizationMapper {
                 owner.getId(),
                 owner.getFullName(),
                 owner.getEmail(),
+                organization.getSubmissionVersion(),
                 organization.getCreatedAt()
         );
     }
@@ -121,9 +126,26 @@ public class OrganizationMapper {
                 organization.getOwnerJobTitle(),
                 organization.getJoiningReason(),
                 emailVerified,
+                organization.getSubmissionVersion(),
+                organization.getReviewedBy(),
+                organization.getReviewedAt(),
+                organization.getRejectionReason(),
                 organization.getVerifiedAt(),
                 organization.getCreatedAt(),
                 organization.getUpdatedAt()
+        );
+    }
+
+    public OrganizationReviewHistoryResponse toReviewHistoryResponse(
+            OrganizationReviewHistory history
+    ) {
+        return new OrganizationReviewHistoryResponse(
+                history.getId(),
+                history.getSubmissionVersion(),
+                history.getDecision(),
+                history.getReviewerId(),
+                history.getReason(),
+                history.getReviewedAt()
         );
     }
 

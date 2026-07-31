@@ -65,6 +65,7 @@ public class AuthServiceImpl implements AuthService {
 
         userRepresentation.setEnabled(true);
         userRepresentation.setEmailVerified(false);
+        userRepresentation.setRequiredActions(List.of("VERIFY_EMAIL"));
         userRepresentation.setCredentials(List.of(credential));
 
         try (Response response = usersResource.create(userRepresentation)) {
