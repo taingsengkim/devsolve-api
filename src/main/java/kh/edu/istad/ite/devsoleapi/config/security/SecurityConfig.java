@@ -135,6 +135,22 @@ public class SecurityConfig {
                         "/api/v1/follows/**",
                         "/api/v1/notifications/**"
                 ).authenticated()
+                .requestMatchers(
+                        "/api/v1/bookmarks/**"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/user-profiles/me"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/user-profiles",
+                        "/api/v1/user-profiles/*"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/user-profiles/**"
+                ).authenticated()
 
                 .requestMatchers(
                         HttpMethod.GET,
