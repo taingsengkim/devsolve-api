@@ -43,6 +43,7 @@ public class Solution extends BasedEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "review_status", length = 20)
+    @Builder.Default
     private ReviewStatus reviewStatus = ReviewStatus.PENDING;
 
     @Column(name = "reviewed_by")
