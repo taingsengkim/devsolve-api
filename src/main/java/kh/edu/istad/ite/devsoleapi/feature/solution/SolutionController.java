@@ -2,29 +2,26 @@ package kh.edu.istad.ite.devsoleapi.feature.solution;
 
 
 import jakarta.validation.Valid;
-import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/problems")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class SolutionController {
 
     private final SolutionService solutionService;
 
-    @PostMapping("/{problemId}/solutions")
+    @PostMapping("/problems/{problemId}/solutions")
     @ResponseStatus(HttpStatus.CREATED)
     public SolutionResponse createSolution(
             @PathVariable UUID problemId,
@@ -33,12 +30,43 @@ public class SolutionController {
         return solutionService.createSolution(problemId, request);
     }
 
-    @GetMapping("/{problemId}/solutions")
+    @GetMapping("/problems/{problemId}/solutions")
     public Page<SolutionResponse> getSolutionsByProblemId(
             @PathVariable UUID problemId,
-            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.ASC) Pageable pageable
+
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "pageNumber must be >= 0")
+            int pageNumber,
+
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "pageSize must be >= 1")
+            @Max(value = 100, message = "pageSize must be <= 100")
+            int pageSize
     ) {
-        return solutionService.getSolutionsByProblemId(problemId, pageable);
+        return solutionService.getSolutionsByProblemId(
+                problemId,
+                pageNumber,
+                pageSize
+        );
+    }
+
+    @GetMapping("/solutions/mine")
+    public Page<SolutionResponse> getMine(
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "pageNumber must be >= 0")
+            int pageNumber,
+
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "pageSize must be >= 1")
+            @Max(value = 100, message = "pageSize must be <= 100")
+            int pageSize
+    ) {
+        return solutionService.getMine(pageNumber, pageSize);
+    }
+
+    @GetMapping("/solutions/{id}")
+    public SolutionResponse getById(@PathVariable UUID id) {
+        return solutionService.getById(id);
     }
 
     @PatchMapping("/solutions/{id}")
@@ -59,16 +87,4 @@ public class SolutionController {
     public SolutionResponse acceptSolution(@PathVariable UUID id) {
         return solutionService.acceptSolution(id);
     }
-//
-//    @PatchMapping("/solutions/{id}/moderate")
-//    public SolutionResponse moderateSolution(
-//            @PathVariable UUID id,
-//            @RequestParam ReviewStatus status,
-//            @RequestParam(required = false) String rejectionReason
-//    ) {
-//        if (!AuthUtils.hasRole("ADMIN")) {
-//            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only admins can moderate");
-//        }
-//        return solutionService.moderateSolution(id, status, rejectionReason);
-//    }
 }

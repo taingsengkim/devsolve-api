@@ -71,6 +71,7 @@ public class SecurityConfig {
                         HttpMethod.GET,
                         "/api/v1/problems",
                         "/api/v1/problems/*",
+                        "/api/v1/problems/*/solutions",
                         "/api/v1/problems/*/attachments/*/download"
                 ).permitAll()
                 .requestMatchers(
@@ -82,6 +83,18 @@ public class SecurityConfig {
                         "/api/v1/admin/problems/**"
                 ).hasRole("ADMIN")
                 .requestMatchers("/api/v1/problems/**").authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/solutions/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/solutions/*"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/solutions/**"
+                ).authenticated()
 
                 .requestMatchers(
                         HttpMethod.GET,
