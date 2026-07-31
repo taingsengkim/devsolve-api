@@ -12,6 +12,7 @@ public abstract class ModerationActionMapper {
     @Mapping(target = "targetType", ignore = true)
     @Mapping(target = "targetId", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "updatedAt", ignore = true)
     public abstract ModerationAction
     mapCreateModerationActionRequestToModerationAction(
             CreateModerationActionRequest request

@@ -4,6 +4,7 @@ import org.springframework.transaction.annotation.Transactional;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -71,17 +72,43 @@ public class ContentFlagServiceImpl implements ContentFlagService{
 
     @Override
     @Transactional(readOnly = true)
-    public Page<FlagResponse> getAdminFlags(
+    public Page<FlagResponse> getMyFlags(
+            FlagStatus status,
             int pageNumber,
             int pageSize
     ) {
+        UUID reporterId = extractCurrentUserId();
+        validatePagination(pageNumber, pageSize);
 
-        if (!AuthUtils.hasRole("ADMIN")) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only ADMIN can view flags"
-            );
-        }
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(
+                        Sort.Direction.DESC,
+                        "createdAt"
+                )
+        );
+
+        return contentFlagRepository
+                .findMyFlags(
+                        reporterId,
+                        status,
+                        pageable
+                )
+                .map(contentFlagMapper
+                        ::mapContentFlagToFlagResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<FlagResponse> getAdminFlags(
+            FlagStatus status,
+            FlaggableType flaggableType,
+            FlagReason reason,
+            int pageNumber,
+            int pageSize
+    ) {
+        requireAdmin("Only ADMIN can view flags");
 
         validatePagination(pageNumber, pageSize);
 
@@ -95,11 +122,24 @@ public class ContentFlagServiceImpl implements ContentFlagService{
         );
 
         return contentFlagRepository
-                .findByStatus(
-                        FlagStatus.PENDING,
+                .searchAdminFlags(
+                        status,
+                        flaggableType,
+                        reason,
                         pageable
                 )
                 .map(contentFlagMapper::mapContentFlagToFlagResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public FlagResponse getAdminFlagById(UUID id) {
+        requireAdmin("Only ADMIN can view flags");
+
+        return contentFlagMapper
+                .mapContentFlagToFlagResponse(
+                        findFlag(id)
+                );
     }
 
     @Override
@@ -108,35 +148,12 @@ public class ContentFlagServiceImpl implements ContentFlagService{
             UUID id
     ) {
 
-        if (!AuthUtils.hasRole("ADMIN")) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only ADMIN can dismiss flags"
-            );
-        }
+        requireAdmin("Only ADMIN can dismiss flags");
 
         UUID adminId = extractCurrentUserId();
 
-        ContentFlag flag = contentFlagRepository
-                .findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Flag not found"
-                ));
-
-        if (flag.getStatus() != FlagStatus.PENDING) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Flag has already been reviewed"
-            );
-        }
-
-        UserProfile admin = userProfileRepository
-                .findById(adminId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Admin profile not found"
-                ));
+        ContentFlag flag = findPendingFlag(id);
+        UserProfile admin = findAdmin(adminId);
 
         flag.setStatus(FlagStatus.DISMISSED);
         flag.setReviewedBy(admin);
@@ -149,12 +166,77 @@ public class ContentFlagServiceImpl implements ContentFlagService{
                 .mapContentFlagToFlagResponse(savedFlag);
     }
 
+    @Override
+    @Transactional
+    public FlagResponse resolveFlag(
+            UUID id,
+            ResolveFlagRequest request
+    ) {
+        requireAdmin("Only ADMIN can resolve flags");
+
+        UUID adminId = extractCurrentUserId();
+        ContentFlag flag = findPendingFlag(id);
+        UserProfile admin = findAdmin(adminId);
+
+        flag.setStatus(FlagStatus.REVIEWED);
+        flag.setReviewedBy(admin);
+        flag.setReviewedAt(LocalDateTime.now());
+        flag.setResolutionNote(
+                request.resolutionNote().trim()
+        );
+
+        ContentFlag savedFlag =
+                contentFlagRepository.save(flag);
+
+        return contentFlagMapper
+                .mapContentFlagToFlagResponse(savedFlag);
+    }
+
+    private ContentFlag findFlag(UUID id) {
+        return contentFlagRepository
+                .findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Flag not found"
+                ));
+    }
+
+    private ContentFlag findPendingFlag(UUID id) {
+        ContentFlag flag = findFlag(id);
+
+        if (flag.getStatus() != FlagStatus.PENDING) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Flag has already been reviewed"
+            );
+        }
+        return flag;
+    }
+
+    private UserProfile findAdmin(UUID adminId) {
+        return userProfileRepository
+                .findById(adminId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Admin profile not found"
+                ));
+    }
+
+    private void requireAdmin(String message) {
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    message
+            );
+        }
+    }
+
     private UUID extractCurrentUserId() {
         try {
             return UUID.fromString(
                     AuthUtils.extractUserId()
             );
-        } catch (IllegalArgumentException exception) {
+        } catch (IllegalArgumentException | NullPointerException exception) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Authenticated user ID is not a valid UUID",
