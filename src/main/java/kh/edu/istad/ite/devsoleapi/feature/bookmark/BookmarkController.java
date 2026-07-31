@@ -1,15 +1,25 @@
 package kh.edu.istad.ite.devsoleapi.feature.bookmark;
 
-import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkRequest;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkResponse;
-import jakarta.validation.Valid;
+import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkStatusResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import java.util.UUID;
 
+@Validated
 @RestController
 @RequestMapping("/api/v1/bookmarks")
 @RequiredArgsConstructor
@@ -17,59 +27,42 @@ public class BookmarkController {
 
     private final BookmarkService bookmarkService;
 
-    @PostMapping
-    public ResponseEntity<BookmarkResponse> bookmark(@Valid @RequestBody BookmarkRequest request) {
-        BookmarkResponse response = bookmarkService.bookmark(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    @PutMapping("/{type}/{targetId}")
+    public BookmarkResponse bookmark(
+            @PathVariable BookmarkType type,
+            @PathVariable UUID targetId
+    ) {
+        return bookmarkService.bookmark(type, targetId);
     }
 
-    @GetMapping("/user/{userId}")
-    public ResponseEntity<List<BookmarkResponse>> getUserBookmarks(@PathVariable String userId) {
-        List<BookmarkResponse> bookmarks = bookmarkService.getUserBookmarks(userId);
-        return ResponseEntity.ok(bookmarks);
+    @DeleteMapping("/{type}/{targetId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unbookmark(
+            @PathVariable BookmarkType type,
+            @PathVariable UUID targetId
+    ) {
+        bookmarkService.unbookmark(type, targetId);
     }
 
-
-    @GetMapping("/bookmarkers")
-    public ResponseEntity<List<BookmarkResponse>> getBookmarkers(
-            @RequestParam String bookmarkableType,
-            @RequestParam String bookmarkableId) {
-        List<BookmarkResponse> bookmarkers = bookmarkService.getBookmarkers(bookmarkableType, bookmarkableId);
-        return ResponseEntity.ok(bookmarkers);
+    @GetMapping("/{type}/{targetId}/status")
+    public BookmarkStatusResponse getStatus(
+            @PathVariable BookmarkType type,
+            @PathVariable UUID targetId
+    ) {
+        return bookmarkService.getStatus(type, targetId);
     }
 
-
-    @GetMapping("/check")
-    public ResponseEntity<Boolean> isBookmarked(
-            @RequestParam String userId,
-            @RequestParam String bookmarkableType,
-            @RequestParam String bookmarkableId) {
-        boolean isBookmarked = bookmarkService.isBookmarked(userId, bookmarkableType, bookmarkableId);
-        return ResponseEntity.ok(isBookmarked);
-    }
-
-
-    @GetMapping("/count/user/{userId}")
-    public ResponseEntity<Long> countUserBookmarks(@PathVariable String userId) {
-        long count = bookmarkService.countUserBookmarks(userId);
-        return ResponseEntity.ok(count);
-    }
-
-
-    @GetMapping("/count")
-    public ResponseEntity<Long> countBookmarks(
-            @RequestParam String bookmarkableType,
-            @RequestParam String bookmarkableId) {
-        long count = bookmarkService.countBookmarks(bookmarkableType, bookmarkableId);
-        return ResponseEntity.ok(count);
-    }
-
-    @DeleteMapping("/unbookmark")
-    public ResponseEntity<Void> unbookmark(
-            @RequestParam String userId,
-            @RequestParam String bookmarkableType,
-            @RequestParam String bookmarkableId) {
-        bookmarkService.unbookmark(userId, bookmarkableType, bookmarkableId);
-        return ResponseEntity.noContent().build();
+    @GetMapping("/mine")
+    public Page<BookmarkResponse> getMine(
+            @RequestParam(required = false) BookmarkType type,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "Page number must be at least 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "Page size must be at least 1")
+            @Max(value = 100, message = "Page size must not exceed 100")
+            int pageSize
+    ) {
+        return bookmarkService.getMine(type, pageNumber, pageSize);
     }
 }

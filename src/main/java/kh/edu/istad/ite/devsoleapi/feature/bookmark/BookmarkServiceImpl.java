@@ -1,150 +1,156 @@
 package kh.edu.istad.ite.devsoleapi.feature.bookmark;
 
-import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkRequest;
+import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.bookmark.dto.BookmarkStatusResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
-import jakarta.transaction.Transactional;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class BookmarkServiceImpl implements BookmarkService {
 
     private final BookmarkRepository bookmarkRepository;
-    private final BookmarkMapper bookmarkMapper;
     private final UserProfileRepository userProfileRepository;
+    private final BookmarkTargetAccessService targetAccessService;
 
     @Override
     @Transactional
-    public BookmarkResponse bookmark(BookmarkRequest request) {
-        log.info("Processing bookmark request: {}", request);
-
-
-        UserProfile user = userProfileRepository.findById(UUID.fromString(request.userId()))
-                .orElseThrow(() -> new RuntimeException("User not found with id: " + request.userId()));
-
-
-        if (bookmarkRepository.existsByUserIdAndBookmarkableTypeAndBookmarkableId(
-                request.userId(),
-                request.bookmarkableType(),
-                request.bookmarkableId())) {
-            throw new RuntimeException("Already bookmarked this " + request.bookmarkableType());
-        }
-
-
-        validateBookmarkableExists(request.bookmarkableType(), request.bookmarkableId());
-
-
-        Bookmark bookmark = bookmarkMapper.toEntity(request);
-        bookmark.setUser(user);
-
-        Bookmark saved = bookmarkRepository.save(bookmark);
-        log.info("Successfully created bookmark with id: {}", saved.getId());
-
-
-        BookmarkResponse response = bookmarkMapper.toResponse(saved);
-        return enrichBookmarkResponse(response);
-    }
-
-    @Override
-    @Transactional
-    public void unbookmark(String userId, String bookmarkableType, String bookmarkableId) {
-        log.info("Processing unbookmark request - user: {}, type: {}, id: {}",
-                userId, bookmarkableType, bookmarkableId);
-
-        Bookmark bookmark = bookmarkRepository
-                .findByUserIdAndBookmarkableTypeAndBookmarkableId(userId, bookmarkableType, bookmarkableId)
-                .orElseThrow(() -> new RuntimeException("Bookmark not found"));
-
-        bookmarkRepository.delete(bookmark);
-        log.info("Successfully removed bookmark");
-    }
-
-    @Override
-    public List<BookmarkResponse> getUserBookmarks(String userId) {
-        log.info("Getting bookmarks for user: {}", userId);
-
-        if (!userProfileRepository.existsById(UUID.fromString(userId))) {
-            throw new RuntimeException("User not found with id: " + userId);
-        }
-
-        List<Bookmark> bookmarks = bookmarkRepository.findByUserId(userId);
-        return bookmarks.stream()
-                .map(bookmarkMapper::toResponse)
-                .map(this::enrichBookmarkResponse)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public List<BookmarkResponse> getBookmarkers(String bookmarkableType, String bookmarkableId) {
-        log.info("Getting bookmarkers for - type: {}, id: {}", bookmarkableType, bookmarkableId);
-
-        List<Bookmark> bookmarks = bookmarkRepository.findByBookmarkableTypeAndBookmarkableId(
-                bookmarkableType, bookmarkableId);
-
-        return bookmarks.stream()
-                .map(bookmarkMapper::toResponse)
-                .map(this::enrichBookmarkResponse)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public boolean isBookmarked(String userId, String bookmarkableType, String bookmarkableId) {
-        return bookmarkRepository.existsByUserIdAndBookmarkableTypeAndBookmarkableId(
-                userId, bookmarkableType, bookmarkableId);
-    }
-
-    @Override
-    public long countUserBookmarks(String userId) {
-        return bookmarkRepository.countByUserId(userId);
-    }
-
-    @Override
-    public long countBookmarks(String bookmarkableType, String bookmarkableId) {
-        return bookmarkRepository.countByBookmarkableTypeAndBookmarkableId(
-                bookmarkableType, bookmarkableId);
-    }
-
-    private void validateBookmarkableExists(String bookmarkableType, String bookmarkableId) {
-        if (bookmarkableType.equalsIgnoreCase("USER")) {
-            userProfileRepository.findById(UUID.fromString(bookmarkableId))
-                    .orElseThrow(() -> new RuntimeException("User to bookmark not found with id: " + bookmarkableId));
-        }
-    }
-
-    private BookmarkResponse enrichBookmarkResponse(BookmarkResponse response) {
-        String userFullName = null;
-        String bookmarkableName = null;
-
-
-        UserProfile user = userProfileRepository.findById(UUID.fromString(response.userId())).orElse(null);
-        if (user != null) {
-            userFullName = user.getFullName();
-        }
-
-        if (response.bookmarkableType().equalsIgnoreCase("USER")) {
-            UserProfile bookmarkable = userProfileRepository.findById(UUID.fromString(response.bookmarkableId())).orElse(null);
-            if (bookmarkable != null) {
-                bookmarkableName = bookmarkable.getFullName();
-            }
-        }
-
-        return new BookmarkResponse(
-                response.id(),
-                response.userId(),
-                userFullName,
-                response.bookmarkableType(),
-                response.bookmarkableId(),
-                bookmarkableName,
-                response.createdAt()
+    public BookmarkResponse bookmark(
+            BookmarkType type,
+            UUID targetId
+    ) {
+        UUID userId = currentUserId();
+        BookmarkTarget target = targetAccessService.requireBookmarkable(
+                type,
+                targetId
         );
+        userProfileRepository.findById(userId)
+                .filter(user -> user.getStatus() == UserStatus.ACTIVE)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "An active user profile is required"
+                ));
+
+        bookmarkRepository.insertIfAbsent(
+                UUID.randomUUID(),
+                userId,
+                type.databaseValue(),
+                targetId
+        );
+        Bookmark bookmark = bookmarkRepository
+                .findByUser_IdAndBookmarkableTypeAndBookmarkableId(
+                        userId,
+                        type,
+                        targetId
+                )
+                .orElseThrow(() -> new IllegalStateException(
+                        "Bookmark upsert completed without a stored bookmark"
+                ));
+        return toResponse(bookmark, target);
+    }
+
+    @Override
+    @Transactional
+    public void unbookmark(BookmarkType type, UUID targetId) {
+        bookmarkRepository
+                .deleteByUser_IdAndBookmarkableTypeAndBookmarkableId(
+                        currentUserId(),
+                        type,
+                        targetId
+                );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BookmarkStatusResponse getStatus(
+            BookmarkType type,
+            UUID targetId
+    ) {
+        targetAccessService.requireBookmarkable(type, targetId);
+        return new BookmarkStatusResponse(
+                type,
+                targetId,
+                bookmarkRepository
+                        .existsByUser_IdAndBookmarkableTypeAndBookmarkableId(
+                                currentUserId(),
+                                type,
+                                targetId
+                        )
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<BookmarkResponse> getMine(
+            BookmarkType type,
+            int pageNumber,
+            int pageSize
+    ) {
+        return bookmarkRepository.findMine(
+                currentUserId(),
+                type,
+                PageRequest.of(
+                        pageNumber,
+                        pageSize,
+                        Sort.by(Sort.Direction.DESC, "createdAt")
+                )
+        ).map(this::toResponse);
+    }
+
+    private BookmarkResponse toResponse(Bookmark bookmark) {
+        return targetAccessService.findBookmarkable(
+                        bookmark.getBookmarkableType(),
+                        bookmark.getBookmarkableId()
+                )
+                .map(target -> toResponse(bookmark, target))
+                .orElseGet(() -> new BookmarkResponse(
+                        bookmark.getId(),
+                        bookmark.getBookmarkableType(),
+                        bookmark.getBookmarkableId(),
+                        false,
+                        null,
+                        null,
+                        null,
+                        bookmark.getCreatedAt()
+                ));
+    }
+
+    private BookmarkResponse toResponse(
+            Bookmark bookmark,
+            BookmarkTarget target
+    ) {
+        return new BookmarkResponse(
+                bookmark.getId(),
+                bookmark.getBookmarkableType(),
+                bookmark.getBookmarkableId(),
+                true,
+                target.title(),
+                target.preview(),
+                target.imageUrl(),
+                bookmark.getCreatedAt()
+        );
+    }
+
+    private UUID currentUserId() {
+        try {
+            return UUID.fromString(AuthUtils.extractUserId());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authenticated user ID is not a valid UUID",
+                    exception
+            );
+        }
     }
 }
