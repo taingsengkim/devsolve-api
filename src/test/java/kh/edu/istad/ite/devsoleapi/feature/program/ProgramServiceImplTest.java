@@ -168,6 +168,7 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 null
         );
         doAnswer(invocation -> {
@@ -213,7 +214,7 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void editingApprovedProgramRequiresAdminReviewAgain() {
+    void editingApprovedProgramProofRequirementsRequiresReviewAgain() {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
         Program program = validProgram(organization.getId());
@@ -230,11 +231,12 @@ class ProgramServiceImplTest {
                 program.getId(),
                 new ProgramUpdateRequestDto(
                         null,
-                        "Updated Program Name",
                         null,
                         null,
                         null,
                         null,
+                        null,
+                        "Provide a working exploit and an HTTP request trace.",
                         null,
                         null,
                         null,
@@ -271,6 +273,7 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 Visibility.PUBLIC,
+                null,
                 null,
                 null,
                 null,
@@ -498,6 +501,39 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void publicDetailIncludesDistinctResearchersAndSubmissions() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        organization.setName("Acme Corporation");
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        ProgramRepository.PublicProgramStatistics statistics =
+                org.mockito.Mockito.mock(
+                        ProgramRepository.PublicProgramStatistics.class
+                );
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findAllById(Set.of(organization.getId())))
+                .thenReturn(List.of(organization));
+        when(programAssetRepository.findInScopeByProgramIds(
+                Set.of(program.getId())
+        )).thenReturn(List.of(program.getAssets().getFirst()));
+        when(programRepository.findPublicStatisticsByProgramId(
+                program.getId()
+        )).thenReturn(statistics);
+        when(statistics.getTotalResearchers()).thenReturn(7L);
+        when(statistics.getTotalSubmissions()).thenReturn(12L);
+
+        var response = service(new ProgramMapper())
+                .getPublicProgramById(program.getId());
+
+        assertEquals(7, response.totalResearchers());
+        assertEquals(12, response.totalSubmissions());
+    }
+
+    @Test
     void reviewListRejectsSwaggerPlaceholderSortBeforeRepositoryCall() {
         authenticate(UUID.randomUUID(), "ADMIN");
 
@@ -551,6 +587,9 @@ class ProgramServiceImplTest {
         program.setHandle("acme-security");
         program.setName("Acme Security Program");
         program.setPolicy("Test only the assets listed as in scope.");
+        program.setProofOfConceptRequirements(
+                "Include reproducible steps and supporting evidence."
+        );
         program.setEngagementType(EngagementType.BOUNTY);
         program.setVisibility(Visibility.PRIVATE);
         program.setOffersBounties(false);

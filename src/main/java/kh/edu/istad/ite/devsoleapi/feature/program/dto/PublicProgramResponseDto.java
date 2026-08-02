@@ -24,11 +24,14 @@ public record PublicProgramResponseDto(
         SubmissionState submissionState,
         Visibility visibility,
         String policy,
+        String proofOfConceptRequirements,
         Boolean offersBounties,
         BigDecimal minimumBounty,
         BigDecimal maximumBounty,
         List<ProgramAssetResponseDto> assets,
         List<ProgramRewardResponseDto> rewards,
+        long totalResearchers,
+        long totalSubmissions,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

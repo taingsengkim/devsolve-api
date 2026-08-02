@@ -43,6 +43,16 @@ public record ProgramUpdateRequestDto(
         )
         String policy,
 
+        @Size(
+                max = 10000,
+                message = "Proof of concept requirements must not exceed 10000 characters"
+        )
+        @Pattern(
+                regexp = "(?s).*\\S.*",
+                message = "Proof of concept requirements must not be blank"
+        )
+        String proofOfConceptRequirements,
+
         Boolean offersBounties,
 
         @DecimalMin(value = "0.00", message = "Minimum bounty cannot be negative")
