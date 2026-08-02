@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
@@ -22,9 +23,9 @@ public interface ProgramService {
             Pageable pageable
     );
 
-    ProgramResponseDto getPublicProgramById(UUID id);
+    PublicProgramResponseDto getPublicProgramById(UUID id);
 
-    ProgramResponseDto getPublicProgramByHandle(String handle);
+    PublicProgramResponseDto getPublicProgramByHandle(String handle);
 
     Page<ProgramManagementSummaryResponseDto> getMyPrograms(
             Pageable pageable

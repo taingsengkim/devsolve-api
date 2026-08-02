@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
@@ -109,10 +110,15 @@ public class ProgramMapper {
         );
     }
 
-    public ProgramSummaryResponseDto toSummaryDto(Program program) {
+    public ProgramSummaryResponseDto toSummaryDto(
+            Program program,
+            String organizationName,
+            List<ProgramAsset> inScopeAssets
+    ) {
         return new ProgramSummaryResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
+                organizationName,
                 program.getHandle(),
                 program.getName(),
                 descriptionPreview(program.getDescription()),
@@ -120,6 +126,36 @@ public class ProgramMapper {
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
+                toInScopeAssetResponses(inScopeAssets),
+                program.getUpdatedAt()
+        );
+    }
+
+    public PublicProgramResponseDto toPublicResponseDto(
+            Program program,
+            String organizationName,
+            List<ProgramAsset> inScopeAssets
+    ) {
+        return new PublicProgramResponseDto(
+                program.getId(),
+                program.getOrganizationId(),
+                organizationName,
+                program.getHandle(),
+                program.getName(),
+                program.getDescription(),
+                program.getEngagementType(),
+                program.getState(),
+                program.getSubmissionState(),
+                program.getVisibility(),
+                program.getPolicy(),
+                program.getOffersBounties(),
+                program.getMinimumBounty(),
+                program.getMaximumBounty(),
+                toInScopeAssetResponses(inScopeAssets),
+                program.getRewards().stream()
+                        .map(this::toRewardResponse)
+                        .toList(),
+                program.getCreatedAt(),
                 program.getUpdatedAt()
         );
     }
@@ -202,6 +238,18 @@ public class ProgramMapper {
                 asset.getIsInScope(),
                 asset.getMaxSeverity()
         );
+    }
+
+    private List<ProgramAssetResponseDto> toInScopeAssetResponses(
+            List<ProgramAsset> assets
+    ) {
+        if (assets == null) {
+            return List.of();
+        }
+        return assets.stream()
+                .filter(asset -> Boolean.TRUE.equals(asset.getIsInScope()))
+                .map(this::toAssetResponse)
+                .toList();
     }
 
     private ProgramRewardResponseDto toRewardResponse(ProgramReward reward) {
