@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
@@ -56,12 +57,14 @@ public class ProgramController {
     }
 
     @GetMapping("/programs/{id}")
-    public ProgramResponseDto getPublicProgramById(@PathVariable UUID id) {
+    public PublicProgramResponseDto getPublicProgramById(
+            @PathVariable UUID id
+    ) {
         return programService.getPublicProgramById(id);
     }
 
     @GetMapping("/programs/handle/{handle}")
-    public ProgramResponseDto getPublicProgramByHandle(
+    public PublicProgramResponseDto getPublicProgramByHandle(
             @PathVariable String handle
     ) {
         return programService.getPublicProgramByHandle(handle);

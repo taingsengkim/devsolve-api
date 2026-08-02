@@ -10,6 +10,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberReposi
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
@@ -17,6 +18,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAssetRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -27,7 +29,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -38,6 +42,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,6 +61,9 @@ class ProgramServiceImplTest {
 
     @Mock
     private ProgramRepository programRepository;
+
+    @Mock
+    private ProgramAssetRepository programAssetRepository;
 
     @Mock
     private ProgramUpdateRepository programUpdateRepository;
@@ -447,6 +455,49 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void publicListIncludesOrganizationNameAndOnlyInScopeAssets() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        organization.setName("Acme Corporation");
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        ProgramAsset inScope = program.getAssets().getFirst();
+        ProgramAsset outOfScope = ProgramAsset.builder()
+                .id(UUID.randomUUID())
+                .program(program)
+                .assetType(AssetType.URL)
+                .identifier("https://legacy.acme.test")
+                .isInScope(false)
+                .build();
+        PageRequest pageable = PageRequest.of(0, 20);
+
+        when(programRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<Program>>any(),
+                eq(pageable)
+        ))
+                .thenReturn(new PageImpl<>(List.of(program), pageable, 1));
+        when(organizationRepository.findAllById(Set.of(organization.getId())))
+                .thenReturn(List.of(organization));
+        when(programAssetRepository.findInScopeByProgramIds(
+                Set.of(program.getId())
+        )).thenReturn(List.of(inScope, outOfScope));
+
+        ProgramSummaryResponseDto response = service(new ProgramMapper())
+                .getPublicPrograms(null, null, null, pageable)
+                .getContent()
+                .getFirst();
+
+        assertEquals("Acme Corporation", response.organizationName());
+        assertEquals(1, response.inScopeAssets().size());
+        assertEquals(
+                "https://app.acme.test",
+                response.inScopeAssets().getFirst().identifier()
+        );
+    }
+
+    @Test
     void reviewListRejectsSwaggerPlaceholderSortBeforeRepositoryCall() {
         authenticate(UUID.randomUUID(), "ADMIN");
 
@@ -475,10 +526,15 @@ class ProgramServiceImplTest {
                     }
                     return update;
                 });
+        return service(programMapper);
+    }
+
+    private ProgramServiceImpl service(ProgramMapper mapper) {
         return new ProgramServiceImpl(
                 programRepository,
+                programAssetRepository,
                 programUpdateRepository,
-                programMapper,
+                mapper,
                 organizationRepository,
                 new OrganizationAuthorizationService(
                         organizationRepository,

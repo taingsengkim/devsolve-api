@@ -15,12 +15,14 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAssetRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.ProgramReward;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepository;
@@ -34,11 +36,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -58,6 +63,7 @@ public class ProgramServiceImpl implements ProgramService {
             Set.of("id", "createdAt");
 
     private final ProgramRepository programRepository;
+    private final ProgramAssetRepository programAssetRepository;
     private final ProgramUpdateRepository programUpdateRepository;
     private final ProgramMapper mapper;
     private final OrganizationRepository organizationRepository;
@@ -76,31 +82,41 @@ public class ProgramServiceImpl implements ProgramService {
                 pageable,
                 PROGRAM_SORT_PROPERTIES
         );
-        return programRepository.findAll(
-                        ProgramSpecification.publicPrograms(
-                                organizationId,
-                                engagementType,
-                                offersBounties
-                        ),
-                        validatedPageable
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.publicPrograms(
+                        organizationId,
+                        engagementType,
+                        offersBounties
+                ),
+                validatedPageable
+        );
+        PublicProgramContext context = loadPublicProgramContext(
+                programs.getContent()
+        );
+        return programs.map(program -> mapper.toSummaryDto(
+                program,
+                context.organizationNames().get(program.getOrganizationId()),
+                context.assetsByProgram().getOrDefault(
+                        program.getId(),
+                        List.of()
                 )
-                .map(mapper::toSummaryDto);
+        ));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ProgramResponseDto getPublicProgramById(UUID id) {
-        return mapper.toResponseDto(findPublicProgramById(id));
+    public PublicProgramResponseDto getPublicProgramById(UUID id) {
+        return toPublicResponse(findPublicProgramById(id));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ProgramResponseDto getPublicProgramByHandle(String handle) {
+    public PublicProgramResponseDto getPublicProgramByHandle(String handle) {
         Program program = programRepository
                 .findByHandle(normalizeHandle(handle))
                 .filter(this::isPubliclyAccessible)
                 .orElseThrow(this::programNotFound);
-        return mapper.toResponseDto(program);
+        return toPublicResponse(program);
     }
 
     @Override
@@ -555,6 +571,61 @@ public class ProgramServiceImpl implements ProgramService {
                     "program-update:" + update.getId()
             );
         }
+    }
+
+    private PublicProgramResponseDto toPublicResponse(Program program) {
+        PublicProgramContext context = loadPublicProgramContext(
+                List.of(program)
+        );
+        return mapper.toPublicResponseDto(
+                program,
+                context.organizationNames().get(program.getOrganizationId()),
+                context.assetsByProgram().getOrDefault(
+                        program.getId(),
+                        List.of()
+                )
+        );
+    }
+
+    private PublicProgramContext loadPublicProgramContext(
+            Collection<Program> programs
+    ) {
+        if (programs.isEmpty()) {
+            return new PublicProgramContext(Map.of(), Map.of());
+        }
+
+        Set<UUID> organizationIds = programs.stream()
+                .map(Program::getOrganizationId)
+                .collect(Collectors.toSet());
+        Map<UUID, String> organizationNames = organizationRepository
+                .findAllById(organizationIds)
+                .stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        Organization::getId,
+                        Organization::getName
+                ));
+
+        Set<UUID> programIds = programs.stream()
+                .map(Program::getId)
+                .collect(Collectors.toSet());
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                programAssetRepository
+                        .findInScopeByProgramIds(programIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                asset -> asset.getProgram().getId()
+                        ));
+
+        return new PublicProgramContext(
+                organizationNames,
+                assetsByProgram
+        );
+    }
+
+    private record PublicProgramContext(
+            Map<UUID, String> organizationNames,
+            Map<UUID, List<ProgramAsset>> assetsByProgram
+    ) {
     }
 
     private void notifyOrganizationFollowersOfPublishedProgram(
