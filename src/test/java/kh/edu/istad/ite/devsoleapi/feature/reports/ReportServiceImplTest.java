@@ -1,6 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
+import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.*;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
@@ -19,6 +21,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
@@ -33,8 +36,13 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.InputStream;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -61,6 +69,9 @@ class ReportServiceImplTest {
     private ReportRepository reportRepository;
 
     @Mock
+    private ReportAttachmentRepository reportAttachmentRepository;
+
+    @Mock
     private ReportRewardRepository reportRewardRepository;
 
     @Mock
@@ -83,8 +94,15 @@ class ReportServiceImplTest {
 
     @Mock
     private ReportMapper reportMapper;
+
     @Mock
     private FollowNotificationService followNotificationService;
+
+    @Mock
+    private AttachmentValidator attachmentValidator;
+
+    @Mock
+    private ObjectStorageService objectStorageService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -353,6 +371,217 @@ class ReportServiceImplTest {
         assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
     }
 
+    @Test
+    void reporterCanUploadValidatedImageWhileReportIsNew() {
+        Report report = newReport(Severity.HIGH);
+        UUID reporterId = report.getReporter().getId();
+        authenticate(reporterId, "USER");
+        byte[] content = new byte[]{
+                (byte) 0x89, 0x50, 0x4E, 0x47,
+                0x0D, 0x0A, 0x1A, 0x0A
+        };
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "proof.png",
+                "image/png",
+                content
+        );
+        AttachmentValidator.ValidatedAttachment validated =
+                new AttachmentValidator.ValidatedAttachment(
+                        "proof.png",
+                        "png",
+                        "image/png",
+                        content
+                );
+
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(reportAttachmentRepository.countByReportId(report.getId()))
+                .thenReturn(0L);
+        when(attachmentValidator.validate(file)).thenReturn(validated);
+        when(reportAttachmentRepository.saveAndFlush(
+                any(ReportAttachment.class)
+        )).thenAnswer(invocation -> {
+            ReportAttachment attachment = invocation.getArgument(0);
+            attachment.setId(UUID.randomUUID());
+            return attachment;
+        });
+
+        service().uploadAttachment(report.getId(), file);
+
+        ArgumentCaptor<ReportAttachment> attachmentCaptor =
+                ArgumentCaptor.forClass(ReportAttachment.class);
+        verify(reportAttachmentRepository)
+                .saveAndFlush(attachmentCaptor.capture());
+        ReportAttachment attachment = attachmentCaptor.getValue();
+        assertSame(report, attachment.getReport());
+        assertSame(report.getReporter(), attachment.getUploadedBy());
+        assertEquals("proof.png", attachment.getFileName());
+        assertTrue(attachment.getStorageKey().startsWith(
+                "reports/" + report.getId() + "/"
+        ));
+        assertTrue(attachment.getStorageKey().endsWith(".png"));
+        assertEquals(1, report.getAttachments().size());
+        verify(objectStorageService).store(
+                eq(attachment.getStorageKey()),
+                any(InputStream.class),
+                eq((long) content.length),
+                eq("image/png")
+        );
+    }
+
+    @Test
+    void failedAttachmentPersistenceRemovesStoredObject() {
+        Report report = newReport(Severity.MEDIUM);
+        authenticate(report.getReporter().getId(), "USER");
+        byte[] content = "proof".getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "evidence.txt",
+                "text/plain",
+                content
+        );
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(reportAttachmentRepository.countByReportId(report.getId()))
+                .thenReturn(0L);
+        when(attachmentValidator.validate(file)).thenReturn(
+                new AttachmentValidator.ValidatedAttachment(
+                        "evidence.txt",
+                        "txt",
+                        "text/plain",
+                        content
+                )
+        );
+        when(reportAttachmentRepository.saveAndFlush(
+                any(ReportAttachment.class)
+        )).thenThrow(new IllegalStateException("database unavailable"));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service().uploadAttachment(report.getId(), file)
+        );
+
+        ArgumentCaptor<String> storageKeyCaptor =
+                ArgumentCaptor.forClass(String.class);
+        verify(objectStorageService).delete(storageKeyCaptor.capture());
+        assertTrue(storageKeyCaptor.getValue().startsWith(
+                "reports/" + report.getId() + "/"
+        ));
+    }
+
+    @Test
+    void unrelatedUserCannotUploadToPrivateReport() {
+        Report report = newReport(Severity.LOW);
+        authenticate(UUID.randomUUID(), "USER");
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().uploadAttachment(
+                        report.getId(),
+                        new MockMultipartFile(
+                                "file",
+                                "proof.txt",
+                                "text/plain",
+                                new byte[]{'o', 'k'}
+                        )
+                )
+        );
+
+        verify(attachmentValidator, never()).validate(any());
+        verify(objectStorageService, never()).store(
+                any(),
+                any(),
+                any(Long.class),
+                any()
+        );
+    }
+
+    @Test
+    void reporterCannotChangeAttachmentsAfterTriage() {
+        Report report = newReport(Severity.HIGH);
+        report.setState(ReportState.VALID_CONFIRMED);
+        authenticate(report.getReporter().getId(), "USER");
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().uploadAttachment(
+                        report.getId(),
+                        new MockMultipartFile(
+                                "file",
+                                "proof.txt",
+                                "text/plain",
+                                new byte[]{'o', 'k'}
+                        )
+                )
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verify(attachmentValidator, never()).validate(any());
+    }
+
+    @Test
+    void authorizedReporterGetsShortLivedAttachmentDownloadUrl() {
+        Report report = newReport(Severity.HIGH);
+        ReportAttachment attachment = ReportAttachment.builder()
+                .id(UUID.randomUUID())
+                .report(report)
+                .fileName("proof.png")
+                .storageKey("reports/" + report.getId() + "/proof.png")
+                .uploadedBy(report.getReporter())
+                .build();
+        URI downloadUrl = URI.create(
+                "https://storage.example.test/report-proof"
+        );
+        authenticate(report.getReporter().getId(), "USER");
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(reportAttachmentRepository.findByIdAndReportId(
+                attachment.getId(),
+                report.getId()
+        )).thenReturn(Optional.of(attachment));
+        when(objectStorageService.createDownloadUrl(
+                attachment.getStorageKey(),
+                Duration.ofMinutes(5)
+        )).thenReturn(downloadUrl);
+
+        URI result = service().createAttachmentDownloadUrl(
+                report.getId(),
+                attachment.getId()
+        );
+
+        assertEquals(downloadUrl, result);
+    }
+
+    @Test
+    void reporterCanDeleteOwnAttachmentWhileReportIsEditable() {
+        Report report = newReport(Severity.HIGH);
+        ReportAttachment attachment = ReportAttachment.builder()
+                .id(UUID.randomUUID())
+                .report(report)
+                .fileName("proof.png")
+                .storageKey("reports/" + report.getId() + "/proof.png")
+                .uploadedBy(report.getReporter())
+                .build();
+        authenticate(report.getReporter().getId(), "USER");
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(reportAttachmentRepository.findByIdAndReportId(
+                attachment.getId(),
+                report.getId()
+        )).thenReturn(Optional.of(attachment));
+
+        service().removeAttachment(report.getId(), attachment.getId());
+
+        verify(reportAttachmentRepository).delete(attachment);
+        verify(reportAttachmentRepository).flush();
+        verify(objectStorageService).delete(attachment.getStorageKey());
+    }
+
     private void stubCompanyOwnedReport(
             Report report,
             Organization organization,
@@ -369,6 +598,7 @@ class ReportServiceImplTest {
     private ReportServiceImpl service() {
         return new ReportServiceImpl(
                 reportRepository,
+                reportAttachmentRepository,
                 reportRewardRepository,
                 disputeRepository,
                 weaknessRepository,
@@ -379,7 +609,9 @@ class ReportServiceImplTest {
                         organizationMemberRepository
                 ),
                 reportMapper,
-                followNotificationService
+                followNotificationService,
+                attachmentValidator,
+                objectStorageService
         );
     }
 

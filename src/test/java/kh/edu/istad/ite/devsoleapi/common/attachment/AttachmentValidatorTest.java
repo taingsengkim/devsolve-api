@@ -1,4 +1,4 @@
-package kh.edu.istad.ite.devsoleapi.feature.problem;
+package kh.edu.istad.ite.devsoleapi.common.attachment;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
@@ -9,10 +9,10 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-class ProblemAttachmentValidatorTest {
+class AttachmentValidatorTest {
 
-    private final ProblemAttachmentValidator validator =
-            new ProblemAttachmentValidator();
+    private final AttachmentValidator validator =
+            new AttachmentValidator();
 
     @Test
     void acceptsSanitizedUtf8Text() {
@@ -23,7 +23,7 @@ class ProblemAttachmentValidatorTest {
                 "Safe diagnostic output".getBytes(StandardCharsets.UTF_8)
         );
 
-        ProblemAttachmentValidator.ValidatedAttachment result =
+        AttachmentValidator.ValidatedAttachment result =
                 validator.validate(file);
 
         assertEquals("debug.log", result.originalFileName());
@@ -32,12 +32,32 @@ class ProblemAttachmentValidatorTest {
     }
 
     @Test
+    void acceptsPngImageWithMatchingSignature() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "proof.png",
+                "image/png",
+                new byte[]{
+                        (byte) 0x89, 0x50, 0x4E, 0x47,
+                        0x0D, 0x0A, 0x1A, 0x0A
+                }
+        );
+
+        AttachmentValidator.ValidatedAttachment result =
+                validator.validate(file);
+
+        assertEquals("proof.png", result.originalFileName());
+        assertEquals("png", result.extension());
+        assertEquals("image/png", result.mimeType());
+    }
+
+    @Test
     void rejectsFileLargerThanTenMib() {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "large.txt",
                 "text/plain",
-                new byte[(int) ProblemAttachmentValidator.MAX_FILE_SIZE + 1]
+                new byte[(int) AttachmentValidator.MAX_FILE_SIZE + 1]
         );
 
         assertThrows(
