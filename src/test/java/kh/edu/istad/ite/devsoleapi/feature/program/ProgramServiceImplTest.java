@@ -501,6 +501,39 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void publicDetailIncludesDistinctResearchersAndSubmissions() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        organization.setName("Acme Corporation");
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        ProgramRepository.PublicProgramStatistics statistics =
+                org.mockito.Mockito.mock(
+                        ProgramRepository.PublicProgramStatistics.class
+                );
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findAllById(Set.of(organization.getId())))
+                .thenReturn(List.of(organization));
+        when(programAssetRepository.findInScopeByProgramIds(
+                Set.of(program.getId())
+        )).thenReturn(List.of(program.getAssets().getFirst()));
+        when(programRepository.findPublicStatisticsByProgramId(
+                program.getId()
+        )).thenReturn(statistics);
+        when(statistics.getTotalResearchers()).thenReturn(7L);
+        when(statistics.getTotalSubmissions()).thenReturn(12L);
+
+        var response = service(new ProgramMapper())
+                .getPublicProgramById(program.getId());
+
+        assertEquals(7, response.totalResearchers());
+        assertEquals(12, response.totalSubmissions());
+    }
+
+    @Test
     void reviewListRejectsSwaggerPlaceholderSortBeforeRepositoryCall() {
         authenticate(UUID.randomUUID(), "ADMIN");
 

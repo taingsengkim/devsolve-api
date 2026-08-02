@@ -583,13 +583,19 @@ public class ProgramServiceImpl implements ProgramService {
         PublicProgramContext context = loadPublicProgramContext(
                 List.of(program)
         );
+        ProgramRepository.PublicProgramStatistics statistics =
+                programRepository.findPublicStatisticsByProgramId(
+                        program.getId()
+                );
         return mapper.toPublicResponseDto(
                 program,
                 context.organizationNames().get(program.getOrganizationId()),
                 context.assetsByProgram().getOrDefault(
                         program.getId(),
                         List.of()
-                )
+                ),
+                statistics.getTotalResearchers(),
+                statistics.getTotalSubmissions()
         );
     }
 

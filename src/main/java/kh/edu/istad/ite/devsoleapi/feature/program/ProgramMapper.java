@@ -143,7 +143,9 @@ public class ProgramMapper {
     public PublicProgramResponseDto toPublicResponseDto(
             Program program,
             String organizationName,
-            List<ProgramAsset> inScopeAssets
+            List<ProgramAsset> inScopeAssets,
+            long totalResearchers,
+            long totalSubmissions
     ) {
         return new PublicProgramResponseDto(
                 program.getId(),
@@ -165,6 +167,8 @@ public class ProgramMapper {
                 program.getRewards().stream()
                         .map(this::toRewardResponse)
                         .toList(),
+                totalResearchers,
+                totalSubmissions,
                 program.getCreatedAt(),
                 program.getUpdatedAt()
         );

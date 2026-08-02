@@ -141,7 +141,9 @@ class ProgramMapperTest {
         PublicProgramResponseDto result = mapper.toPublicResponseDto(
                 program,
                 "Acme Corporation",
-                List.of(inScope, outOfScope)
+                List.of(inScope, outOfScope),
+                7,
+                12
         );
 
         assertEquals("Acme Corporation", result.organizationName());
@@ -150,6 +152,8 @@ class ProgramMapperTest {
                 result.proofOfConceptRequirements()
         );
         assertEquals(1, result.assets().size());
+        assertEquals(7, result.totalResearchers());
+        assertEquals(12, result.totalSubmissions());
         assertEquals(
                 "https://app.acme.test",
                 result.assets().getFirst().identifier()
