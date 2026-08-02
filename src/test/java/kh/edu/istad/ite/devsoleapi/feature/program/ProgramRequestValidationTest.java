@@ -44,6 +44,7 @@ class ProgramRequestValidationTest {
                 EngagementType.BOUNTY,
                 Visibility.PRIVATE,
                 "Only test assets explicitly listed as in scope.",
+                "Include reproducible steps, affected endpoints, and evidence.",
                 false,
                 null,
                 null,
@@ -69,6 +70,7 @@ class ProgramRequestValidationTest {
                 null,
                 Visibility.PRIVATE,
                 " ",
+                " ",
                 false,
                 null,
                 null,
@@ -85,13 +87,17 @@ class ProgramRequestValidationTest {
         Set<ConstraintViolation<ProgramRequestDto>> violations =
                 validator.validate(request);
 
-        assertEquals(8, violations.size());
+        assertEquals(9, violations.size());
         assertTrue(violations.stream().anyMatch(violation ->
                 violation.getPropertyPath().toString().equals("handle")
         ));
         assertTrue(violations.stream().anyMatch(violation ->
                 violation.getPropertyPath().toString()
                         .equals("assets[0].assetType")
+        ));
+        assertTrue(violations.stream().anyMatch(violation ->
+                violation.getPropertyPath().toString()
+                        .equals("proofOfConceptRequirements")
         ));
     }
 }

@@ -51,6 +51,13 @@ public record ProgramRequestDto(
         @NotBlank(message = "Program policy is required")
         String policy,
 
+        @NotBlank(message = "Proof of concept requirements are required")
+        @Size(
+                max = 10000,
+                message = "Proof of concept requirements must not exceed 10000 characters"
+        )
+        String proofOfConceptRequirements,
+
         Boolean offersBounties,
 
         @DecimalMin(value = "0.00", message = "Minimum bounty cannot be negative")

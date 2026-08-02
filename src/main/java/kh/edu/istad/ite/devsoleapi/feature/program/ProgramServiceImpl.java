@@ -456,6 +456,10 @@ public class ProgramServiceImpl implements ProgramService {
         if (program.getPolicy() == null || program.getPolicy().isBlank()) {
             throw badRequest("Program policy is required");
         }
+        if (program.getProofOfConceptRequirements() == null
+                || program.getProofOfConceptRequirements().isBlank()) {
+            throw badRequest("Proof of concept requirements are required");
+        }
         if (program.getAssets().isEmpty()) {
             throw badRequest("At least one program asset is required");
         }
@@ -476,6 +480,7 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.engagementType() != null
                 || request.visibility() != null
                 || request.policy() != null
+                || request.proofOfConceptRequirements() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null
@@ -491,6 +496,7 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.description() != null
                 || request.engagementType() != null
                 || request.policy() != null
+                || request.proofOfConceptRequirements() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null

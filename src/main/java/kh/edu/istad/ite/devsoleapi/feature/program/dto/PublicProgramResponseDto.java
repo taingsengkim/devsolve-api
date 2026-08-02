@@ -24,6 +24,7 @@ public record PublicProgramResponseDto(
         SubmissionState submissionState,
         Visibility visibility,
         String policy,
+        String proofOfConceptRequirements,
         Boolean offersBounties,
         BigDecimal minimumBounty,
         BigDecimal maximumBounty,

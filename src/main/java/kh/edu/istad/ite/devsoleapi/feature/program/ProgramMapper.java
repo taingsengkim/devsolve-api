@@ -32,6 +32,9 @@ public class ProgramMapper {
                 .engagementType(request.engagementType())
                 .visibility(request.visibility())
                 .policy(request.policy().trim())
+                .proofOfConceptRequirements(
+                        request.proofOfConceptRequirements().trim()
+                )
                 .offersBounties(
                         request.offersBounties() == null
                                 || request.offersBounties()
@@ -67,6 +70,11 @@ public class ProgramMapper {
         if (request.policy() != null) {
             program.setPolicy(request.policy().trim());
         }
+        if (request.proofOfConceptRequirements() != null) {
+            program.setProofOfConceptRequirements(
+                    request.proofOfConceptRequirements().trim()
+            );
+        }
         if (request.offersBounties() != null) {
             program.setOffersBounties(request.offersBounties());
         }
@@ -96,6 +104,7 @@ public class ProgramMapper {
                 program.getSubmissionState(),
                 program.getVisibility(),
                 program.getPolicy(),
+                program.getProofOfConceptRequirements(),
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
@@ -148,6 +157,7 @@ public class ProgramMapper {
                 program.getSubmissionState(),
                 program.getVisibility(),
                 program.getPolicy(),
+                program.getProofOfConceptRequirements(),
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),

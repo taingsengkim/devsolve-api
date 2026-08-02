@@ -99,6 +99,9 @@ public class Program extends BasedEntity {
     @Column(name = "policy", columnDefinition = "TEXT")
     private String policy;
 
+    @Column(name = "proof_of_concept_requirements", columnDefinition = "TEXT")
+    private String proofOfConceptRequirements;
+
     @Column(name = "offers_bounties", nullable = false)
     @Builder.Default
     private Boolean offersBounties = true;

@@ -168,6 +168,7 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 null
         );
         doAnswer(invocation -> {
@@ -213,7 +214,7 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void editingApprovedProgramRequiresAdminReviewAgain() {
+    void editingApprovedProgramProofRequirementsRequiresReviewAgain() {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
         Program program = validProgram(organization.getId());
@@ -230,11 +231,12 @@ class ProgramServiceImplTest {
                 program.getId(),
                 new ProgramUpdateRequestDto(
                         null,
-                        "Updated Program Name",
                         null,
                         null,
                         null,
                         null,
+                        null,
+                        "Provide a working exploit and an HTTP request trace.",
                         null,
                         null,
                         null,
@@ -271,6 +273,7 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 Visibility.PUBLIC,
+                null,
                 null,
                 null,
                 null,
@@ -551,6 +554,9 @@ class ProgramServiceImplTest {
         program.setHandle("acme-security");
         program.setName("Acme Security Program");
         program.setPolicy("Test only the assets listed as in scope.");
+        program.setProofOfConceptRequirements(
+                "Include reproducible steps and supporting evidence."
+        );
         program.setEngagementType(EngagementType.BOUNTY);
         program.setVisibility(Visibility.PRIVATE);
         program.setOffersBounties(false);

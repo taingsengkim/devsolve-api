@@ -1,7 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
@@ -22,6 +24,48 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ProgramMapperTest {
 
     private final ProgramMapper mapper = new ProgramMapper();
+
+    @Test
+    void createAndUpdateMapProofOfConceptRequirements() {
+        Program program = mapper.toEntity(ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .engagementType(EngagementType.RESPONSE)
+                .visibility(Visibility.PRIVATE)
+                .policy("Follow the rules of engagement.")
+                .proofOfConceptRequirements(
+                        "  Include reproducible steps and evidence.  "
+                )
+                .build());
+
+        assertEquals(
+                "Include reproducible steps and evidence.",
+                program.getProofOfConceptRequirements()
+        );
+
+        mapper.updateEntity(
+                new ProgramUpdateRequestDto(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "  Provide an HTTP request trace.  ",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                program
+        );
+
+        assertEquals(
+                "Provide an HTTP request trace.",
+                program.getProofOfConceptRequirements()
+        );
+    }
 
     @Test
     void publicSummaryIncludesOrganizationAndOnlyInScopeAssets() {
@@ -101,6 +145,10 @@ class ProgramMapperTest {
         );
 
         assertEquals("Acme Corporation", result.organizationName());
+        assertEquals(
+                program.getProofOfConceptRequirements(),
+                result.proofOfConceptRequirements()
+        );
         assertEquals(1, result.assets().size());
         assertEquals(
                 "https://app.acme.test",
@@ -119,6 +167,10 @@ class ProgramMapperTest {
                 .state(ProgramState.ACTIVE)
                 .submissionState(SubmissionState.APPROVED)
                 .visibility(Visibility.PUBLIC)
+                .policy("Follow the program rules of engagement.")
+                .proofOfConceptRequirements(
+                        "Include reproducible steps and supporting evidence."
+                )
                 .offersBounties(true)
                 .minimumBounty(new BigDecimal("100.00"))
                 .maximumBounty(new BigDecimal("5000.00"))
