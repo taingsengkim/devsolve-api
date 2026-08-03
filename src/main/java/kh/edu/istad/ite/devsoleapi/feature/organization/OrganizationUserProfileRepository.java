@@ -1,6 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

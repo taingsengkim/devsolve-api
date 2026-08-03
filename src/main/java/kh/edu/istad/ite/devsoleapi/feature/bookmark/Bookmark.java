@@ -13,7 +13,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

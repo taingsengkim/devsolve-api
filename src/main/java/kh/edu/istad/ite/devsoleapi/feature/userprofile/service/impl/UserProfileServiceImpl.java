@@ -1,12 +1,21 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserSocialLink;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.SocialLinkRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.mapper.UserProfileMapper;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserProfileService;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.validation.SocialLinkValidator;
 import lombok.RequiredArgsConstructor;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.UserResource;
@@ -21,6 +30,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 import java.util.Locale;
+import java.util.EnumMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +42,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final KeycloakAdminProps keycloakAdminProps;
     private final UserProfileRepository userProfileRepository;
     private final UserProfileMapper userProfileMapper;
+    private final SocialLinkValidator socialLinkValidator;
 
     @Override
     @Transactional(readOnly = true)
@@ -50,6 +62,9 @@ public class UserProfileServiceImpl implements UserProfileService {
         UserRepresentation keycloakUser = keycloakUserResource.toRepresentation();
 
         userProfileMapper.mapUpdateUserProfileRequestToUserProfile(request, userProfile);
+        if (request.socialLinks() != null) {
+            replaceSocialLinks(userProfile, request.socialLinks());
+        }
 
         if (request.firstName() != null || request.lastName() != null) {
             String firstName = request.firstName() != null
@@ -80,15 +95,27 @@ public class UserProfileServiceImpl implements UserProfileService {
     ) {
         requireAdmin();
         String normalizedQuery = normalizeQuery(query);
-        return userProfileRepository.findForAdmin(
-                normalizedQuery,
-                status,
-                PageRequest.of(
-                        pageNumber,
-                        pageSize,
-                        Sort.by(Sort.Direction.DESC, "createdAt")
-                )
-        ).map(this::toAdminSummary);
+        PageRequest pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+        Page<UserProfile> profiles;
+        if (normalizedQuery == null) {
+            profiles = status == null
+                    ? userProfileRepository.findAll(pageable)
+                    : userProfileRepository.findAllByStatus(
+                            status,
+                            pageable
+                    );
+        } else {
+            profiles = userProfileRepository.findForAdmin(
+                    containsPattern(normalizedQuery),
+                    status,
+                    pageable
+            );
+        }
+        return profiles.map(this::toAdminSummary);
     }
 
     @Override
@@ -98,19 +125,27 @@ public class UserProfileServiceImpl implements UserProfileService {
             int pageNumber,
             int pageSize
     ) {
-        return userProfileRepository.findPublicProfiles(
-                normalizeQuery(query),
-                UserStatus.ACTIVE,
-                PageRequest.of(
-                        pageNumber,
-                        pageSize,
-                        Sort.by(Sort.Direction.DESC, "reputation")
-                                .and(Sort.by(
-                                        Sort.Direction.DESC,
-                                        "createdAt"
-                                ))
+        String normalizedQuery = normalizeQuery(query);
+        PageRequest pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.DESC, "reputation")
+                        .and(Sort.by(
+                                Sort.Direction.DESC,
+                                "createdAt"
+                        ))
+        );
+        Page<UserProfile> profiles = normalizedQuery == null
+                ? userProfileRepository.findAllByStatus(
+                        UserStatus.ACTIVE,
+                        pageable
                 )
-        ).map(this::toPublicProfile);
+                : userProfileRepository.findPublicProfiles(
+                        containsPattern(normalizedQuery),
+                        UserStatus.ACTIVE,
+                        pageable
+                );
+        return profiles.map(this::toPublicProfile);
     }
 
     @Override
@@ -154,6 +189,10 @@ public class UserProfileServiceImpl implements UserProfileService {
         return query.trim().toLowerCase(Locale.ROOT);
     }
 
+    private String containsPattern(String normalizedQuery) {
+        return "%" + normalizedQuery + "%";
+    }
+
     private AdminUserSummaryResponse toAdminSummary(
             UserProfile profile
     ) {
@@ -183,6 +222,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                 profile.getBiography(),
                 profile.getAvatarUrl(),
                 profile.getCountry(),
+                userProfileMapper.toSocialLinkResponses(profile),
                 profile.getReputation(),
                 profile.getTotalReports(),
                 profile.getValidReports(),
@@ -190,6 +230,49 @@ public class UserProfileServiceImpl implements UserProfileService {
                 profile.getRecognitionCount(),
                 profile.getCreatedAt()
         );
+    }
+
+    private void replaceSocialLinks(
+            UserProfile profile,
+            java.util.List<SocialLinkRequest> requests
+    ) {
+        Map<SocialPlatform, String> requestedLinks =
+                new EnumMap<>(SocialPlatform.class);
+        for (SocialLinkRequest request : requests) {
+            String previous = requestedLinks.putIfAbsent(
+                    request.platform(),
+                    socialLinkValidator.normalize(
+                            request.platform(),
+                            request.url()
+                    )
+            );
+            if (previous != null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Only one link is allowed for each social platform"
+                );
+            }
+        }
+
+        Map<SocialPlatform, UserSocialLink> existingLinks =
+                new EnumMap<>(SocialPlatform.class);
+        profile.getSocialLinks().forEach(link ->
+                existingLinks.put(link.getPlatform(), link));
+        profile.getSocialLinks().removeIf(link ->
+                !requestedLinks.containsKey(link.getPlatform()));
+
+        requestedLinks.forEach((platform, url) -> {
+            UserSocialLink link = existingLinks.get(platform);
+            if (link == null) {
+                profile.getSocialLinks().add(UserSocialLink.builder()
+                        .user(profile)
+                        .platform(platform)
+                        .url(url)
+                        .build());
+            } else {
+                link.setUrl(url);
+            }
+        });
     }
 
     private UserProfile findUserProfile(UUID userId) {

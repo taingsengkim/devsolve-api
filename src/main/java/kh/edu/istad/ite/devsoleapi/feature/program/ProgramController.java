@@ -2,7 +2,10 @@ package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
@@ -11,6 +14,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -32,7 +36,7 @@ public class ProgramController {
     private final ProgramService programService;
 
     @GetMapping("/programs")
-    public Page<ProgramResponseDto> getPublicPrograms(
+    public Page<ProgramSummaryResponseDto> getPublicPrograms(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) EngagementType engagementType,
             @RequestParam(required = false) Boolean offersBounties,
@@ -41,6 +45,7 @@ public class ProgramController {
                     sort = "createdAt",
                     direction = Sort.Direction.DESC
             )
+            @ParameterObject
             Pageable pageable
     ) {
         return programService.getPublicPrograms(
@@ -52,12 +57,14 @@ public class ProgramController {
     }
 
     @GetMapping("/programs/{id}")
-    public ProgramResponseDto getPublicProgramById(@PathVariable UUID id) {
+    public PublicProgramResponseDto getPublicProgramById(
+            @PathVariable UUID id
+    ) {
         return programService.getPublicProgramById(id);
     }
 
     @GetMapping("/programs/handle/{handle}")
-    public ProgramResponseDto getPublicProgramByHandle(
+    public PublicProgramResponseDto getPublicProgramByHandle(
             @PathVariable String handle
     ) {
         return programService.getPublicProgramByHandle(handle);
@@ -71,18 +78,20 @@ public class ProgramController {
                     sort = "createdAt",
                     direction = Sort.Direction.DESC
             )
+            @ParameterObject
             Pageable pageable
     ) {
         return programService.getPublicProgramUpdates(id, pageable);
     }
 
     @GetMapping("/organizations/me/programs")
-    public Page<ProgramResponseDto> getMyPrograms(
+    public Page<ProgramManagementSummaryResponseDto> getMyPrograms(
             @PageableDefault(
                     size = 20,
                     sort = "updatedAt",
                     direction = Sort.Direction.DESC
             )
+            @ParameterObject
             Pageable pageable
     ) {
         return programService.getMyPrograms(pageable);

@@ -4,7 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTag;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;

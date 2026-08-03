@@ -149,6 +149,12 @@ public class SecurityConfig {
                         "/api/v1/user-profiles/*"
                 ).permitAll()
                 .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/user-profiles/*/problems",
+                        "/api/v1/user-profiles/*/solutions",
+                        "/api/v1/user-profiles/*/showcases"
+                ).permitAll()
+                .requestMatchers(
                         "/api/v1/user-profiles/**"
                 ).authenticated()
 
@@ -172,11 +178,6 @@ public class SecurityConfig {
                         "/api/v1/organizations/me/**",
                         "/api/v1/organizations/invitations/**"
                 ).authenticated()
-                .requestMatchers(
-                        HttpMethod.PATCH,
-                        "/api/v1/organizations/*/approve",
-                        "/api/v1/organizations/*/reject"
-                ).hasRole("ADMIN")
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/organizations/slug/**",

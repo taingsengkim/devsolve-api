@@ -148,6 +148,28 @@ public class SolutionServiceImpl implements SolutionService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<SolutionResponse> getPublicByAuthor(
+            UUID authorId,
+            int pageNumber,
+            int pageSize
+    ) {
+        validatePagination(pageNumber, pageSize);
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+        return solutionRepository
+                .findAllByAuthorIdAndReviewStatusInAndDeletedAtIsNull(
+                        authorId,
+                        PUBLIC_STATUSES,
+                        pageable
+                )
+                .map(this::toResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<SolutionResponse> getForModeration(
             ReviewStatus reviewStatus,
             int pageNumber,

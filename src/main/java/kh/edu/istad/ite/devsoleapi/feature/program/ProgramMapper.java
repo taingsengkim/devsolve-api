@@ -1,7 +1,10 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
@@ -19,6 +22,8 @@ import java.util.Locale;
 @Component
 public class ProgramMapper {
 
+    private static final int DESCRIPTION_PREVIEW_LENGTH = 240;
+
     public Program toEntity(ProgramRequestDto request) {
         Program program = Program.builder()
                 .handle(normalizeHandle(request.handle()))
@@ -27,6 +32,9 @@ public class ProgramMapper {
                 .engagementType(request.engagementType())
                 .visibility(request.visibility())
                 .policy(request.policy().trim())
+                .proofOfConceptRequirements(
+                        request.proofOfConceptRequirements().trim()
+                )
                 .offersBounties(
                         request.offersBounties() == null
                                 || request.offersBounties()
@@ -62,6 +70,11 @@ public class ProgramMapper {
         if (request.policy() != null) {
             program.setPolicy(request.policy().trim());
         }
+        if (request.proofOfConceptRequirements() != null) {
+            program.setProofOfConceptRequirements(
+                    request.proofOfConceptRequirements().trim()
+            );
+        }
         if (request.offersBounties() != null) {
             program.setOffersBounties(request.offersBounties());
         }
@@ -91,6 +104,7 @@ public class ProgramMapper {
                 program.getSubmissionState(),
                 program.getVisibility(),
                 program.getPolicy(),
+                program.getProofOfConceptRequirements(),
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
@@ -100,6 +114,80 @@ public class ProgramMapper {
                 program.getRewards().stream()
                         .map(this::toRewardResponse)
                         .toList(),
+                program.getCreatedAt(),
+                program.getUpdatedAt()
+        );
+    }
+
+    public ProgramSummaryResponseDto toSummaryDto(
+            Program program,
+            String organizationName,
+            List<ProgramAsset> inScopeAssets
+    ) {
+        return new ProgramSummaryResponseDto(
+                program.getId(),
+                program.getOrganizationId(),
+                organizationName,
+                program.getHandle(),
+                program.getName(),
+                descriptionPreview(program.getDescription()),
+                program.getEngagementType(),
+                program.getOffersBounties(),
+                program.getMinimumBounty(),
+                program.getMaximumBounty(),
+                toInScopeAssetResponses(inScopeAssets),
+                program.getUpdatedAt()
+        );
+    }
+
+    public PublicProgramResponseDto toPublicResponseDto(
+            Program program,
+            String organizationName,
+            List<ProgramAsset> inScopeAssets,
+            long totalResearchers,
+            long totalSubmissions
+    ) {
+        return new PublicProgramResponseDto(
+                program.getId(),
+                program.getOrganizationId(),
+                organizationName,
+                program.getHandle(),
+                program.getName(),
+                program.getDescription(),
+                program.getEngagementType(),
+                program.getState(),
+                program.getSubmissionState(),
+                program.getVisibility(),
+                program.getPolicy(),
+                program.getProofOfConceptRequirements(),
+                program.getOffersBounties(),
+                program.getMinimumBounty(),
+                program.getMaximumBounty(),
+                toInScopeAssetResponses(inScopeAssets),
+                program.getRewards().stream()
+                        .map(this::toRewardResponse)
+                        .toList(),
+                totalResearchers,
+                totalSubmissions,
+                program.getCreatedAt(),
+                program.getUpdatedAt()
+        );
+    }
+
+    public ProgramManagementSummaryResponseDto toManagementSummaryDto(
+            Program program
+    ) {
+        return new ProgramManagementSummaryResponseDto(
+                program.getId(),
+                program.getOrganizationId(),
+                program.getHandle(),
+                program.getName(),
+                program.getEngagementType(),
+                program.getState(),
+                program.getSubmissionState(),
+                program.getVisibility(),
+                program.getOffersBounties(),
+                program.getMaximumBounty(),
                 program.getCreatedAt(),
                 program.getUpdatedAt()
         );
@@ -166,6 +254,18 @@ public class ProgramMapper {
         );
     }
 
+    private List<ProgramAssetResponseDto> toInScopeAssetResponses(
+            List<ProgramAsset> assets
+    ) {
+        if (assets == null) {
+            return List.of();
+        }
+        return assets.stream()
+                .filter(asset -> Boolean.TRUE.equals(asset.getIsInScope()))
+                .map(this::toAssetResponse)
+                .toList();
+    }
+
     private ProgramRewardResponseDto toRewardResponse(ProgramReward reward) {
         return new ProgramRewardResponseDto(
                 reward.getId(),
@@ -186,5 +286,16 @@ public class ProgramMapper {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String descriptionPreview(String description) {
+        String normalized = trimToNull(description);
+        if (normalized == null
+                || normalized.length() <= DESCRIPTION_PREVIEW_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, DESCRIPTION_PREVIEW_LENGTH - 1)
+                .stripTrailing()
+                + "…";
     }
 }

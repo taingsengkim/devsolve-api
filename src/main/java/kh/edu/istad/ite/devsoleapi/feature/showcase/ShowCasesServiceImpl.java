@@ -18,8 +18,8 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.UpdateShowcaseStatusRequ
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowCaseStepRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepMapper;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -74,14 +74,30 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 )
         );
 
-        return showCaseRepository
-                .searchPublished(
+        String normalizedQuery = normalizeQuery(query);
+        Page<ShowCases> showcases;
+        if (normalizedQuery == null) {
+            showcases = categoryId == null
+                    ? showCaseRepository
+                            .findByReviewStatusAndDeletedAtIsNull(
+                                    ReviewStatus.APPROVED,
+                                    pageable
+                            )
+                    : showCaseRepository
+                            .findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
+                                    ReviewStatus.APPROVED,
+                                    categoryId,
+                                    pageable
+                            );
+        } else {
+            showcases = showCaseRepository.searchPublished(
                         ReviewStatus.APPROVED,
-                        normalizeQuery(query),
+                        containsPattern(normalizedQuery),
                         categoryId,
                         pageable
-                )
-                .map(showCasesMapper::mapShowCaseToShowCaseResponse);
+                );
+        }
+        return showcases.map(showCasesMapper::mapShowCaseToShowCaseResponse);
     }
 
     @Override
@@ -135,6 +151,30 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                     : showCasesMapper
                             .mapRevisionToSummaryResponse(revision);
         });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ShowCasesSummaryResponse> getPublishedByAuthor(
+            UUID authorId,
+            int pageNumber,
+            int pageSize
+    ) {
+        validatePagination(pageNumber, pageSize);
+        return showCaseRepository
+                .findByAuthor_IdAndReviewStatusAndDeletedAtIsNull(
+                        authorId,
+                        ReviewStatus.APPROVED,
+                        PageRequest.of(
+                                pageNumber,
+                                pageSize,
+                                Sort.by(
+                                        Sort.Direction.DESC,
+                                        "createdAt"
+                                )
+                        )
+                )
+                .map(showCasesMapper::mapShowCaseToSummaryResponse);
     }
 
     @Override
@@ -950,7 +990,11 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         if (query == null || query.isBlank()) {
             return null;
         }
-        return query.trim();
+        return query.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String containsPattern(String normalizedQuery) {
+        return "%" + normalizedQuery + "%";
     }
 
     private String validatePublishedSortProperty(String sortBy) {

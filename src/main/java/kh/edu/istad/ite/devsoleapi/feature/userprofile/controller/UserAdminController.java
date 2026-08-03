@@ -1,8 +1,10 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.controller;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.validation.annotation.Validated;

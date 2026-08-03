@@ -1,6 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.userprofile.dto;
 
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 
 import java.time.LocalDateTime;
 import java.util.UUID;

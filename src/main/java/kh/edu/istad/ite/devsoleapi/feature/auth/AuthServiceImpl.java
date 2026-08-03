@@ -3,9 +3,9 @@ package kh.edu.istad.ite.devsoleapi.feature.auth;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterRequest;
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import jakarta.ws.rs.core.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,6 +65,7 @@ public class AuthServiceImpl implements AuthService {
 
         userRepresentation.setEnabled(true);
         userRepresentation.setEmailVerified(false);
+        userRepresentation.setRequiredActions(List.of("VERIFY_EMAIL"));
         userRepresentation.setCredentials(List.of(credential));
 
         try (Response response = usersResource.create(userRepresentation)) {

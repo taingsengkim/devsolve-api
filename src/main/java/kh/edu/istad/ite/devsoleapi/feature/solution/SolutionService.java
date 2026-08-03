@@ -25,6 +25,12 @@ public interface SolutionService {
             int pageSize
     );
 
+    Page<SolutionResponse> getPublicByAuthor(
+            UUID authorId,
+            int pageNumber,
+            int pageSize
+    );
+
     Page<SolutionResponse> getForModeration(
             ReviewStatus reviewStatus,
             int pageNumber,

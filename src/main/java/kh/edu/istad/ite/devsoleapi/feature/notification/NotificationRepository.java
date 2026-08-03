@@ -53,7 +53,7 @@ public interface NotificationRepository
             """)
     int markAllRead(@Param("userId") UUID userId);
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Modifying(flushAutomatically = true)
     @Query(value = """
             INSERT INTO public.notifications (
                 id,
@@ -69,7 +69,7 @@ public interface NotificationRepository
             )
             SELECT
                 gen_random_uuid(),
-                follow.follower_id,
+                follow_record.follower_id,
                 :title,
                 :content,
                 :notifiableType,

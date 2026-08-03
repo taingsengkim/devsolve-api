@@ -15,7 +15,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.Solution;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

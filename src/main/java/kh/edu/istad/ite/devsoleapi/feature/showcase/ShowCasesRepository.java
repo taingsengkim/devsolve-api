@@ -18,6 +18,12 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
             Pageable pageable
     );
 
+    Page<ShowCases> findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
+            ReviewStatus reviewStatus,
+            UUID categoryId,
+            Pageable pageable
+    );
+
     @Query("""
             SELECT showcase
             FROM ShowCases showcase
@@ -28,18 +34,17 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
                     OR showcase.category.id = :categoryId
               )
               AND (
-                    :query IS NULL
-                    OR LOWER(showcase.title)
-                        LIKE LOWER(CONCAT('%', :query, '%'))
+                    LOWER(showcase.title)
+                        LIKE :queryPattern
                     OR LOWER(showcase.overview)
-                        LIKE LOWER(CONCAT('%', :query, '%'))
+                        LIKE :queryPattern
                     OR LOWER(showcase.author.fullName)
-                        LIKE LOWER(CONCAT('%', :query, '%'))
+                        LIKE :queryPattern
               )
             """)
     Page<ShowCases> searchPublished(
             @Param("reviewStatus") ReviewStatus reviewStatus,
-            @Param("query") String query,
+            @Param("queryPattern") String queryPattern,
             @Param("categoryId") UUID categoryId,
             Pageable pageable
     );

@@ -28,6 +28,12 @@ public interface ShowCasesService {
             int pageSize
     );
 
+    Page<ShowCasesSummaryResponse> getPublishedByAuthor(
+            UUID authorId,
+            int pageNumber,
+            int pageSize
+    );
+
     Page<ShowcaseReviewQueueItemResponse> getReviewQueue(
             ReviewStatus reviewStatus,
             int pageNumber,

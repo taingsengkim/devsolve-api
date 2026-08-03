@@ -3,7 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.moderation.action;
 
 import jakarta.persistence.*;
 import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;

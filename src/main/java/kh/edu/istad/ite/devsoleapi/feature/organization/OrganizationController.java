@@ -8,6 +8,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
@@ -39,11 +40,27 @@ public class OrganizationController {
         return organizationService.me();
     }
 
+    @GetMapping("/me/verification")
+    public OrganizationVerificationResponse getVerificationStatus() {
+        return organizationService.getVerificationStatus();
+    }
+
+    @PostMapping("/me/verification-email")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resendVerificationEmail() {
+        organizationService.resendVerificationEmail();
+    }
+
     @PatchMapping("/me")
     public OrganizationResponse updateMe(
             @Valid @RequestBody OrganizationUpdateRequest request
     ) {
         return organizationService.updateMe(request);
+    }
+
+    @PostMapping("/me/resubmit")
+    public OrganizationResponse resubmit() {
+        return organizationService.resubmit();
     }
 
     @DeleteMapping("/me")
@@ -100,16 +117,6 @@ public class OrganizationController {
     @PostMapping("/invitations/{token}/accept")
     public MemberResponse acceptInvitation(@PathVariable String token) {
         return organizationService.acceptInvitation(token);
-    }
-
-    @PatchMapping("/{id}/approve")
-    public OrganizationResponse approve(@PathVariable UUID id) {
-        return organizationService.approve(id);
-    }
-
-    @PatchMapping("/{id}/reject")
-    public OrganizationResponse reject(@PathVariable UUID id) {
-        return organizationService.reject(id);
     }
 
 }

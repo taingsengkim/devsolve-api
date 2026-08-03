@@ -7,12 +7,12 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     open-in-view: false
     defer-datasource-initialization: false
 
   flyway:
-    enabled: false
+    enabled: true
 
   sql:
     init:

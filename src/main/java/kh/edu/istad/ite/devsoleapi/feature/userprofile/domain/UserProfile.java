@@ -1,16 +1,19 @@
-package kh.edu.istad.ite.devsoleapi.feature.userprofile;
+package kh.edu.istad.ite.devsoleapi.feature.userprofile.domain;
 
 import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "user_profiles")
@@ -89,4 +92,13 @@ public class UserProfile extends BasedEntity {
 
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
+
+    @OneToMany(
+            mappedBy = "user",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @OrderBy("platform ASC")
+    @BatchSize(size = 50)
+    private List<UserSocialLink> socialLinks = new ArrayList<>();
 }

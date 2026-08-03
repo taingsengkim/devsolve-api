@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
@@ -11,13 +12,17 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAssetRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.ProgramReward;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepository;
@@ -31,19 +36,34 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class ProgramServiceImpl implements ProgramService {
 
     private static final String ADMIN_ROLE = "ADMIN";
+    private static final Set<String> PROGRAM_SORT_PROPERTIES = Set.of(
+            "id",
+            "createdAt",
+            "updatedAt",
+            "name",
+            "handle",
+            "state",
+            "submissionState"
+    );
+    private static final Set<String> PROGRAM_UPDATE_SORT_PROPERTIES =
+            Set.of("id", "createdAt");
 
     private final ProgramRepository programRepository;
+    private final ProgramAssetRepository programAssetRepository;
     private final ProgramUpdateRepository programUpdateRepository;
     private final ProgramMapper mapper;
     private final OrganizationRepository organizationRepository;
@@ -52,52 +72,72 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProgramResponseDto> getPublicPrograms(
+    public Page<ProgramSummaryResponseDto> getPublicPrograms(
             UUID organizationId,
             EngagementType engagementType,
             Boolean offersBounties,
             Pageable pageable
     ) {
-        return programRepository.findAll(
-                        ProgramSpecification.publicPrograms(
-                                organizationId,
-                                engagementType,
-                                offersBounties
-                        ),
-                        pageable
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_SORT_PROPERTIES
+        );
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.publicPrograms(
+                        organizationId,
+                        engagementType,
+                        offersBounties
+                ),
+                validatedPageable
+        );
+        PublicProgramContext context = loadPublicProgramContext(
+                programs.getContent()
+        );
+        return programs.map(program -> mapper.toSummaryDto(
+                program,
+                context.organizationNames().get(program.getOrganizationId()),
+                context.assetsByProgram().getOrDefault(
+                        program.getId(),
+                        List.of()
                 )
-                .map(mapper::toResponseDto);
+        ));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ProgramResponseDto getPublicProgramById(UUID id) {
-        return mapper.toResponseDto(findPublicProgramById(id));
+    public PublicProgramResponseDto getPublicProgramById(UUID id) {
+        return toPublicResponse(findPublicProgramById(id));
     }
 
     @Override
     @Transactional(readOnly = true)
-    public ProgramResponseDto getPublicProgramByHandle(String handle) {
+    public PublicProgramResponseDto getPublicProgramByHandle(String handle) {
         Program program = programRepository
                 .findByHandle(normalizeHandle(handle))
                 .filter(this::isPubliclyAccessible)
                 .orElseThrow(this::programNotFound);
-        return mapper.toResponseDto(program);
+        return toPublicResponse(program);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProgramResponseDto> getMyPrograms(Pageable pageable) {
+    public Page<ProgramManagementSummaryResponseDto> getMyPrograms(
+            Pageable pageable
+    ) {
         Organization organization = findAccessibleOrganization(
                 OrganizationPermission.VIEW_PROGRAMS
+        );
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_SORT_PROPERTIES
         );
         return programRepository.findAll(
                         ProgramSpecification.organizationPrograms(
                                 organization.getId()
                         ),
-                        pageable
+                        validatedPageable
                 )
-                .map(mapper::toResponseDto);
+                .map(mapper::toManagementSummaryDto);
     }
 
     @Override
@@ -107,10 +147,6 @@ public class ProgramServiceImpl implements ProgramService {
                 OrganizationPermission.CREATE_PROGRAM
         );
         requireUniqueHandle(request.handle(), null);
-        requireAllowedVisibility(
-                request.visibility(),
-                SubmissionState.PENDING_REVIEW
-        );
 
         Program program = mapper.toEntity(request);
         program.setOrganizationId(organization.getId());
@@ -142,12 +178,6 @@ public class ProgramServiceImpl implements ProgramService {
 
         if (request.handle() != null) {
             requireUniqueHandle(request.handle(), program.getId());
-        }
-        if (request.visibility() != null) {
-            requireAllowedVisibility(
-                    request.visibility(),
-                    program.getSubmissionState()
-            );
         }
 
         boolean requiresNewReview =
@@ -288,25 +318,33 @@ public class ProgramServiceImpl implements ProgramService {
             Pageable pageable
     ) {
         findPublicProgramById(id);
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_UPDATE_SORT_PROPERTIES
+        );
         return programUpdateRepository
-                .findByProgramId(id, pageable)
+                .findByProgramId(id, validatedPageable)
                 .map(mapper::toUpdateDto);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ProgramResponseDto> getProgramsForReview(
+    public Page<ProgramManagementSummaryResponseDto> getProgramsForReview(
             SubmissionState submissionState,
             Pageable pageable
     ) {
         requireRole(ADMIN_ROLE);
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROGRAM_SORT_PROPERTIES
+        );
         return programRepository.findAll(
                         ProgramSpecification.programsForReview(
                                 submissionState
                         ),
-                        pageable
+                        validatedPageable
                 )
-                .map(mapper::toResponseDto);
+                .map(mapper::toManagementSummaryDto);
     }
 
     @Override
@@ -398,16 +436,6 @@ public class ProgramServiceImpl implements ProgramService {
                 && program.getVisibility() == Visibility.PUBLIC;
     }
 
-    private void requireAllowedVisibility(
-            Visibility visibility,
-            SubmissionState submissionState
-    ) {
-        if (visibility == Visibility.PUBLIC
-                && submissionState != SubmissionState.APPROVED) {
-            throw conflict("Only admin-approved programs can be public");
-        }
-    }
-
     private void requireUniqueHandle(String handle, UUID excludedId) {
         String normalizedHandle = normalizeHandle(handle);
         boolean exists = excludedId == null
@@ -427,6 +455,10 @@ public class ProgramServiceImpl implements ProgramService {
     private void validateProgramConfiguration(Program program) {
         if (program.getPolicy() == null || program.getPolicy().isBlank()) {
             throw badRequest("Program policy is required");
+        }
+        if (program.getProofOfConceptRequirements() == null
+                || program.getProofOfConceptRequirements().isBlank()) {
+            throw badRequest("Proof of concept requirements are required");
         }
         if (program.getAssets().isEmpty()) {
             throw badRequest("At least one program asset is required");
@@ -448,6 +480,7 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.engagementType() != null
                 || request.visibility() != null
                 || request.policy() != null
+                || request.proofOfConceptRequirements() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null
@@ -463,6 +496,7 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.description() != null
                 || request.engagementType() != null
                 || request.policy() != null
+                || request.proofOfConceptRequirements() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null
@@ -543,6 +577,67 @@ public class ProgramServiceImpl implements ProgramService {
                     "program-update:" + update.getId()
             );
         }
+    }
+
+    private PublicProgramResponseDto toPublicResponse(Program program) {
+        PublicProgramContext context = loadPublicProgramContext(
+                List.of(program)
+        );
+        ProgramRepository.PublicProgramStatistics statistics =
+                programRepository.findPublicStatisticsByProgramId(
+                        program.getId()
+                );
+        return mapper.toPublicResponseDto(
+                program,
+                context.organizationNames().get(program.getOrganizationId()),
+                context.assetsByProgram().getOrDefault(
+                        program.getId(),
+                        List.of()
+                ),
+                statistics.getTotalResearchers(),
+                statistics.getTotalSubmissions()
+        );
+    }
+
+    private PublicProgramContext loadPublicProgramContext(
+            Collection<Program> programs
+    ) {
+        if (programs.isEmpty()) {
+            return new PublicProgramContext(Map.of(), Map.of());
+        }
+
+        Set<UUID> organizationIds = programs.stream()
+                .map(Program::getOrganizationId)
+                .collect(Collectors.toSet());
+        Map<UUID, String> organizationNames = organizationRepository
+                .findAllById(organizationIds)
+                .stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        Organization::getId,
+                        Organization::getName
+                ));
+
+        Set<UUID> programIds = programs.stream()
+                .map(Program::getId)
+                .collect(Collectors.toSet());
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                programAssetRepository
+                        .findInScopeByProgramIds(programIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                asset -> asset.getProgram().getId()
+                        ));
+
+        return new PublicProgramContext(
+                organizationNames,
+                assetsByProgram
+        );
+    }
+
+    private record PublicProgramContext(
+            Map<UUID, String> organizationNames,
+            Map<UUID, List<ProgramAsset>> assetsByProgram
+    ) {
     }
 
     private void notifyOrganizationFollowersOfPublishedProgram(

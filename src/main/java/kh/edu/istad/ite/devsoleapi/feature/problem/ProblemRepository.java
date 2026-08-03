@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Collection;
 
 public interface ProblemRepository extends JpaRepository<Problem, UUID> {
 
@@ -66,6 +67,12 @@ public interface ProblemRepository extends JpaRepository<Problem, UUID> {
     );
 
     Page<Problem> findAllByAuthorId(UUID authorId, Pageable pageable);
+
+    Page<Problem> findAllByAuthorIdAndStatusIn(
+            UUID authorId,
+            Collection<ProblemStatus> statuses,
+            Pageable pageable
+    );
 
     Page<Problem> findAllByStatus(
             ProblemStatus status,
