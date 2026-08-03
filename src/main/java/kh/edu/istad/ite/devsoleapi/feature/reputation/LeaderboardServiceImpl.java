@@ -2,8 +2,8 @@ package kh.edu.istad.ite.devsoleapi.feature.reputation;
 
 
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;

@@ -1,7 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reputation;
 
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.springframework.stereotype.Component;
 
 @Component
