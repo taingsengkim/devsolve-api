@@ -1,7 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
+import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
+import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
@@ -22,6 +24,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Weakness;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
@@ -30,14 +33,21 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.ByteArrayInputStream;
+import java.net.URI;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Set;
@@ -45,10 +55,16 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReportServiceImpl implements ReportService {
 
     private static final String ADMIN_ROLE = "ADMIN";
     private static final String USER_ROLE = "USER";
+    private static final int MAX_REPORT_ATTACHMENTS = 10;
+    private static final Duration DOWNLOAD_LINK_VALIDITY =
+            Duration.ofMinutes(5);
+    private static final Set<ReportState> ATTACHMENT_EDITABLE_STATES =
+            EnumSet.of(ReportState.NEW, ReportState.NEEDS_MORE_INFO);
     private static final Set<String> REPORT_SORT_PROPERTIES = Set.of(
             "id",
             "submittedAt",
@@ -70,6 +86,7 @@ public class ReportServiceImpl implements ReportService {
             );
 
     private final ReportRepository reportRepository;
+    private final ReportAttachmentRepository reportAttachmentRepository;
     private final ReportRewardRepository reportRewardRepository;
     private final DisputeRepository disputeRepository;
     private final WeaknessRepository weaknessRepository;
@@ -78,6 +95,8 @@ public class ReportServiceImpl implements ReportService {
     private final OrganizationAuthorizationService organizationAuthorization;
     private final ReportMapper reportMapper;
     private final FollowNotificationService followNotificationService;
+    private final AttachmentValidator attachmentValidator;
+    private final ObjectStorageService objectStorageService;
 
     @Override
     @Transactional
@@ -315,6 +334,101 @@ public class ReportServiceImpl implements ReportService {
     }
 
     @Override
+    @Transactional
+    public ReportResponse uploadAttachment(
+            UUID reportId,
+            MultipartFile file
+    ) {
+        requireRole(USER_ROLE);
+        Report report = findReportableProgramReport(reportId);
+        requireEditableReporter(report);
+        if (reportAttachmentRepository.countByReportId(reportId)
+                >= MAX_REPORT_ATTACHMENTS) {
+            throw conflict(
+                    "A report cannot have more than "
+                            + MAX_REPORT_ATTACHMENTS
+                            + " attachments"
+            );
+        }
+
+        AttachmentValidator.ValidatedAttachment validated =
+                attachmentValidator.validate(file);
+        String storageKey = "reports/"
+                + reportId
+                + "/"
+                + UUID.randomUUID()
+                + "."
+                + validated.extension();
+
+        objectStorageService.store(
+                storageKey,
+                new ByteArrayInputStream(validated.content()),
+                validated.sizeBytes(),
+                validated.mimeType()
+        );
+
+        try {
+            ReportAttachment attachment = ReportAttachment.builder()
+                    .report(report)
+                    .fileName(validated.originalFileName())
+                    .storageKey(storageKey)
+                    .mimeType(validated.mimeType())
+                    .sizeBytes(validated.sizeBytes())
+                    .uploadedBy(report.getReporter())
+                    .build();
+            reportAttachmentRepository.saveAndFlush(attachment);
+            report.getAttachments().add(attachment);
+            return reportMapper.toResponse(report);
+        } catch (RuntimeException exception) {
+            deleteStoredObjectQuietly(storageKey);
+            throw exception;
+        }
+    }
+
+    @Override
+    @Transactional
+    public void removeAttachment(
+            UUID reportId,
+            UUID attachmentId
+    ) {
+        requireRole(USER_ROLE);
+        Report report = findReportableProgramReport(reportId);
+        requireEditableReporter(report);
+        ReportAttachment attachment = reportAttachmentRepository
+                .findByIdAndReportId(attachmentId, reportId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Report attachment not found"
+                ));
+        if (!attachment.getUploadedBy().getId().equals(currentUserId())) {
+            throw reportNotFound();
+        }
+
+        String storageKey = attachment.getStorageKey();
+        reportAttachmentRepository.delete(attachment);
+        reportAttachmentRepository.flush();
+        deleteStoredObjectAfterCommit(storageKey);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public URI createAttachmentDownloadUrl(
+            UUID reportId,
+            UUID attachmentId
+    ) {
+        Report report = findReportableProgramReport(reportId);
+        resolveDiscussionAccess(report, currentUserId());
+        ReportAttachment attachment = reportAttachmentRepository
+                .findByIdAndReportId(attachmentId, reportId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Report attachment not found"
+                ));
+        return objectStorageService.createDownloadUrl(
+                attachment.getStorageKey(),
+                DOWNLOAD_LINK_VALIDITY
+        );
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public void requireViewAccess(UUID reportId) {
         requireDiscussionAccess(reportId);
@@ -364,6 +478,46 @@ public class ReportServiceImpl implements ReportService {
 
         // Hide private-report existence from unrelated authenticated users.
         throw reportNotFound();
+    }
+
+    private void requireEditableReporter(Report report) {
+        if (!report.getReporter().getId().equals(currentUserId())) {
+            throw reportNotFound();
+        }
+        if (!ATTACHMENT_EDITABLE_STATES.contains(report.getState())) {
+            throw conflict(
+                    "Attachments can only be changed while a report is new "
+                            + "or needs more information"
+            );
+        }
+    }
+
+    private void deleteStoredObjectAfterCommit(String storageKey) {
+        if (!TransactionSynchronizationManager
+                .isSynchronizationActive()) {
+            deleteStoredObjectQuietly(storageKey);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        deleteStoredObjectQuietly(storageKey);
+                    }
+                }
+        );
+    }
+
+    private void deleteStoredObjectQuietly(String storageKey) {
+        try {
+            objectStorageService.delete(storageKey);
+        } catch (RuntimeException exception) {
+            log.error(
+                    "Failed to delete report attachment object {}",
+                    storageKey,
+                    exception
+            );
+        }
     }
 
     private Report findReportableProgramReport(UUID reportId) {

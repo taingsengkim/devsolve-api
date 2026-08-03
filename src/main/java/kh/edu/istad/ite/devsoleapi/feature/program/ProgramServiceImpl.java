@@ -12,6 +12,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -460,6 +461,11 @@ public class ProgramServiceImpl implements ProgramService {
                 || program.getProofOfConceptRequirements().isBlank()) {
             throw badRequest("Proof of concept requirements are required");
         }
+        validateGuidelines(
+                "Rules of engagement",
+                program.getRulesOfEngagement()
+        );
+        validateGuidelines("Program exclusions", program.getExclusions());
         if (program.getAssets().isEmpty()) {
             throw badRequest("At least one program asset is required");
         }
@@ -481,6 +487,8 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.visibility() != null
                 || request.policy() != null
                 || request.proofOfConceptRequirements() != null
+                || request.rulesOfEngagement() != null
+                || request.exclusions() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null
@@ -497,6 +505,8 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.engagementType() != null
                 || request.policy() != null
                 || request.proofOfConceptRequirements() != null
+                || request.rulesOfEngagement() != null
+                || request.exclusions() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null
@@ -579,21 +589,55 @@ public class ProgramServiceImpl implements ProgramService {
         }
     }
 
+    private void validateGuidelines(
+            String fieldName,
+            ProgramGuidelinesDto guidelines
+    ) {
+        if (guidelines == null) {
+            throw badRequest(fieldName + " are required");
+        }
+        if (guidelines.description() == null
+                || guidelines.description().isBlank()) {
+            throw badRequest(fieldName + " description is required");
+        }
+        if (guidelines.description().length() > 2000) {
+            throw badRequest(
+                    fieldName + " description cannot exceed 2000 characters"
+            );
+        }
+        if (guidelines.rules() == null || guidelines.rules().isEmpty()) {
+            throw badRequest(fieldName + " must contain at least one rule");
+        }
+        if (guidelines.rules().size() > 50) {
+            throw badRequest(fieldName + " cannot contain more than 50 rules");
+        }
+        boolean invalidRule = guidelines.rules().stream()
+                .anyMatch(rule -> rule == null
+                        || rule.isBlank()
+                        || rule.length() > 500);
+        if (invalidRule) {
+            throw badRequest(
+                    fieldName
+                            + " rules must be non-blank and cannot exceed 500 characters"
+            );
+        }
+    }
+
     private PublicProgramResponseDto toPublicResponse(Program program) {
-        PublicProgramContext context = loadPublicProgramContext(
-                List.of(program)
-        );
+        String organizationName = organizationRepository
+                .findById(program.getOrganizationId())
+                .map(Organization::getName)
+                .orElseThrow(this::programNotFound);
+        List<ProgramAsset> assets = programAssetRepository
+                .findByProgramIdOrderByCreatedAtAsc(program.getId());
         ProgramRepository.PublicProgramStatistics statistics =
                 programRepository.findPublicStatisticsByProgramId(
                         program.getId()
                 );
         return mapper.toPublicResponseDto(
                 program,
-                context.organizationNames().get(program.getOrganizationId()),
-                context.assetsByProgram().getOrDefault(
-                        program.getId(),
-                        List.of()
-                ),
+                organizationName,
+                assets,
                 statistics.getTotalResearchers(),
                 statistics.getTotalSubmissions()
         );

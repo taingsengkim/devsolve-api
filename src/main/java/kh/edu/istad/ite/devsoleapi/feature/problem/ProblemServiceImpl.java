@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
@@ -95,7 +96,7 @@ public class ProblemServiceImpl implements ProblemService {
     private final UserProfileRepository userProfileRepository;
     private final ProblemMapper problemMapper;
     private final ProblemContentSafety contentSafety;
-    private final ProblemAttachmentValidator attachmentValidator;
+    private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
     private final FollowNotificationService followNotificationService;
 
@@ -329,7 +330,7 @@ public class ProblemServiceImpl implements ProblemService {
             MultipartFile file
     ) {
         Problem problem = findOwnedEditableProblem(id);
-        ProblemAttachmentValidator.ValidatedAttachment validated =
+        AttachmentValidator.ValidatedAttachment validated =
                 attachmentValidator.validate(file);
         String storageKey = "problems/"
                 + problem.getId()

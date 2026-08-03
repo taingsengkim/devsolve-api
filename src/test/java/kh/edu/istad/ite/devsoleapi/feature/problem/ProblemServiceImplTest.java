@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
@@ -72,7 +73,7 @@ class ProblemServiceImplTest {
     @Mock
     private ProblemContentSafety contentSafety;
     @Mock
-    private ProblemAttachmentValidator attachmentValidator;
+    private AttachmentValidator attachmentValidator;
     @Mock
     private ObjectStorageService objectStorageService;
     @Mock

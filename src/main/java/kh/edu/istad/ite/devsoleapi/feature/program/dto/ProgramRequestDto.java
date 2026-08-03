@@ -58,6 +58,14 @@ public record ProgramRequestDto(
         )
         String proofOfConceptRequirements,
 
+        @NotNull(message = "Rules of engagement are required")
+        @Valid
+        ProgramGuidelinesDto rulesOfEngagement,
+
+        @NotNull(message = "Program exclusions are required")
+        @Valid
+        ProgramGuidelinesDto exclusions,
+
         Boolean offersBounties,
 
         @DecimalMin(value = "0.00", message = "Minimum bounty cannot be negative")

@@ -1,4 +1,4 @@
-package kh.edu.istad.ite.devsoleapi.feature.problem;
+package kh.edu.istad.ite.devsoleapi.common.attachment;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -20,7 +20,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 @Component
-public class ProblemAttachmentValidator {
+public class AttachmentValidator {
 
     public static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
 

@@ -53,6 +53,12 @@ public record ProgramUpdateRequestDto(
         )
         String proofOfConceptRequirements,
 
+        @Valid
+        ProgramGuidelinesDto rulesOfEngagement,
+
+        @Valid
+        ProgramGuidelinesDto exclusions,
+
         Boolean offersBounties,
 
         @DecimalMin(value = "0.00", message = "Minimum bounty cannot be negative")
