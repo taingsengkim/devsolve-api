@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -36,11 +37,31 @@ class ProgramMapperTest {
                 .proofOfConceptRequirements(
                         "  Include reproducible steps and evidence.  "
                 )
+                .rulesOfEngagement(guidelines(
+                        "  Follow these rules.  ",
+                        "  Test only in scope.  "
+                ))
+                .exclusions(guidelines(
+                        "  These findings are excluded.  ",
+                        "  Self-XSS without impact.  "
+                ))
                 .build());
 
         assertEquals(
                 "Include reproducible steps and evidence.",
                 program.getProofOfConceptRequirements()
+        );
+        assertEquals(
+                "Follow these rules.",
+                program.getRulesOfEngagement().description()
+        );
+        assertEquals(
+                "Test only in scope.",
+                program.getRulesOfEngagement().rules().getFirst()
+        );
+        assertEquals(
+                "Self-XSS without impact.",
+                program.getExclusions().rules().getFirst()
         );
 
         mapper.updateEntity(
@@ -52,6 +73,8 @@ class ProgramMapperTest {
                         null,
                         null,
                         "  Provide an HTTP request trace.  ",
+                        null,
+                        null,
                         null,
                         null,
                         null,
@@ -129,7 +152,7 @@ class ProgramMapperTest {
     }
 
     @Test
-    void publicDetailPreservesAssetsFieldButExcludesOutOfScopeAssets() {
+    void publicDetailIncludesInScopeAndOutOfScopeAssets() {
         Program program = program();
         ProgramAsset inScope = asset(program, true, "https://app.acme.test");
         ProgramAsset outOfScope = asset(
@@ -151,7 +174,18 @@ class ProgramMapperTest {
                 program.getProofOfConceptRequirements(),
                 result.proofOfConceptRequirements()
         );
-        assertEquals(1, result.assets().size());
+        assertEquals(
+                program.getRulesOfEngagement(),
+                result.rulesOfEngagement()
+        );
+        assertEquals(program.getExclusions(), result.exclusions());
+        assertEquals(2, result.assets().size());
+        assertTrue(result.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+                        && "https://legacy.acme.test".equals(
+                                asset.identifier()
+                        )
+        ));
         assertEquals(7, result.totalResearchers());
         assertEquals(12, result.totalSubmissions());
         assertEquals(
@@ -175,6 +209,14 @@ class ProgramMapperTest {
                 .proofOfConceptRequirements(
                         "Include reproducible steps and supporting evidence."
                 )
+                .rulesOfEngagement(guidelines(
+                        "Follow these rules during testing.",
+                        "Test only in-scope assets"
+                ))
+                .exclusions(guidelines(
+                        "The following findings are excluded.",
+                        "Self-XSS without demonstrated impact"
+                ))
                 .offersBounties(true)
                 .minimumBounty(new BigDecimal("100.00"))
                 .maximumBounty(new BigDecimal("5000.00"))
@@ -182,5 +224,12 @@ class ProgramMapperTest {
         program.setCreatedAt(LocalDateTime.of(2026, 8, 1, 10, 0));
         program.setUpdatedAt(LocalDateTime.of(2026, 8, 1, 11, 0));
         return program;
+    }
+
+    private ProgramGuidelinesDto guidelines(
+            String description,
+            String rule
+    ) {
+        return new ProgramGuidelinesDto(description, List.of(rule));
     }
 }

@@ -10,6 +10,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberReposi
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
@@ -47,6 +48,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -169,6 +171,8 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 null
         );
         doAnswer(invocation -> {
@@ -241,6 +245,8 @@ class ProgramServiceImplTest {
                         null,
                         null,
                         null,
+                        null,
+                        null,
                         null
                 )
         );
@@ -273,6 +279,8 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 Visibility.PUBLIC,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -501,13 +509,20 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void publicDetailIncludesDistinctResearchersAndSubmissions() {
+    void publicDetailIncludesAllAssetsAndProgramStatistics() {
         Organization organization = activeOwnedOrganization(UUID.randomUUID());
         organization.setName("Acme Corporation");
         Program program = validProgram(organization.getId());
         program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.APPROVED);
         program.setVisibility(Visibility.PUBLIC);
+        ProgramAsset outOfScope = ProgramAsset.builder()
+                .id(UUID.randomUUID())
+                .program(program)
+                .assetType(AssetType.URL)
+                .identifier("https://legacy.acme.test")
+                .isInScope(false)
+                .build();
         ProgramRepository.PublicProgramStatistics statistics =
                 org.mockito.Mockito.mock(
                         ProgramRepository.PublicProgramStatistics.class
@@ -515,11 +530,11 @@ class ProgramServiceImplTest {
 
         when(programRepository.findById(program.getId()))
                 .thenReturn(Optional.of(program));
-        when(organizationRepository.findAllById(Set.of(organization.getId())))
-                .thenReturn(List.of(organization));
-        when(programAssetRepository.findInScopeByProgramIds(
-                Set.of(program.getId())
-        )).thenReturn(List.of(program.getAssets().getFirst()));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+        when(programAssetRepository.findByProgramIdOrderByCreatedAtAsc(
+                program.getId()
+        )).thenReturn(List.of(program.getAssets().getFirst(), outOfScope));
         when(programRepository.findPublicStatisticsByProgramId(
                 program.getId()
         )).thenReturn(statistics);
@@ -531,6 +546,10 @@ class ProgramServiceImplTest {
 
         assertEquals(7, response.totalResearchers());
         assertEquals(12, response.totalSubmissions());
+        assertEquals(2, response.assets().size());
+        assertTrue(response.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+        ));
     }
 
     @Test
@@ -590,6 +609,14 @@ class ProgramServiceImplTest {
         program.setProofOfConceptRequirements(
                 "Include reproducible steps and supporting evidence."
         );
+        program.setRulesOfEngagement(new ProgramGuidelinesDto(
+                "Follow these rules during testing.",
+                List.of("Test only assets listed as in scope")
+        ));
+        program.setExclusions(new ProgramGuidelinesDto(
+                "The following findings are excluded.",
+                List.of("Self-XSS without demonstrated impact")
+        ));
         program.setEngagementType(EngagementType.BOUNTY);
         program.setVisibility(Visibility.PRIVATE);
         program.setOffersBounties(false);

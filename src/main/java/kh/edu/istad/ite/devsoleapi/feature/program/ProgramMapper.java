@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -35,6 +36,10 @@ public class ProgramMapper {
                 .proofOfConceptRequirements(
                         request.proofOfConceptRequirements().trim()
                 )
+                .rulesOfEngagement(normalizeGuidelines(
+                        request.rulesOfEngagement()
+                ))
+                .exclusions(normalizeGuidelines(request.exclusions()))
                 .offersBounties(
                         request.offersBounties() == null
                                 || request.offersBounties()
@@ -75,6 +80,16 @@ public class ProgramMapper {
                     request.proofOfConceptRequirements().trim()
             );
         }
+        if (request.rulesOfEngagement() != null) {
+            program.setRulesOfEngagement(normalizeGuidelines(
+                    request.rulesOfEngagement()
+            ));
+        }
+        if (request.exclusions() != null) {
+            program.setExclusions(normalizeGuidelines(
+                    request.exclusions()
+            ));
+        }
         if (request.offersBounties() != null) {
             program.setOffersBounties(request.offersBounties());
         }
@@ -105,6 +120,8 @@ public class ProgramMapper {
                 program.getVisibility(),
                 program.getPolicy(),
                 program.getProofOfConceptRequirements(),
+                program.getRulesOfEngagement(),
+                program.getExclusions(),
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
@@ -143,7 +160,7 @@ public class ProgramMapper {
     public PublicProgramResponseDto toPublicResponseDto(
             Program program,
             String organizationName,
-            List<ProgramAsset> inScopeAssets,
+            List<ProgramAsset> assets,
             long totalResearchers,
             long totalSubmissions
     ) {
@@ -160,10 +177,12 @@ public class ProgramMapper {
                 program.getVisibility(),
                 program.getPolicy(),
                 program.getProofOfConceptRequirements(),
+                program.getRulesOfEngagement(),
+                program.getExclusions(),
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
-                toInScopeAssetResponses(inScopeAssets),
+                toAssetResponses(assets),
                 program.getRewards().stream()
                         .map(this::toRewardResponse)
                         .toList(),
@@ -266,6 +285,17 @@ public class ProgramMapper {
                 .toList();
     }
 
+    private List<ProgramAssetResponseDto> toAssetResponses(
+            List<ProgramAsset> assets
+    ) {
+        if (assets == null) {
+            return List.of();
+        }
+        return assets.stream()
+                .map(this::toAssetResponse)
+                .toList();
+    }
+
     private ProgramRewardResponseDto toRewardResponse(ProgramReward reward) {
         return new ProgramRewardResponseDto(
                 reward.getId(),
@@ -278,6 +308,17 @@ public class ProgramMapper {
 
     private String normalizeHandle(String handle) {
         return handle.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private ProgramGuidelinesDto normalizeGuidelines(
+            ProgramGuidelinesDto guidelines
+    ) {
+        return new ProgramGuidelinesDto(
+                guidelines.description().trim(),
+                guidelines.rules().stream()
+                        .map(String::trim)
+                        .toList()
+        );
     }
 
     private String trimToNull(String value) {
