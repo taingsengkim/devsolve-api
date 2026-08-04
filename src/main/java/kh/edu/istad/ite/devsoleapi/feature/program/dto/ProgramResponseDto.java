@@ -26,6 +26,8 @@ public record ProgramResponseDto(
         Visibility visibility,
         String policy,
         String proofOfConceptRequirements,
+        ProgramGuidelinesDto rulesOfEngagement,
+        ProgramGuidelinesDto exclusions,
         Boolean offersBounties,
         BigDecimal minimumBounty,
         BigDecimal maximumBounty,

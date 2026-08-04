@@ -21,4 +21,6 @@ public interface ProgramAssetRepository
     List<ProgramAsset> findInScopeByProgramIds(
             @Param("programIds") Collection<UUID> programIds
     );
+
+    List<ProgramAsset> findByProgramIdOrderByCreatedAtAsc(UUID programId);
 }

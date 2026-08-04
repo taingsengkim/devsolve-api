@@ -14,16 +14,22 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URI;
 import java.util.UUID;
 
 @RestController
@@ -121,5 +127,40 @@ public class ReportController {
             @Valid @RequestBody RewardReportRequest request
     ) {
         return reportService.recordReward(id, request);
+    }
+
+    @PostMapping(
+            value = "/reports/{id}/attachments",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    @ResponseStatus(HttpStatus.CREATED)
+    public ReportResponse uploadAttachment(
+            @PathVariable UUID id,
+            @RequestPart("file") MultipartFile file
+    ) {
+        return reportService.uploadAttachment(id, file);
+    }
+
+    @DeleteMapping("/reports/{id}/attachments/{attachmentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeAttachment(
+            @PathVariable UUID id,
+            @PathVariable UUID attachmentId
+    ) {
+        reportService.removeAttachment(id, attachmentId);
+    }
+
+    @GetMapping("/reports/{id}/attachments/{attachmentId}/download")
+    public ResponseEntity<Void> downloadAttachment(
+            @PathVariable UUID id,
+            @PathVariable UUID attachmentId
+    ) {
+        URI downloadUrl = reportService.createAttachmentDownloadUrl(
+                id,
+                attachmentId
+        );
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(downloadUrl)
+                .build();
     }
 }

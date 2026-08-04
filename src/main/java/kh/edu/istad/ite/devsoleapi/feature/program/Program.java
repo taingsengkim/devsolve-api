@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
@@ -101,6 +102,22 @@ public class Program extends BasedEntity {
 
     @Column(name = "proof_of_concept_requirements", columnDefinition = "TEXT")
     private String proofOfConceptRequirements;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(
+            name = "rules_of_engagement",
+            nullable = false,
+            columnDefinition = "jsonb"
+    )
+    private ProgramGuidelinesDto rulesOfEngagement;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(
+            name = "exclusions",
+            nullable = false,
+            columnDefinition = "jsonb"
+    )
+    private ProgramGuidelinesDto exclusions;
 
     @Column(name = "offers_bounties", nullable = false)
     @Builder.Default

@@ -56,7 +56,7 @@ public record ReportResponse(
     public record AttachmentSummary(
             UUID id,
             String fileName,
-            String fileUrl,
+            String downloadUrl,
             String mimeType,
             Long sizeBytes,
             UUID uploadedBy,

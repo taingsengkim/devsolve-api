@@ -27,12 +27,14 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain apiSecurity(
             HttpSecurity http,
-            JwtAuthenticationConverter jwtAuthenticationConverter
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            CorsConfigurationSource corsConfigurationSource
     ) throws Exception {
+        http.cors(cors -> cors.configurationSource(corsConfigurationSource));
         http.oauth2ResourceServer(oauth -> oauth.jwt(jwt ->
                 jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)
         ));
-
+//        http.cors(Customizer.withDefaults());
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/register").permitAll()
                 .requestMatchers(
@@ -226,7 +228,6 @@ public class SecurityConfig {
         http.sessionManagement(state -> state
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
         );
-        http.cors(Customizer.withDefaults());
         http.csrf(AbstractHttpConfigurer::disable);
         http.formLogin(AbstractHttpConfigurer::disable);
 
@@ -260,35 +261,31 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource(
-            @Value("${app.cors.allowed-origins:http://localhost:3000}")
+            @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173,https://devsolve-api.quizzy.it.com}")
             List<String> allowedOrigins
     ) {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOriginPatterns(
                 allowedOrigins.stream()
                         .map(String::trim)
                         .filter(origin -> !origin.isBlank())
                         .toList()
         );
-        configuration.setAllowedMethods(List.of(
-                "GET",
-                "POST",
-                "PUT",
-                "PATCH",
-                "DELETE",
-                "OPTIONS"
-        ));
-        configuration.setAllowedHeaders(List.of(
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        config.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
-                "Accept"
+                "X-Requested-With",
+                "Accept",
+                "Access-Control-Request-Method",
+                "Access-Control-Request-Headers",
+                "Origin"
         ));
-        configuration.setExposedHeaders(List.of("Location"));
-        configuration.setAllowCredentials(true);
-
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
+        config.setExposedHeaders(List.of("Authorization", "Location"));
+        config.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
         return source;
     }
+
 }

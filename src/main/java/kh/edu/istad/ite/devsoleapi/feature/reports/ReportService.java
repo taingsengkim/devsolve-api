@@ -8,7 +8,9 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequ
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URI;
 import java.util.UUID;
 
 public interface ReportService {
@@ -33,6 +35,15 @@ public interface ReportService {
     );
 
     ReportResponse recordReward(UUID id, RewardReportRequest request);
+
+    ReportResponse uploadAttachment(UUID reportId, MultipartFile file);
+
+    void removeAttachment(UUID reportId, UUID attachmentId);
+
+    URI createAttachmentDownloadUrl(
+            UUID reportId,
+            UUID attachmentId
+    );
 
     void requireViewAccess(UUID reportId);
 
