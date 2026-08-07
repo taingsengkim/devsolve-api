@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserSocialLink;
@@ -32,6 +33,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -41,7 +43,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -64,6 +69,8 @@ class UserProfileServiceImplTest {
     private UsersResource usersResource;
     @Mock
     private UserResource userResource;
+    @Mock
+    private ImageStorageService imageStorageService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -325,13 +332,97 @@ class UserProfileServiceImplTest {
         );
     }
 
+    @Test
+    void uploadAvatarStoresUnderTheCallerOwnPrefixAndSavesTheUrl() {
+        UUID userId = UUID.randomUUID();
+        UserProfile profile = profile();
+        profile.setId(userId);
+        profile.setAvatarUrl("https://cdn.example.com/bucket/public/old.png");
+        authenticate(userId, "USER");
+        stubProfileAndKeycloak(userId, profile);
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "avatar.png",
+                "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}
+        );
+        when(imageStorageService.replace(
+                eq("user-profiles/" + userId),
+                eq("https://cdn.example.com/bucket/public/old.png"),
+                eq(file)
+        )).thenReturn("https://cdn.example.com/bucket/public/new.png");
+
+        service().uploadAvatar(file);
+
+        assertEquals(
+                "https://cdn.example.com/bucket/public/new.png",
+                profile.getAvatarUrl()
+        );
+        verify(userProfileRepository).saveAndFlush(profile);
+    }
+
+    @Test
+    void uploadAvatarCannotTargetAnotherUsersProfile() {
+        UUID callerId = UUID.randomUUID();
+        authenticate(callerId, "USER");
+        when(userProfileRepository.findById(callerId))
+                .thenReturn(Optional.empty());
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "avatar.png",
+                "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}
+        );
+
+        // The identity comes from the token, never from a path variable, so
+        // the only profile reachable here is the caller's own.
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service().uploadAvatar(file)
+        );
+        verify(imageStorageService, never())
+                .replace(anyString(), anyString(), any());
+    }
+
+    @Test
+    void removeAvatarClearsTheUrlAndDropsTheStoredObject() {
+        UUID userId = UUID.randomUUID();
+        UserProfile profile = profile();
+        profile.setId(userId);
+        profile.setAvatarUrl("https://cdn.example.com/bucket/public/old.png");
+        authenticate(userId, "USER");
+        stubProfileAndKeycloak(userId, profile);
+
+        service().removeAvatar();
+
+        assertNull(profile.getAvatarUrl());
+        verify(imageStorageService)
+                .remove("https://cdn.example.com/bucket/public/old.png");
+        verify(userProfileRepository).saveAndFlush(profile);
+    }
+
+    private void stubProfileAndKeycloak(UUID userId, UserProfile profile) {
+        when(userProfileRepository.findById(userId))
+                .thenReturn(Optional.of(profile));
+        when(keycloakAdminProps.getTargetRealm()).thenReturn("devsolve");
+        when(keycloak.realm("devsolve")).thenReturn(realmResource);
+        when(realmResource.users()).thenReturn(usersResource);
+        when(usersResource.get(userId.toString()))
+                .thenReturn(userResource);
+        when(userResource.toRepresentation())
+                .thenReturn(new UserRepresentation());
+    }
+
     private UserProfileServiceImpl service() {
         return new UserProfileServiceImpl(
                 keycloak,
                 keycloakAdminProps,
                 userProfileRepository,
                 userProfileMapper,
-                new SocialLinkValidator()
+                new SocialLinkValidator(),
+                imageStorageService
         );
     }
 
