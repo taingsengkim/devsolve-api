@@ -6,6 +6,8 @@ import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.RecognitionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,5 +52,19 @@ public class RecognitionServiceImpl implements RecognitionService {
         userProfileRepository.save(recipient);
 
         return recognitionMapper.toResponse(saved);
+    }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<RecognitionResponse> getUserRecognitions(UUID userId, Pageable pageable) {
+
+        if (!userProfileRepository.existsById(userId)) {
+            throw new EntityNotFoundException("User not found: " + userId);
+        }
+
+        return recognitionRepository
+                .findByUserIdOrderByAwardedAtDesc(userId, pageable)
+                .map(recognitionMapper::toResponse);
     }
 }

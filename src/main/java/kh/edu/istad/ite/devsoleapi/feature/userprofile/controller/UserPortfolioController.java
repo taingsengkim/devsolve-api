@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.controller;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserPortfolioService;
@@ -78,4 +79,26 @@ public class UserPortfolioController {
                 pageSize
         );
     }
+
+
+    @GetMapping("/reports")
+    public Page<ReportResponse> getReports(
+            @PathVariable UUID userId,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "pageNumber must be >= 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "pageSize must be >= 1")
+            @Max(value = 100, message = "pageSize must be <= 100")
+            int pageSize
+    ) {
+        return userPortfolioService.getReports(
+                userId,
+                pageNumber,
+                pageSize
+        );
+    }
+
+
 }
+

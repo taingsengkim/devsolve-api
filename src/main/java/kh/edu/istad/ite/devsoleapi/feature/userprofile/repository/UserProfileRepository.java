@@ -60,5 +60,6 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             UUID id,
             UserStatus status
     );
+
     Page<UserProfile> findAllByOrderByReputationDesc(Pageable pageable);
 }

@@ -60,4 +60,5 @@ public class UserController {
     public UserProfileResponse updateMe(@Valid @RequestBody UpdateUserProfileRequest request) {
         return userProfileService.updateMe(request);
     }
+
 }

@@ -148,7 +148,8 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/user-profiles",
-                        "/api/v1/user-profiles/*"
+                        "/api/v1/user-profiles/*",
+                        "/api/v1/user-profiles/*/reports"
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.GET,

@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.userprofile.service;
 
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionResponse;
 import org.springframework.data.domain.Page;
@@ -22,6 +23,12 @@ public interface UserPortfolioService {
     );
 
     Page<ShowCasesSummaryResponse> getShowcases(
+            UUID userId,
+            int pageNumber,
+            int pageSize
+    );
+
+    Page<ReportResponse> getReports(
             UUID userId,
             int pageNumber,
             int pageSize
