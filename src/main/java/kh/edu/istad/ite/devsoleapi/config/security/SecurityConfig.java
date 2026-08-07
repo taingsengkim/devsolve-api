@@ -226,6 +226,9 @@ public class SecurityConfig {
                         HttpMethod.POST,
                         "/api/v1/showcases/*/views"
                 ).permitAll()
+                .requestMatchers(
+                        "/api/v1/reputation/leaderboard"
+                ).permitAll()
 
                 .anyRequest().authenticated()
         );
