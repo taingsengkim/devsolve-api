@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.category;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryPatchRequest;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryRequest;
@@ -9,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -20,6 +22,7 @@ import java.util.stream.Collectors;
 public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final ImageStorageService imageStorageService;
 
     @Override
     @Transactional
@@ -214,5 +217,47 @@ public class CategoryServiceImpl implements CategoryService {
 
         Category updated = categoryRepository.save(category);
         return mapToResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public CategoryResponse uploadIcon(UUID id, MultipartFile file) {
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can change category icons"
+            );
+        }
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Category not found with this uuid"
+                ));
+
+        String iconUrl = imageStorageService.replace(
+                "categories/" + category.getId(),
+                category.getIconUrl(),
+                file
+        );
+        category.setIconUrl(iconUrl);
+        return mapToResponse(categoryRepository.save(category));
+    }
+
+    @Override
+    @Transactional
+    public CategoryResponse removeIcon(UUID id) {
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can change category icons"
+            );
+        }
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Category not found with this uuid"
+                ));
+
+        imageStorageService.remove(category.getIconUrl());
+        category.setIconUrl(null);
+        return mapToResponse(categoryRepository.save(category));
     }
 }
