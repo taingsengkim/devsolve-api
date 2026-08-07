@@ -9,6 +9,7 @@ import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.SetBucketPolicyArgs;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,12 +34,34 @@ public class MinioObjectStorageService implements ObjectStorageService {
     @Value("${minio.bucket}")
     private String bucket;
 
+    @Value("${minio.url}")
+    private String internalBaseUrl;
+
     /**
      * Browser-reachable base URL. Differs from {@code minio.url} whenever the
-     * app talks to MinIO over an internal address but clients do not.
+     * app talks to MinIO over an internal address but clients do not. Blank
+     * when unset, which {@link #resolvePublicBaseUrl()} folds back to
+     * {@link #internalBaseUrl}.
      */
-    @Value("${minio.public-url:${minio.url}}")
+    @Value("${minio.public-url:}")
+    private String configuredPublicBaseUrl;
+
+    /** {@link #configuredPublicBaseUrl} resolved and normalised once. */
     private String publicBaseUrl;
+
+    @PostConstruct
+    void resolvePublicBaseUrl() {
+        String resolved =
+                configuredPublicBaseUrl == null
+                        || configuredPublicBaseUrl.isBlank()
+                        ? internalBaseUrl
+                        : configuredPublicBaseUrl;
+        publicBaseUrl = trimTrailingSlash(resolved.trim());
+        log.info(
+                "MinIO public base URL resolved to {}",
+                publicBaseUrl
+        );
+    }
 
     /**
      * The public-prefix policy only has to be reconciled once per process;
@@ -110,11 +133,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
 
     @Override
     public String publicUrl(String storageKey) {
-        return trimTrailingSlash(publicBaseUrl)
-                + "/"
-                + bucket
-                + "/"
-                + storageKey;
+        return publicUrlPrefix() + storageKey;
     }
 
     @Override
@@ -122,7 +141,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
         if (publicUrl == null || publicUrl.isBlank()) {
             return Optional.empty();
         }
-        String prefix = trimTrailingSlash(publicBaseUrl) + "/" + bucket + "/";
+        String prefix = publicUrlPrefix();
         if (!publicUrl.startsWith(prefix)) {
             return Optional.empty();
         }
@@ -206,6 +225,10 @@ public class MinioObjectStorageService implements ObjectStorageService {
                     exception
             );
         }
+    }
+
+    private String publicUrlPrefix() {
+        return publicBaseUrl + "/" + bucket + "/";
     }
 
     private String trimTrailingSlash(String value) {
