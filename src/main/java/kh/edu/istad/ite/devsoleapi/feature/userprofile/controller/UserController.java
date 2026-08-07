@@ -81,4 +81,11 @@ public class UserController {
         return userProfileService.removeAvatar();
     }
 
+    @GetMapping("/{userId}/reputation")
+    public Integer getReputation(
+            @PathVariable UUID userId
+    ) {
+        return userProfileService.getReputation(userId);
+    }
+
 }

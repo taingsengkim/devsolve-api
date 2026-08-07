@@ -336,4 +336,17 @@ public class UserProfileServiceImpl implements UserProfileService {
                 lastName == null ? "" : lastName
         ).trim();
     }
+
+
+    @Override
+    public Integer getReputation(UUID userId) {
+
+        UserProfile userProfile = userProfileRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User profile not found")
+                );
+
+        return userProfile.getReputation();
+    }
+
 }

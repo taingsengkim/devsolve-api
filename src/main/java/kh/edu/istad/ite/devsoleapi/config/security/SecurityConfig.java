@@ -61,6 +61,10 @@ public class SecurityConfig {
                         "/swagger-ui.html",
                         "/scalar/**"
                 ).permitAll()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/user-profiles/*/reputation"
+                ).permitAll()
 
                 .requestMatchers(
                         HttpMethod.GET,
@@ -170,8 +174,7 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/user-profiles",
-                        "/api/v1/user-profiles/*",
-                        "/api/v1/user-profiles/*/reports"
+                        "/api/v1/user-profiles/*"
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.GET,
@@ -251,7 +254,6 @@ public class SecurityConfig {
                         HttpMethod.GET,
                         "/api/v1/users/*/recognitions"
                 ).permitAll()
-
                 .anyRequest().authenticated()
         );
 
