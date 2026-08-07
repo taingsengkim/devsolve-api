@@ -247,6 +247,10 @@ public class SecurityConfig {
                 .requestMatchers(
                         "/api/v1/reputation/leaderboard"
                 ).permitAll()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/users/*/recognitions"
+                ).permitAll()
 
                 .anyRequest().authenticated()
         );

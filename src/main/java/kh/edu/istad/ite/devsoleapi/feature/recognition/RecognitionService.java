@@ -6,9 +6,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 
+import java.util.List;
 import java.util.UUID;
 
 public interface RecognitionService {
     RecognitionResponse awardRecognition(CreateRecognitionRequest request, UUID awardedBy);
     Page<RecognitionResponse> getUserRecognitions(UUID userId, Pageable pageable);
+
+    List<RecognitionResponse> getRecognitionsByUser(UUID userId);
 }

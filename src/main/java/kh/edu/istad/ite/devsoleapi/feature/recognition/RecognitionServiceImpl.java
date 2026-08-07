@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.recognition;
 
 import jakarta.persistence.EntityNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.CreateRecognitionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.RecognitionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -67,4 +69,19 @@ public class RecognitionServiceImpl implements RecognitionService {
                 .findByUserIdOrderByAwardedAtDesc(userId, pageable)
                 .map(recognitionMapper::toResponse);
     }
+
+    @Override
+    public List<RecognitionResponse> getRecognitionsByUser(UUID userId) {
+
+        // Verify the user exists
+        userProfileRepository.findById(userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User not found"));
+
+        List<Recognition> recognitions =
+                recognitionRepository.findAllByUserId(userId);
+
+        return recognitionMapper.toResponse(recognitions);
+    }
+
 }

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -37,13 +38,11 @@ public class RecognitionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @GetMapping("/user/{id}/recognitions")
-    public ResponseEntity<Page<RecognitionResponse>> getUserRecognitions(
-            @PathVariable UUID id,
-            @PageableDefault(size = 10, sort = "awardedAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        Page<RecognitionResponse> response = recognitionService.getUserRecognitions(id, pageable);
+    @GetMapping("/users/{id}/recognitions")
+    public List<RecognitionResponse> getRecognitionsByUser(
+            @PathVariable UUID id) {
 
-        return ResponseEntity.ok(response);
+        return recognitionService.getRecognitionsByUser(id);
     }
 }
