@@ -7,12 +7,12 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      # Hibernate owns the schema now that Flyway is gone. "update" only ever
+      # adds tables and columns: it never drops, renames, or retypes, so any
+      # of those has to be applied to the database by hand.
+      ddl-auto: ${DDL_AUTO:update}
     open-in-view: false
     defer-datasource-initialization: false
-
-  flyway:
-    enabled: true
 
   sql:
     init:
@@ -42,6 +42,9 @@ server:
 
 minio:
   url: ${MINIO_URL}
+  # minio.public-url is intentionally not declared here: it defaults to
+  # minio.url in MinioObjectStorageService. Set the MINIO_PUBLIC_URL env var
+  # to override it when clients cannot reach MINIO_URL directly.
   access-key: ${MINIO_ACCESS_KEY}
   secret-key: ${MINIO_SECRET_KEY}
   bucket: ${MINIO_BUCKET}

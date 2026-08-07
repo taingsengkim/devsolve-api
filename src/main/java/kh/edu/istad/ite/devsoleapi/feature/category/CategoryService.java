@@ -4,6 +4,7 @@ package kh.edu.istad.ite.devsoleapi.feature.category;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryPatchRequest;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryRequest;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -25,4 +26,8 @@ public interface CategoryService {
     void deleteCategory(UUID id);
 
     CategoryResponse partialUpdateCategory(UUID id, CategoryPatchRequest request);
+
+    CategoryResponse uploadIcon(UUID id, MultipartFile file);
+
+    CategoryResponse removeIcon(UUID id);
 }
