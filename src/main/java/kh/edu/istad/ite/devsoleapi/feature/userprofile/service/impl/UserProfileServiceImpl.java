@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -26,6 +27,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
@@ -43,6 +45,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserProfileRepository userProfileRepository;
     private final UserProfileMapper userProfileMapper;
     private final SocialLinkValidator socialLinkValidator;
+    private final ImageStorageService imageStorageService;
 
     @Override
     @Transactional(readOnly = true)
@@ -83,6 +86,36 @@ public class UserProfileServiceImpl implements UserProfileService {
         }
 
         return userProfileMapper.toUserProfileResponse(keycloakUser, userProfile);
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponse uploadAvatar(MultipartFile file) {
+        UUID userId = extractCurrentUserId();
+        UserProfile userProfile = findUserProfile(userId);
+
+        String avatarUrl = imageStorageService.replace(
+                "user-profiles/" + userId,
+                userProfile.getAvatarUrl(),
+                file
+        );
+        userProfile.setAvatarUrl(avatarUrl);
+        userProfileRepository.saveAndFlush(userProfile);
+
+        return toResponse(userId, userProfile);
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponse removeAvatar() {
+        UUID userId = extractCurrentUserId();
+        UserProfile userProfile = findUserProfile(userId);
+
+        imageStorageService.remove(userProfile.getAvatarUrl());
+        userProfile.setAvatarUrl(null);
+        userProfileRepository.saveAndFlush(userProfile);
+
+        return toResponse(userId, userProfile);
     }
 
     @Override
@@ -159,6 +192,16 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Public user profile not found"
                 ));
+    }
+
+    private UserProfileResponse toResponse(
+            UUID userId,
+            UserProfile userProfile
+    ) {
+        return userProfileMapper.toUserProfileResponse(
+                findKeycloakUser(userId).toRepresentation(),
+                userProfile
+        );
     }
 
     private UUID extractCurrentUserId() {

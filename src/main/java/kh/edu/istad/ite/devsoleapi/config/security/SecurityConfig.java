@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.config.security;
 
+import kh.edu.istad.ite.devsoleapi.feature.moderation.action.AccountStatusService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,10 +12,12 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.Collection;
 import java.util.List;
@@ -28,12 +31,23 @@ public class SecurityConfig {
     public SecurityFilterChain apiSecurity(
             HttpSecurity http,
             JwtAuthenticationConverter jwtAuthenticationConverter,
-            CorsConfigurationSource corsConfigurationSource
+            CorsConfigurationSource corsConfigurationSource,
+            AccountStatusService accountStatusService,
+            ObjectMapper objectMapper
     ) throws Exception {
         http.cors(cors -> cors.configurationSource(corsConfigurationSource));
         http.oauth2ResourceServer(oauth -> oauth.jwt(jwt ->
                 jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)
         ));
+
+        // Runs once the bearer token has been turned into an Authentication, so
+        // a suspended or removed account is stopped before it reaches any
+        // controller. Constructed here rather than injected as a bean to keep
+        // the servlet container from registering it a second time.
+        http.addFilterAfter(
+                new AccountStatusFilter(accountStatusService, objectMapper),
+                BearerTokenAuthenticationFilter.class
+        );
 //        http.cors(Customizer.withDefaults());
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/register").permitAll()
@@ -55,6 +69,10 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/categories/**"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/categories"
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.POST,
