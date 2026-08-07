@@ -17,6 +17,8 @@ import org.keycloak.representations.idm.RoleRepresentation;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
@@ -28,6 +30,7 @@ public class ModerationServiceImpl implements ModerationService{
     private final ModerationActionRepository moderationActionRepository;
     private final UserProfileRepository userProfileRepository;
     private final ModerationActionMapper moderationActionMapper;
+    private final KeycloakAccountService keycloakAccountService;
 
     private final Keycloak keycloak;
     private final KeycloakAdminProps keycloakAdminProps;
@@ -79,10 +82,14 @@ public class ModerationServiceImpl implements ModerationService{
 
         /*
          * WARN does not change the status.
-         * SUSPEND, REMOVE and BAN change the status.
+         * SUSPEND, REMOVE, BAN and REINSTATE change the status.
          */
         if (request.action() != ModerationActionType.WARN) {
             userProfileRepository.save(targetUser);
+            syncIdentityProviderAfterCommit(
+                    targetUserId,
+                    request.action()
+            );
         }
 
         ModerationAction moderationAction =
@@ -261,7 +268,50 @@ public class ModerationServiceImpl implements ModerationService{
             case SUSPEND -> suspendUser(targetUser);
 
             case REMOVE, BAN -> removeUser(targetUser);
+
+            case REINSTATE -> reinstateUser(targetUser);
         }
+    }
+
+    private void reinstateUser(
+            UserProfile targetUser
+    ) {
+
+        if (targetUser.getStatus() == UserStatus.ACTIVE) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "User account is already active"
+            );
+        }
+
+        targetUser.setStatus(UserStatus.ACTIVE);
+    }
+
+    /**
+     * Mirrors the decision into Keycloak once the transaction commits, so a
+     * rolled-back moderation action never leaves a disabled login behind.
+     */
+    private void syncIdentityProviderAfterCommit(
+            UUID targetUserId,
+            ModerationActionType action
+    ) {
+
+        if (action == ModerationActionType.WARN) {
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        if (action == ModerationActionType.REINSTATE) {
+                            keycloakAccountService.enable(targetUserId);
+                        } else {
+                            keycloakAccountService.disable(targetUserId);
+                        }
+                    }
+                }
+        );
     }
 
     private void suspendUser(
