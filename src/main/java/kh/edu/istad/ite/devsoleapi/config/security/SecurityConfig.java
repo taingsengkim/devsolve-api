@@ -68,6 +68,10 @@ public class SecurityConfig {
                         HttpMethod.PATCH,
                         "/api/v1/categories/**"
                 ).hasRole("ADMIN")
+                .requestMatchers(
+                        HttpMethod.PUT,
+                        "/api/v1/categories/**"
+                ).hasRole("ADMIN")
 
                 .requestMatchers(
                         HttpMethod.GET,

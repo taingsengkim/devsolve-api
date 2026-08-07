@@ -7,8 +7,10 @@ import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -75,6 +77,22 @@ public class CategoryController {
             @PathVariable UUID id,
             @Valid @RequestBody CategoryPatchRequest request) {
         return ResponseEntity.ok(categoryService.partialUpdateCategory(id, request));
+    }
+
+    @PutMapping(
+            value = "/{id}/icon",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<CategoryResponse> uploadIcon(
+            @PathVariable UUID id,
+            @RequestPart("file") MultipartFile file
+    ) {
+        return ResponseEntity.ok(categoryService.uploadIcon(id, file));
+    }
+
+    @DeleteMapping("/{id}/icon")
+    public ResponseEntity<CategoryResponse> removeIcon(@PathVariable UUID id) {
+        return ResponseEntity.ok(categoryService.removeIcon(id));
     }
 }
 

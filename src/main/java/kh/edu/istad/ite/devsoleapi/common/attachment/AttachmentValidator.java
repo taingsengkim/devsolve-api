@@ -23,6 +23,7 @@ import java.util.zip.ZipInputStream;
 public class AttachmentValidator {
 
     public static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    public static final long MAX_IMAGE_SIZE = 2L * 1024 * 1024;
 
     private static final Map<String, Set<String>> MIME_TYPES = Map.of(
             "pdf", Set.of("application/pdf"),
@@ -39,24 +40,76 @@ public class AttachmentValidator {
             "log", Set.of("text/plain")
     );
 
-    public ValidatedAttachment validate(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw badRequest("Attachment cannot be empty");
+    /**
+     * Narrows the shared pipeline to the file kinds a caller actually
+     * accepts, so an image field cannot be handed a DOCX.
+     */
+    public enum Profile {
+
+        ATTACHMENT(
+                MAX_FILE_SIZE,
+                Set.of(
+                        "pdf", "doc", "docx", "png", "jpg",
+                        "jpeg", "webp", "txt", "log"
+                ),
+                "Attachment cannot be empty",
+                "Attachment cannot exceed 10 MiB",
+                "Allowed attachment types are PDF, DOC, DOCX, PNG, "
+                        + "JPG, JPEG, WEBP, TXT, and LOG"
+        ),
+        IMAGE(
+                MAX_IMAGE_SIZE,
+                Set.of("png", "jpg", "jpeg", "webp"),
+                "Image cannot be empty",
+                "Image cannot exceed 2 MiB",
+                "Allowed image types are PNG, JPG, JPEG, and WEBP"
+        );
+
+        private final long maxSizeBytes;
+        private final Set<String> extensions;
+        private final String emptyMessage;
+        private final String tooLargeMessage;
+        private final String unsupportedTypeMessage;
+
+        Profile(
+                long maxSizeBytes,
+                Set<String> extensions,
+                String emptyMessage,
+                String tooLargeMessage,
+                String unsupportedTypeMessage
+        ) {
+            this.maxSizeBytes = maxSizeBytes;
+            this.extensions = extensions;
+            this.emptyMessage = emptyMessage;
+            this.tooLargeMessage = tooLargeMessage;
+            this.unsupportedTypeMessage = unsupportedTypeMessage;
         }
-        if (file.getSize() > MAX_FILE_SIZE) {
-            throw badRequest("Attachment cannot exceed 10 MiB");
+    }
+
+    public ValidatedAttachment validate(MultipartFile file) {
+        return validate(file, Profile.ATTACHMENT);
+    }
+
+    public ValidatedAttachment validate(
+            MultipartFile file,
+            Profile profile
+    ) {
+        if (file == null || file.isEmpty()) {
+            throw badRequest(profile.emptyMessage);
+        }
+        if (file.getSize() > profile.maxSizeBytes) {
+            throw badRequest(profile.tooLargeMessage);
         }
 
         String originalFileName = sanitizeFileName(
                 file.getOriginalFilename()
         );
         String extension = extensionOf(originalFileName);
-        Set<String> allowedMimeTypes = MIME_TYPES.get(extension);
+        Set<String> allowedMimeTypes = profile.extensions.contains(extension)
+                ? MIME_TYPES.get(extension)
+                : null;
         if (allowedMimeTypes == null) {
-            throw badRequest(
-                    "Allowed attachment types are PDF, DOC, DOCX, PNG, "
-                            + "JPG, JPEG, WEBP, TXT, and LOG"
-            );
+            throw badRequest(profile.unsupportedTypeMessage);
         }
 
         String mimeType = normalizeMimeType(file.getContentType());

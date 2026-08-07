@@ -1,3 +1,24 @@
+-- Values must match the @EnumeratedValue strings on the Java enums, and
+-- every type here has to exist before Hibernate generates the tables that
+-- reference it by columnDefinition.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'category_scope_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.category_scope_enum AS ENUM (
+            'problem',
+            'showcase'
+        );
+    END IF;
+END
+$$^^^
+
 DO $$
 BEGIN
     IF NOT EXISTS (
