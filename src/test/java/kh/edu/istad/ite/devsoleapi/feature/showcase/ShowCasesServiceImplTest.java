@@ -15,6 +15,8 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowCaseStepRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStep;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepMapper;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepRevision;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseTagResponse;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.tag.ShowcaseTagService;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
@@ -40,6 +42,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -90,6 +93,9 @@ class ShowCasesServiceImplTest {
     @Mock
     private ImageStorageService imageStorageService;
 
+    @Mock
+    private ShowcaseTagService showcaseTagService;
+
     private ShowCasesServiceImpl service;
 
     @BeforeEach
@@ -105,7 +111,8 @@ class ShowCasesServiceImplTest {
                 showcaseRevisionWorkflow,
                 showcaseReviewHistoryRepository,
                 followNotificationService,
-                imageStorageService
+                imageStorageService,
+                showcaseTagService
         );
     }
 
@@ -135,8 +142,10 @@ class ShowCasesServiceImplTest {
         when(showcaseRevisionRepository.findByShowcase_IdIn(
                 List.of(showcase.getId())
         )).thenReturn(List.of());
-        when(showCasesMapper.mapShowCaseToSummaryResponse(showcase))
-                .thenReturn(response);
+        when(showCasesMapper.mapShowCaseToSummaryResponse(
+                showcase,
+                List.of()
+        )).thenReturn(response);
 
         Page<ShowCasesSummaryResponse> result =
                 service.getMyShowcases(1, 10);
@@ -197,8 +206,10 @@ class ShowCasesServiceImplTest {
                 eq(categoryId),
                 any(Pageable.class)
         )).thenReturn(new PageImpl<>(List.of(showcase)));
-        when(showCasesMapper.mapShowCaseToShowCaseResponse(showcase))
-                .thenReturn(response);
+        when(showCasesMapper.mapShowCaseToShowCaseResponse(
+                showcase,
+                List.of()
+        )).thenReturn(response);
 
         Page<ShowCasesResponse> result =
                 service.getAllPublished(
@@ -342,6 +353,7 @@ class ShowCasesServiceImplTest {
                 .thenReturn(secondResponse);
         when(showCasesMapper.mapShowCaseToDetailResponse(
                 showcase,
+                List.of(),
                 stepResponses
         )).thenReturn(expected);
 
@@ -368,6 +380,8 @@ class ShowCasesServiceImplTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 null
         );
         ShowCasesResponse expected = ShowCasesResponse.builder()
@@ -389,7 +403,8 @@ class ShowCasesServiceImplTest {
                 ownerId
         )).thenReturn(revision);
         when(showCasesMapper.mapRevisionToShowCaseResponse(
-                revision
+                revision,
+                List.of()
         )).thenReturn(expected);
 
         ShowCasesResponse actual = service.update(showcaseId, request);
@@ -402,6 +417,108 @@ class ShowCasesServiceImplTest {
         assertEquals("Improved overview", revision.getOverview());
         verify(showcaseRevisionWorkflow).submit(revision, ownerId);
         verify(showCasesRepository, never()).save(showcase);
+    }
+
+    @Test
+    void editingTagsOnApprovedShowcaseWritesThemToTheRevision() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        ShowCases showcase = showcase(
+                showcaseId,
+                ownerId,
+                "Published title"
+        );
+        showcase.setReviewStatus(ReviewStatus.APPROVED);
+        UpdateShowCasesRequest request = new UpdateShowCasesRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Set.of("kubernetes")
+        );
+        ShowcaseRevision revision = revision(
+                showcase,
+                ownerId,
+                "Published title"
+        );
+        List<ShowcaseTagResponse> candidateTags = List.of(
+                new ShowcaseTagResponse(
+                        UUID.randomUUID(),
+                        "kubernetes",
+                        "kubernetes"
+                )
+        );
+        ShowCasesResponse expected = ShowCasesResponse.builder()
+                .id(showcaseId)
+                .tags(candidateTags)
+                .build();
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseRevisionWorkflow.getOrCreate(showcase, ownerId))
+                .thenReturn(revision);
+        when(showcaseTagService.replaceRevisionTags(
+                revision,
+                null,
+                Set.of("kubernetes")
+        )).thenReturn(candidateTags);
+        when(showCasesMapper.mapRevisionToShowCaseResponse(
+                revision,
+                candidateTags
+        )).thenReturn(expected);
+
+        ShowCasesResponse actual = service.update(showcaseId, request);
+
+        assertSame(expected, actual);
+        verify(showcaseTagService, never()).replaceShowcaseTags(
+                any(),
+                any(),
+                any()
+        );
+        verify(showcaseRevisionWorkflow).submit(revision, ownerId);
+        verify(showCasesRepository, never()).save(showcase);
+    }
+
+    @Test
+    void updateWithoutTagFieldsLeavesTheExistingTagsAlone() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        ShowCases showcase = showcase(
+                showcaseId,
+                ownerId,
+                "Draft title"
+        );
+        showcase.setReviewStatus(ReviewStatus.REJECTED);
+        UpdateShowCasesRequest request = new UpdateShowCasesRequest(
+                null,
+                null,
+                "Reworked overview",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showCasesRepository.save(showcase)).thenReturn(showcase);
+
+        service.update(showcaseId, request);
+
+        verify(showcaseTagService).tagsOfShowcase(showcaseId);
+        verify(showcaseTagService, never()).replaceShowcaseTags(
+                any(),
+                any(),
+                any()
+        );
     }
 
     @Test
@@ -430,8 +547,10 @@ class ShowCasesServiceImplTest {
                 file
         )).thenReturn("https://cdn.test/new-cover.png");
         when(showCasesRepository.save(showcase)).thenReturn(showcase);
-        when(showCasesMapper.mapShowCaseToShowCaseResponse(showcase))
-                .thenReturn(expected);
+        when(showCasesMapper.mapShowCaseToShowCaseResponse(
+                showcase,
+                List.of()
+        )).thenReturn(expected);
 
         ShowCasesResponse actual =
                 service.uploadCoverImage(showcaseId, file);
@@ -481,8 +600,10 @@ class ShowCasesServiceImplTest {
                 null,
                 file
         )).thenReturn("https://cdn.test/candidate-cover.png");
-        when(showCasesMapper.mapRevisionToShowCaseResponse(revision))
-                .thenReturn(expected);
+        when(showCasesMapper.mapRevisionToShowCaseResponse(
+                revision,
+                List.of()
+        )).thenReturn(expected);
 
         ShowCasesResponse actual =
                 service.uploadCoverImage(showcaseId, file);
@@ -660,8 +781,10 @@ class ShowCasesServiceImplTest {
         when(showcaseRevisionRepository.findByShowcase_Id(showcaseId))
                 .thenReturn(Optional.of(revision));
         when(showCasesRepository.save(showcase)).thenReturn(showcase);
-        when(showCasesMapper.mapShowCaseToShowCaseResponse(showcase))
-                .thenReturn(expected);
+        when(showCasesMapper.mapShowCaseToShowCaseResponse(
+                showcase,
+                List.of()
+        )).thenReturn(expected);
 
         ShowCasesResponse actual = service.updateStatus(
                 showcaseId,
@@ -729,8 +852,10 @@ class ShowCasesServiceImplTest {
                 .thenReturn(Optional.of(revision));
         when(showcaseRevisionRepository.save(revision))
                 .thenReturn(revision);
-        when(showCasesMapper.mapRevisionToShowCaseResponse(revision))
-                .thenReturn(expected);
+        when(showCasesMapper.mapRevisionToShowCaseResponse(
+                revision,
+                List.of()
+        )).thenReturn(expected);
 
         ShowCasesResponse actual = service.updateStatus(
                 showcaseId,
@@ -819,6 +944,7 @@ class ShowCasesServiceImplTest {
                 .thenReturn(stepResponse);
         when(showCasesMapper.mapRevisionToReviewDetail(
                 revision,
+                List.of(),
                 List.of(stepResponse)
         )).thenReturn(expected);
 
@@ -862,6 +988,7 @@ class ShowCasesServiceImplTest {
                 .thenReturn(List.of());
         when(showCasesMapper.mapRevisionToReviewDetail(
                 revision,
+                List.of(),
                 List.of()
         )).thenReturn(expected);
 

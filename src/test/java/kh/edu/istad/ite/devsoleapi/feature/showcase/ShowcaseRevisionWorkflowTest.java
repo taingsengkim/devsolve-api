@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowCaseStepRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStep;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepRevision;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepRevisionRepository;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.tag.ShowcaseTagService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +36,9 @@ class ShowcaseRevisionWorkflowTest {
     private ShowcaseStepRevisionRepository
             showcaseStepRevisionRepository;
 
+    @Mock
+    private ShowcaseTagService showcaseTagService;
+
     private ShowcaseRevisionWorkflow workflow;
 
     @BeforeEach
@@ -42,7 +46,8 @@ class ShowcaseRevisionWorkflowTest {
         workflow = new ShowcaseRevisionWorkflow(
                 showcaseRevisionRepository,
                 showcaseStepRepository,
-                showcaseStepRevisionRepository
+                showcaseStepRevisionRepository,
+                showcaseTagService
         );
     }
 

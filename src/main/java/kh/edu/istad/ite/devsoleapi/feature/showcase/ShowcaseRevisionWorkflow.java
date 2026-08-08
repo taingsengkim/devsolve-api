@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowCaseStepRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStep;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepRevision;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepRevisionRepository;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.tag.ShowcaseTagService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class ShowcaseRevisionWorkflow {
     private final ShowCaseStepRepository showcaseStepRepository;
     private final ShowcaseStepRevisionRepository
             showcaseStepRevisionRepository;
+    private final ShowcaseTagService showcaseTagService;
 
     @Transactional
     public ShowcaseRevision getOrCreate(
@@ -65,6 +67,7 @@ public class ShowcaseRevisionWorkflow {
 
     @Transactional
     public void discard(ShowcaseRevision revision) {
+        showcaseTagService.deleteRevisionTags(revision.getId());
         showcaseStepRevisionRepository
                 .deleteByRevision_Id(revision.getId());
         showcaseRevisionRepository.delete(revision);
@@ -189,6 +192,7 @@ public class ShowcaseRevisionWorkflow {
 
         ShowcaseRevision saved =
                 showcaseRevisionRepository.save(revision);
+        showcaseTagService.snapshotTags(showcase, saved);
 
         List<ShowcaseStepRevision> stepSnapshots =
                 showcaseStepRepository
