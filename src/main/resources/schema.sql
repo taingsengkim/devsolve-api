@@ -355,3 +355,35 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Tag links for showcases. Hibernate creates these on a fresh database, but
+-- the guards let the statements run against an existing one where ddl-auto
+-- is not "update", so a deploy does not need a hand-applied migration.
+DO $$
+BEGIN
+    IF to_regclass('public.showcases') IS NOT NULL
+       AND to_regclass('public.tags') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.showcase_tags (
+            showcase_id UUID NOT NULL
+                REFERENCES public.showcases (id),
+            tag_id UUID NOT NULL
+                REFERENCES public.tags (id),
+            created_at TIMESTAMP(6) NOT NULL,
+            PRIMARY KEY (showcase_id, tag_id)
+        );
+    END IF;
+
+    IF to_regclass('public.showcase_revisions') IS NOT NULL
+       AND to_regclass('public.tags') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.showcase_revision_tags (
+            revision_id UUID NOT NULL
+                REFERENCES public.showcase_revisions (id),
+            tag_id UUID NOT NULL
+                REFERENCES public.tags (id),
+            created_at TIMESTAMP(6) NOT NULL,
+            PRIMARY KEY (revision_id, tag_id)
+        );
+    END IF;
+END
+$$^^^
