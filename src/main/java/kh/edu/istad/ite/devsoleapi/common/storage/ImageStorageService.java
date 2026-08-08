@@ -77,6 +77,26 @@ public class ImageStorageService {
         scheduleCleanup(null, currentImageUrl);
     }
 
+    /**
+     * Narrows {@code candidateImageUrl} to the image that is safe to pass to
+     * {@link #replace} or {@link #remove} as the outgoing one: an image a
+     * still-live record ({@code retainedImageUrl}) also points at is shared,
+     * not superseded, so it is dropped from consideration.
+     *
+     * <p>A draft record — a showcase revision awaiting moderation — starts out
+     * pointing at the published record's image. Deleting it there would blank
+     * the live page while the draft is still being reviewed.
+     */
+    public static String supersededUrl(
+            String candidateImageUrl,
+            String retainedImageUrl
+    ) {
+        return candidateImageUrl != null
+                && candidateImageUrl.equals(retainedImageUrl)
+                ? null
+                : candidateImageUrl;
+    }
+
     private void scheduleCleanup(
             String newStorageKey,
             String previousImageUrl

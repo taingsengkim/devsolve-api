@@ -10,6 +10,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseViewCountRespons
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.UpdateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.UpdateShowcaseStatusRequest;
 import org.springframework.data.domain.Page;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
@@ -56,6 +57,13 @@ public interface ShowCasesService {
 //
     ShowCasesResponse update(UUID showcaseId,
                              UpdateShowCasesRequest request);
+
+    ShowCasesResponse uploadCoverImage(
+            UUID showcaseId,
+            MultipartFile file
+    );
+
+    ShowCasesResponse removeCoverImage(UUID showcaseId);
 
     void softDelete(UUID showcaseId);
 //

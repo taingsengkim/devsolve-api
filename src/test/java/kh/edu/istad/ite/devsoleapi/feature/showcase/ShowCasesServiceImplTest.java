@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewQueueItemResponse;
@@ -32,6 +33,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -85,6 +87,9 @@ class ShowCasesServiceImplTest {
     @Mock
     private FollowNotificationService followNotificationService;
 
+    @Mock
+    private ImageStorageService imageStorageService;
+
     private ShowCasesServiceImpl service;
 
     @BeforeEach
@@ -99,7 +104,8 @@ class ShowCasesServiceImplTest {
                 showcaseStepMapper,
                 showcaseRevisionWorkflow,
                 showcaseReviewHistoryRepository,
-                followNotificationService
+                followNotificationService,
+                imageStorageService
         );
     }
 
@@ -396,6 +402,234 @@ class ShowCasesServiceImplTest {
         assertEquals("Improved overview", revision.getOverview());
         verify(showcaseRevisionWorkflow).submit(revision, ownerId);
         verify(showCasesRepository, never()).save(showcase);
+    }
+
+    @Test
+    void uploadCoverImageOnUnpublishedShowcaseReplacesItInPlace() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        ShowCases showcase = showcase(
+                showcaseId,
+                ownerId,
+                "Draft title"
+        );
+        showcase.setReviewStatus(ReviewStatus.REJECTED);
+        showcase.setRejectionReason("The cover is unreadable.");
+        showcase.setCoverImageUrl("https://cdn.test/old-cover.png");
+        MultipartFile file = mock(MultipartFile.class);
+        ShowCasesResponse expected = ShowCasesResponse.builder()
+                .id(showcaseId)
+                .build();
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(imageStorageService.replace(
+                "showcases/" + showcaseId + "/cover",
+                "https://cdn.test/old-cover.png",
+                file
+        )).thenReturn("https://cdn.test/new-cover.png");
+        when(showCasesRepository.save(showcase)).thenReturn(showcase);
+        when(showCasesMapper.mapShowCaseToShowCaseResponse(showcase))
+                .thenReturn(expected);
+
+        ShowCasesResponse actual =
+                service.uploadCoverImage(showcaseId, file);
+
+        assertSame(expected, actual);
+        assertEquals(
+                "https://cdn.test/new-cover.png",
+                showcase.getCoverImageUrl()
+        );
+        assertEquals(ReviewStatus.PENDING, showcase.getReviewStatus());
+        assertNull(showcase.getRejectionReason());
+        verifyNoInteractions(showcaseRevisionWorkflow);
+    }
+
+    @Test
+    void uploadCoverImageOnApprovedShowcaseLeavesTheLiveCoverInPlace() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        ShowCases showcase = showcase(
+                showcaseId,
+                ownerId,
+                "Published title"
+        );
+        showcase.setReviewStatus(ReviewStatus.APPROVED);
+        showcase.setCoverImageUrl("https://cdn.test/live-cover.png");
+
+        ShowcaseRevision revision = revision(
+                showcase,
+                ownerId,
+                "Published title"
+        );
+        // A fresh revision snapshot points at the published cover.
+        revision.setCoverImageUrl("https://cdn.test/live-cover.png");
+
+        MultipartFile file = mock(MultipartFile.class);
+        ShowCasesResponse expected = ShowCasesResponse.builder()
+                .id(showcaseId)
+                .build();
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseRevisionWorkflow.getOrCreate(showcase, ownerId))
+                .thenReturn(revision);
+        when(imageStorageService.replace(
+                "showcases/" + showcaseId + "/cover",
+                null,
+                file
+        )).thenReturn("https://cdn.test/candidate-cover.png");
+        when(showCasesMapper.mapRevisionToShowCaseResponse(revision))
+                .thenReturn(expected);
+
+        ShowCasesResponse actual =
+                service.uploadCoverImage(showcaseId, file);
+
+        assertSame(expected, actual);
+        assertEquals(
+                "https://cdn.test/candidate-cover.png",
+                revision.getCoverImageUrl()
+        );
+        assertEquals(
+                "https://cdn.test/live-cover.png",
+                showcase.getCoverImageUrl()
+        );
+        assertEquals(ReviewStatus.APPROVED, showcase.getReviewStatus());
+        verify(showcaseRevisionWorkflow).submit(revision, ownerId);
+        verify(showCasesRepository, never()).save(showcase);
+    }
+
+    @Test
+    void uploadCoverImageOnApprovedShowcaseDropsTheEarlierCandidate() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        ShowCases showcase = showcase(
+                showcaseId,
+                ownerId,
+                "Published title"
+        );
+        showcase.setReviewStatus(ReviewStatus.APPROVED);
+        showcase.setCoverImageUrl("https://cdn.test/live-cover.png");
+
+        ShowcaseRevision revision = revision(
+                showcase,
+                ownerId,
+                "Published title"
+        );
+        revision.setCoverImageUrl("https://cdn.test/first-candidate.png");
+
+        MultipartFile file = mock(MultipartFile.class);
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseRevisionWorkflow.getOrCreate(showcase, ownerId))
+                .thenReturn(revision);
+        when(imageStorageService.replace(
+                "showcases/" + showcaseId + "/cover",
+                "https://cdn.test/first-candidate.png",
+                file
+        )).thenReturn("https://cdn.test/second-candidate.png");
+
+        service.uploadCoverImage(showcaseId, file);
+
+        assertEquals(
+                "https://cdn.test/second-candidate.png",
+                revision.getCoverImageUrl()
+        );
+        assertEquals(
+                "https://cdn.test/live-cover.png",
+                showcase.getCoverImageUrl()
+        );
+    }
+
+    @Test
+    void approvingRevisionDeletesTheCoverItReplaced() {
+        UUID ownerId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        ShowCases showcase = showcase(
+                showcaseId,
+                ownerId,
+                "Published title"
+        );
+        showcase.setReviewStatus(ReviewStatus.APPROVED);
+        showcase.setCoverImageUrl("https://cdn.test/live-cover.png");
+
+        ShowcaseRevision revision = revision(
+                showcase,
+                ownerId,
+                "Improved title"
+        );
+        revision.setCoverImageUrl("https://cdn.test/candidate-cover.png");
+
+        authenticate(adminId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseRevisionRepository.findByShowcase_Id(showcaseId))
+                .thenReturn(Optional.of(revision));
+        when(showcaseRevisionWorkflow.imageUrlsOf(showcase))
+                .thenReturn(List.of("https://cdn.test/live-cover.png"));
+        when(showcaseRevisionWorkflow.imageUrlsOf(revision))
+                .thenReturn(List.of("https://cdn.test/candidate-cover.png"));
+        when(showCasesRepository.save(showcase)).thenReturn(showcase);
+
+        service.updateStatus(
+                showcaseId,
+                new UpdateShowcaseStatusRequest(
+                        ReviewStatus.APPROVED,
+                        null
+                )
+        );
+
+        assertEquals(
+                "https://cdn.test/candidate-cover.png",
+                showcase.getCoverImageUrl()
+        );
+        verify(imageStorageService)
+                .remove("https://cdn.test/live-cover.png");
+        verify(imageStorageService, never())
+                .remove("https://cdn.test/candidate-cover.png");
+    }
+
+    @Test
+    void cancellingRevisionDeletesOnlyTheImagesItIntroduced() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        ShowCases showcase = showcase(
+                showcaseId,
+                ownerId,
+                "Published title"
+        );
+        showcase.setReviewStatus(ReviewStatus.APPROVED);
+        ShowcaseRevision revision = revision(
+                showcase,
+                ownerId,
+                "Candidate title"
+        );
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseRevisionRepository.findByShowcase_Id(showcaseId))
+                .thenReturn(Optional.of(revision));
+        when(showcaseRevisionWorkflow.imageUrlsOf(revision))
+                .thenReturn(List.of(
+                        "https://cdn.test/live-cover.png",
+                        "https://cdn.test/candidate-diagram.png"
+                ));
+        when(showcaseRevisionWorkflow.imageUrlsOf(showcase))
+                .thenReturn(List.of("https://cdn.test/live-cover.png"));
+
+        service.cancelRevision(showcaseId);
+
+        verify(showcaseRevisionWorkflow).discard(revision);
+        verify(imageStorageService)
+                .remove("https://cdn.test/candidate-diagram.png");
+        verify(imageStorageService, never())
+                .remove("https://cdn.test/live-cover.png");
     }
 
     @Test

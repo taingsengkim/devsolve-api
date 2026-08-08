@@ -13,7 +13,9 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
@@ -92,6 +94,24 @@ public class ShowCasesController {
             @Valid @RequestBody UpdateShowCasesRequest request
     ) {
         return service.update(id, request);
+    }
+
+    @PutMapping(
+            value = "/{id}/cover-image",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ShowCasesResponse uploadCoverImage(
+            @PathVariable UUID id,
+            @RequestPart("file") MultipartFile file
+    ) {
+        return service.uploadCoverImage(id, file);
+    }
+
+    @DeleteMapping("/{id}/cover-image")
+    public ShowCasesResponse removeCoverImage(
+            @PathVariable UUID id
+    ) {
+        return service.removeCoverImage(id);
     }
 
     @PatchMapping("/{id}/soft-delete")

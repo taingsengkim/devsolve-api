@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
@@ -28,9 +29,12 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
@@ -53,6 +57,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ShowcaseReviewHistoryRepository
             showcaseReviewHistoryRepository;
     private final FollowNotificationService followNotificationService;
+    private final ImageStorageService imageStorageService;
 
     @Override
     public Page<ShowCasesResponse> getAllPublished(
@@ -412,21 +417,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     ) {
         UUID authorId = extractCurrentUserId();
 
-        ShowCases showCase = showCaseRepository
-                .findByIdAndDeletedAtIsNull(showcaseId)
-                .orElseThrow(() ->
-                        new ResponseStatusException(
-                                HttpStatus.NOT_FOUND,
-                                "Showcase not found."
-                        )
-                );
-
-        if (!showCase.getAuthor().getId().equals(authorId)) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "You can only edit your own showcase."
-            );
-        }
+        ShowCases showCase = findOwnShowcase(showcaseId, authorId);
 
         validateUniqueTitle(
                 authorId,
@@ -446,17 +437,138 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         }
 
         applyUpdate(showCase, request);
-
-        showCase.setReviewStatus(ReviewStatus.PENDING);
-        showCase.setReviewedBy(null);
-        showCase.setReviewedAt(null);
-        showCase.setRejectionReason(null);
+        resubmitForReview(showCase);
 
         ShowCases saved =
                 showCaseRepository.save(showCase);
 
         return showCasesMapper
                 .mapShowCaseToShowCaseResponse(saved);
+    }
+
+    /**
+     * Stores {@code file} as the showcase cover.
+     *
+     * <p>A published showcase routes the new cover into its revision so the
+     * change is moderated like any other edit, which means the live cover has
+     * to survive until that revision is approved.
+     */
+    @Override
+    @Transactional
+    public ShowCasesResponse uploadCoverImage(
+            UUID showcaseId,
+            MultipartFile file
+    ) {
+        UUID authorId = extractCurrentUserId();
+        ShowCases showcase = findOwnShowcase(showcaseId, authorId);
+
+        if (showcase.getReviewStatus() == ReviewStatus.APPROVED) {
+            ShowcaseRevision revision = showcaseRevisionWorkflow
+                    .getOrCreate(showcase, authorId);
+
+            revision.setCoverImageUrl(imageStorageService.replace(
+                    coverImagePrefix(showcaseId),
+                    ImageStorageService.supersededUrl(
+                            revision.getCoverImageUrl(),
+                            showcase.getCoverImageUrl()
+                    ),
+                    file
+            ));
+            showcaseRevisionWorkflow.submit(revision, authorId);
+
+            return showCasesMapper
+                    .mapRevisionToShowCaseResponse(revision);
+        }
+
+        showcase.setCoverImageUrl(imageStorageService.replace(
+                coverImagePrefix(showcaseId),
+                showcase.getCoverImageUrl(),
+                file
+        ));
+        resubmitForReview(showcase);
+
+        return showCasesMapper.mapShowCaseToShowCaseResponse(
+                showCaseRepository.save(showcase)
+        );
+    }
+
+    @Override
+    @Transactional
+    public ShowCasesResponse removeCoverImage(UUID showcaseId) {
+        UUID authorId = extractCurrentUserId();
+        ShowCases showcase = findOwnShowcase(showcaseId, authorId);
+
+        if (showcase.getReviewStatus() == ReviewStatus.APPROVED) {
+            ShowcaseRevision revision = showcaseRevisionWorkflow
+                    .getOrCreate(showcase, authorId);
+
+            imageStorageService.remove(
+                    ImageStorageService.supersededUrl(
+                            revision.getCoverImageUrl(),
+                            showcase.getCoverImageUrl()
+                    )
+            );
+            revision.setCoverImageUrl(null);
+            showcaseRevisionWorkflow.submit(revision, authorId);
+
+            return showCasesMapper
+                    .mapRevisionToShowCaseResponse(revision);
+        }
+
+        imageStorageService.remove(showcase.getCoverImageUrl());
+        showcase.setCoverImageUrl(null);
+        resubmitForReview(showcase);
+
+        return showCasesMapper.mapShowCaseToShowCaseResponse(
+                showCaseRepository.save(showcase)
+        );
+    }
+
+    private String coverImagePrefix(UUID showcaseId) {
+        return "showcases/" + showcaseId + "/cover";
+    }
+
+    private void resubmitForReview(ShowCases showcase) {
+        showcase.setReviewStatus(ReviewStatus.PENDING);
+        showcase.setReviewedBy(null);
+        showcase.setReviewedAt(null);
+        showcase.setRejectionReason(null);
+    }
+
+    private ShowCases findOwnShowcase(
+            UUID showcaseId,
+            UUID authorId
+    ) {
+        ShowCases showcase = showCaseRepository
+                .findByIdAndDeletedAtIsNull(showcaseId)
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Showcase not found."
+                        )
+                );
+
+        if (!showcase.getAuthor().getId().equals(authorId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You can only edit your own showcase."
+            );
+        }
+        return showcase;
+    }
+
+    /**
+     * Deletes the stored images in {@code candidates} that nothing points at
+     * any more. Externally hosted URLs are left alone by the storage service.
+     */
+    private void deleteUnreferencedImages(
+            Collection<String> candidates,
+            Collection<String> stillReferenced
+    ) {
+        candidates.stream()
+                .filter(url -> !stillReferenced.contains(url))
+                .distinct()
+                .forEach(imageStorageService::remove);
     }
 
     @Override
@@ -507,10 +619,25 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
+        List<String> orphanedImages = new ArrayList<>(
+                showcaseRevisionWorkflow.imageUrlsOf(showCase)
+        );
         showcaseRevisionRepository
                 .findByShowcase_Id(showcaseId)
-                .ifPresent(showcaseRevisionWorkflow::discard);
+                .ifPresent(revision -> {
+                    orphanedImages.addAll(
+                            showcaseRevisionWorkflow.imageUrlsOf(revision)
+                    );
+                    showcaseRevisionWorkflow.discard(revision);
+                });
+
+        // Steps and revisions hold a non-null FK to the showcase, so their
+        // deletes have to reach the database before the parent's.
+        showcaseStepRepository.deleteByShowcase_Id(showcaseId);
+        showCaseRepository.flush();
+
         showCaseRepository.delete(showCase);
+        deleteUnreferencedImages(orphanedImages, List.of());
     }
 
     @Override
@@ -539,7 +666,13 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                         "This showcase has no unpublished revision."
                 ));
 
+        List<String> revisionImages =
+                showcaseRevisionWorkflow.imageUrlsOf(revision);
+        List<String> publishedImages =
+                showcaseRevisionWorkflow.imageUrlsOf(showcase);
+
         showcaseRevisionWorkflow.discard(revision);
+        deleteUnreferencedImages(revisionImages, publishedImages);
     }
 
     @Override
@@ -713,6 +846,13 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         revision.setReviewedAt(reviewedAt);
         revision.setRejectionReason(null);
 
+        // Both sides have to be read before promotion overwrites the
+        // published record with the revision's images.
+        List<String> supersededImages =
+                showcaseRevisionWorkflow.imageUrlsOf(showcase);
+        List<String> promotedImages =
+                showcaseRevisionWorkflow.imageUrlsOf(revision);
+
         showcaseRevisionWorkflow.promoteSteps(showcase, revision);
         applyRevision(showcase, revision);
         showcase.setReviewStatus(ReviewStatus.APPROVED);
@@ -738,6 +878,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 "showcase-revision-approved:" + revision.getId()
         );
         showcaseRevisionWorkflow.discard(revision);
+        deleteUnreferencedImages(supersededImages, promotedImages);
 
         return showCasesMapper.mapShowCaseToShowCaseResponse(saved);
     }

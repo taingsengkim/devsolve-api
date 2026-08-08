@@ -24,4 +24,6 @@ public interface ShowCaseStepRepository extends JpaRepository<ShowcaseStep, UUID
             Integer stepNumber,
             UUID stepId
     );
+
+    void deleteByShowcase_Id(UUID showcaseId);
 }

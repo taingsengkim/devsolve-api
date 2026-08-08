@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcasestep;
 
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCases;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -31,6 +33,7 @@ public class ShowCaseStepServiceImpl implements ShowCaseStepService {
     private final ShowcaseStepRevisionRepository
             showcaseStepRevisionRepository;
     private final ShowcaseRevisionWorkflow showcaseRevisionWorkflow;
+    private final ImageStorageService imageStorageService;
 
     @Override
     @Transactional
@@ -171,6 +174,139 @@ public class ShowCaseStepServiceImpl implements ShowCaseStepService {
 
         return showcaseStepMapper
                 .mapShowcaseStepToShowcaseStepResponse(updated);
+    }
+
+    /**
+     * Stores {@code file} in the step's {@code kind} slot.
+     *
+     * <p>Mirrors {@link #update}: on a published showcase the upload lands in
+     * the revision so a moderator sees it before readers do, which means the
+     * live step keeps its current image until the revision is approved.
+     */
+    @Override
+    @Transactional
+    public ShowcaseStepResponse uploadImage(
+            UUID showcaseId,
+            UUID stepId,
+            ShowcaseStepImageKind kind,
+            MultipartFile file
+    ) {
+        UUID currentUserId = extractCurrentUserId();
+        ShowCases showcase = findActiveShowcase(showcaseId);
+
+        requireOwner(showcase, currentUserId);
+
+        if (showcase.getReviewStatus() == ReviewStatus.APPROVED) {
+            ShowcaseRevision revision = showcaseRevisionWorkflow
+                    .getOrCreate(showcase, currentUserId);
+            ShowcaseStepRevision step =
+                    findRevisionStep(showcaseId, stepId);
+
+            kind.setUrl(step, imageStorageService.replace(
+                    imagePrefix(showcaseId, stepId, kind),
+                    ImageStorageService.supersededUrl(
+                            kind.urlOf(step),
+                            publishedUrlOf(step, kind)
+                    ),
+                    file
+            ));
+
+            ShowcaseStepRevision updated =
+                    showcaseStepRevisionRepository.save(step);
+            showcaseRevisionWorkflow.submit(revision, currentUserId);
+
+            return showcaseStepMapper
+                    .mapShowcaseStepRevisionToShowcaseStepResponse(updated);
+        }
+
+        ShowcaseStep step = findPublishedStep(showcaseId, stepId);
+
+        kind.setUrl(step, imageStorageService.replace(
+                imagePrefix(showcaseId, stepId, kind),
+                kind.urlOf(step),
+                file
+        ));
+
+        ShowcaseStep updated = showcaseStepRepository.save(step);
+        resubmitInitialShowcaseIfRejected(showcase);
+
+        return showcaseStepMapper
+                .mapShowcaseStepToShowcaseStepResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public ShowcaseStepResponse removeImage(
+            UUID showcaseId,
+            UUID stepId,
+            ShowcaseStepImageKind kind
+    ) {
+        UUID currentUserId = extractCurrentUserId();
+        ShowCases showcase = findActiveShowcase(showcaseId);
+
+        requireOwner(showcase, currentUserId);
+
+        if (showcase.getReviewStatus() == ReviewStatus.APPROVED) {
+            ShowcaseRevision revision = showcaseRevisionWorkflow
+                    .getOrCreate(showcase, currentUserId);
+            ShowcaseStepRevision step =
+                    findRevisionStep(showcaseId, stepId);
+
+            imageStorageService.remove(
+                    ImageStorageService.supersededUrl(
+                            kind.urlOf(step),
+                            publishedUrlOf(step, kind)
+                    )
+            );
+            kind.setUrl(step, null);
+
+            ShowcaseStepRevision updated =
+                    showcaseStepRevisionRepository.save(step);
+            showcaseRevisionWorkflow.submit(revision, currentUserId);
+
+            return showcaseStepMapper
+                    .mapShowcaseStepRevisionToShowcaseStepResponse(updated);
+        }
+
+        ShowcaseStep step = findPublishedStep(showcaseId, stepId);
+
+        imageStorageService.remove(kind.urlOf(step));
+        kind.setUrl(step, null);
+
+        ShowcaseStep updated = showcaseStepRepository.save(step);
+        resubmitInitialShowcaseIfRejected(showcase);
+
+        return showcaseStepMapper
+                .mapShowcaseStepToShowcaseStepResponse(updated);
+    }
+
+    private String imagePrefix(
+            UUID showcaseId,
+            UUID stepId,
+            ShowcaseStepImageKind kind
+    ) {
+        return "showcases/" + showcaseId
+                + "/steps/" + stepId
+                + "/" + kind.storageFolder();
+    }
+
+    /**
+     * The image the live step still points at, or {@code null} when this
+     * revision step has no published counterpart. A revision snapshot starts
+     * out sharing the published image, which has to outlive the revision's
+     * own edits.
+     */
+    private String publishedUrlOf(
+            ShowcaseStepRevision step,
+            ShowcaseStepImageKind kind
+    ) {
+        if (step.getSourceStepId() == null) {
+            return null;
+        }
+        return showcaseStepRepository
+                .findById(step.getSourceStepId())
+                .map(kind::urlOf)
+                .orElse(null);
     }
 
     @Override

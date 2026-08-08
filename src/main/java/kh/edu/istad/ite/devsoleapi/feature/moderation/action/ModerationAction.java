@@ -64,18 +64,4 @@ public class ModerationAction extends BasedEntity {
 
     @Column(name = "expires_at")
     private LocalDateTime expiresAt;
-
-    @Column(
-            name = "created_at",
-            nullable = false,
-            updatable = false
-    )
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    public void prePersist() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now();
-        }
-    }
 }
