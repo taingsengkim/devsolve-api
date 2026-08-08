@@ -8,6 +8,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
@@ -96,21 +97,35 @@ public class UserPortfolioServiceImpl implements UserPortfolioService {
                 ));
     }
 
-
-
+    @Transactional(readOnly = true)
     @Override
-    public Page<ReportResponse> getReports(UUID userId, int pageNumber, int pageSize) {
-        // confirm the profile exists (reuse whatever check getProblems/getSolutions already does)
-        userProfileRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User profile not found: " + userId));
+    public Page<ReportResponse> getReports(
+            UUID userId,
+            int pageNumber,
+            int pageSize
+    ) {
 
-        Pageable pageable = PageRequest.of(pageNumber, pageSize, Sort.by("resolvedAt").descending());
+        userProfileRepository.findById(userId)
+                .orElseThrow(() ->
+                        new NotFoundException(
+                                "User profile not found: " + userId
+                        )
+                );
+
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by("resolvedAt").descending()
+        );
+
 
         return reportRepository
-                .findByReporterIdAndState(
+                .findByReporterIdAndStateAndDisclosureStatus(
                         userId,
                         ReportState.RESOLVED,
-                        pageable)
+                        DisclosureStatus.DISCLOSED,
+                        pageable
+                )
                 .map(reportMapper::toResponse);
     }
 

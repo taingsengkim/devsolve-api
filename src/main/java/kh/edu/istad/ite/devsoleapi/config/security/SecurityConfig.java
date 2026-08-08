@@ -63,7 +63,8 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.GET,
-                        "/api/v1/user-profiles/*/reputation"
+                        "/api/v1/user-profiles/*/reputation",
+                        "/api/v1/user-profiles/*/reports"
                 ).permitAll()
 
                 .requestMatchers(

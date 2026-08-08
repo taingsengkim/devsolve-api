@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -41,9 +42,12 @@ public interface ReportRepository
     );
 
 
-    Page<Report> findByReporterIdAndState(
+    Page<Report> findByReporterIdAndStateAndDisclosureStatus(
             UUID reporterId,
             ReportState state,
+            DisclosureStatus disclosureStatus,
             Pageable pageable
     );
+
+
 }
