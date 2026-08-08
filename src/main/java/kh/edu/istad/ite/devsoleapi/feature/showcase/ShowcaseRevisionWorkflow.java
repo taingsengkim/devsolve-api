@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -67,6 +68,44 @@ public class ShowcaseRevisionWorkflow {
         showcaseStepRevisionRepository
                 .deleteByRevision_Id(revision.getId());
         showcaseRevisionRepository.delete(revision);
+    }
+
+    /**
+     * Every image the published showcase points at: the cover plus each
+     * step's screenshot and diagram.
+     *
+     * <p>Promoting or discarding a revision leaves one side's images
+     * unreferenced. Callers collect both sides <em>before</em> mutating
+     * either, then delete the difference; afterwards there is nothing left
+     * to compare against.
+     */
+    @Transactional(readOnly = true)
+    public List<String> imageUrlsOf(ShowCases showcase) {
+        List<String> urls = new ArrayList<>();
+        urls.add(showcase.getCoverImageUrl());
+        showcaseStepRepository
+                .findByShowcase_IdOrderByStepNumberAsc(showcase.getId())
+                .forEach(step -> {
+                    urls.add(step.getImageUrl());
+                    urls.add(step.getDiagramUrl());
+                });
+        return urls.stream()
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> imageUrlsOf(ShowcaseRevision revision) {
+        List<String> urls = new ArrayList<>();
+        urls.add(revision.getCoverImageUrl());
+        getCandidateSteps(revision.getId())
+                .forEach(step -> {
+                    urls.add(step.getImageUrl());
+                    urls.add(step.getDiagramUrl());
+                });
+        return urls.stream()
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     @Transactional
@@ -202,12 +241,12 @@ public class ShowcaseRevisionWorkflow {
 
         int maximumCandidateStepNumber = candidateSteps.stream()
                 .map(ShowcaseStepRevision::getStepNumber)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .orElse(0);
         int maximumPublishedStepNumber = retainedSteps.stream()
                 .map(ShowcaseStep::getStepNumber)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .orElse(0);
         int maximumStepNumber = Math.max(

@@ -7,7 +7,9 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.UpdateShowcaseStepRe
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -49,6 +51,64 @@ public class ShowCaseStepController {
             @Valid @RequestBody UpdateShowcaseStepRequest request
     ) {
         return showcaseStepService.update(showcaseId, stepId, request);
+    }
+
+    @PutMapping(
+            value = "/{stepId}/image",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ShowcaseStepResponse uploadImage(
+            @PathVariable UUID showcaseId,
+            @PathVariable UUID stepId,
+            @RequestPart("file") MultipartFile file
+    ) {
+        return showcaseStepService.uploadImage(
+                showcaseId,
+                stepId,
+                ShowcaseStepImageKind.IMAGE,
+                file
+        );
+    }
+
+    @DeleteMapping("/{stepId}/image")
+    public ShowcaseStepResponse removeImage(
+            @PathVariable UUID showcaseId,
+            @PathVariable UUID stepId
+    ) {
+        return showcaseStepService.removeImage(
+                showcaseId,
+                stepId,
+                ShowcaseStepImageKind.IMAGE
+        );
+    }
+
+    @PutMapping(
+            value = "/{stepId}/diagram",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ShowcaseStepResponse uploadDiagram(
+            @PathVariable UUID showcaseId,
+            @PathVariable UUID stepId,
+            @RequestPart("file") MultipartFile file
+    ) {
+        return showcaseStepService.uploadImage(
+                showcaseId,
+                stepId,
+                ShowcaseStepImageKind.DIAGRAM,
+                file
+        );
+    }
+
+    @DeleteMapping("/{stepId}/diagram")
+    public ShowcaseStepResponse removeDiagram(
+            @PathVariable UUID showcaseId,
+            @PathVariable UUID stepId
+    ) {
+        return showcaseStepService.removeImage(
+                showcaseId,
+                stepId,
+                ShowcaseStepImageKind.DIAGRAM
+        );
     }
 
     @DeleteMapping("/{stepId}")
