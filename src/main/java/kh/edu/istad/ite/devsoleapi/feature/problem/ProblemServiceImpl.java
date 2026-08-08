@@ -23,6 +23,7 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagId;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.Tag;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagRepository;
+import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagResolver;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -42,14 +43,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayInputStream;
 import java.net.URI;
-import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -67,7 +65,6 @@ public class ProblemServiceImpl implements ProblemService {
 
     private static final String ADMIN_ROLE = "ADMIN";
     private static final int MAX_TECHNOLOGIES = 20;
-    private static final int MAX_TAGS = 10;
     private static final Duration DOWNLOAD_LINK_VALIDITY =
             Duration.ofMinutes(5);
     private static final Set<ProblemStatus> PUBLIC_STATUSES = EnumSet.of(
@@ -99,6 +96,7 @@ public class ProblemServiceImpl implements ProblemService {
     private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
     private final FollowNotificationService followNotificationService;
+    private final TagResolver tagResolver;
 
     @Override
     @Transactional(readOnly = true)
@@ -559,53 +557,11 @@ public class ProblemServiceImpl implements ProblemService {
             Set<UUID> tagIds,
             Set<String> tagNames
     ) {
-        Set<UUID> requestedIds = tagIds == null
-                ? new LinkedHashSet<>()
-                : new LinkedHashSet<>(tagIds);
-        Set<String> requestedNames = tagNames == null
-                ? new LinkedHashSet<>()
-                : new LinkedHashSet<>(tagNames);
-        if (requestedIds.size() + requestedNames.size() > MAX_TAGS) {
-            throw badRequest("A problem can contain at most 10 tags");
-        }
-        if (requestedIds.contains(null)) {
-            throw badRequest("Tag IDs cannot be null");
-        }
-
-        Map<UUID, Tag> desired = new LinkedHashMap<>();
-        List<Tag> tagsById = tagRepository.findAllByIdIn(requestedIds);
-        if (tagsById.size() != requestedIds.size()) {
-            throw badRequest("One or more tag IDs do not exist");
-        }
-        tagsById.forEach(tag -> desired.put(tag.getId(), tag));
-
-        Set<String> normalizedSlugs = new HashSet<>();
-        for (String requestedName : requestedNames) {
-            String name = trimToNull(requestedName);
-            if (name == null) {
-                throw badRequest("Tag names cannot be blank");
-            }
-            String slug = normalizeSlug(name);
-            if (!normalizedSlugs.add(slug)) {
-                throw badRequest("Duplicate normalized tag names");
-            }
-
-            Tag tag = tagRepository.findBySlug(slug)
-                    .orElseGet(() -> tagRepository.saveAndFlush(
-                            Tag.builder()
-                                    .name(name)
-                                    .slug(slug)
-                                    .build()
-                    ));
-            if (desired.putIfAbsent(tag.getId(), tag) != null) {
-                throw badRequest(
-                        "The same tag was supplied by both ID and name"
-                );
-            }
-        }
-        if (desired.size() > MAX_TAGS) {
-            throw badRequest("A problem can contain at most 10 tags");
-        }
+        Map<UUID, Tag> desired = tagResolver.resolve(
+                tagIds,
+                tagNames,
+                "problem"
+        );
 
         List<ProblemTag> existing = problemTagRepository
                 .findAllByProblemId(problem.getId());
@@ -738,21 +694,7 @@ public class ProblemServiceImpl implements ProblemService {
     }
 
     private String normalizeSlug(String value) {
-        String normalized = Normalizer.normalize(
-                        Objects.requireNonNullElse(value, ""),
-                        Normalizer.Form.NFKD
-                )
-                .replaceAll("\\p{M}", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("(^-+|-+$)", "");
-        if (normalized.isBlank()) {
-            throw badRequest("Tag name must contain letters or numbers");
-        }
-        if (normalized.length() > 50) {
-            throw badRequest("Normalized tag slug cannot exceed 50 characters");
-        }
-        return normalized;
+        return TagResolver.normalizeSlug(value);
     }
 
     private String trimToNull(String value) {

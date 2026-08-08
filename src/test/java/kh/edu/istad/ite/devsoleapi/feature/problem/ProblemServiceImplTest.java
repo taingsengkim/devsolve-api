@@ -18,6 +18,7 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagId;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.Tag;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagRepository;
+import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagResolver;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -96,7 +97,8 @@ class ProblemServiceImplTest {
                 contentSafety,
                 attachmentValidator,
                 objectStorageService,
-                followNotificationService
+                followNotificationService,
+                new TagResolver(tagRepository)
         );
         lenient().when(contentSafety.normalizeText(any(String.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -129,7 +131,6 @@ class ProblemServiceImplTest {
         authenticate(userId, "USER");
         when(userProfileRepository.findById(userId))
                 .thenReturn(Optional.of(user(userId)));
-        when(tagRepository.findAllByIdIn(anySet())).thenReturn(List.of());
         when(problemTagRepository.findAllByProblemId(any()))
                 .thenReturn(List.of());
         when(technologyRepository
@@ -163,7 +164,6 @@ class ProblemServiceImplTest {
         authenticate(userId, "USER");
         when(userProfileRepository.findById(userId))
                 .thenReturn(Optional.of(user(userId)));
-        when(tagRepository.findAllByIdIn(anySet())).thenReturn(List.of());
         when(problemTagRepository.findAllByProblemId(any()))
                 .thenReturn(List.of());
         when(technologyRepository

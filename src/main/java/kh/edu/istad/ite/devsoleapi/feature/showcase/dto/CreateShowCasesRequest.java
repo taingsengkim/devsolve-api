@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.showcase.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+import java.util.Set;
 import java.util.UUID;
 
 public record CreateShowCasesRequest(
@@ -18,6 +19,9 @@ public record CreateShowCasesRequest(
         String coverImageUrl,
         String liveUrl,
         String repoUrl,
-        String videoUrl
+        String videoUrl,
+
+        Set<UUID> tagIds,
+        Set<String> tags
 ) {
 }

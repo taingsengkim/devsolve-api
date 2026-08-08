@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewHistoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseTagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -31,20 +32,23 @@ public abstract class ShowCasesMapper {
     );
 
     public ShowCasesResponse mapShowCaseToShowCaseResponse(
-            ShowCases showCase
+            ShowCases showCase,
+            List<ShowcaseTagResponse> tags
     ) {
-        return mapShowCase(showCase, null);
+        return mapShowCase(showCase, tags, null);
     }
 
     public ShowCasesResponse mapShowCaseToDetailResponse(
             ShowCases showCase,
+            List<ShowcaseTagResponse> tags,
             List<ShowcaseStepResponse> steps
     ) {
-        return mapShowCase(showCase, steps);
+        return mapShowCase(showCase, tags, steps);
     }
 
     private ShowCasesResponse mapShowCase(
             ShowCases showCase,
+            List<ShowcaseTagResponse> tags,
             List<ShowcaseStepResponse> steps
     ) {
         return ShowCasesResponse.builder()
@@ -87,13 +91,15 @@ public abstract class ShowCasesMapper {
                 .createdAt(showCase.getCreatedAt())
                 .updatedAt(showCase.getUpdatedAt())
 
+                .tags(tags)
                 .steps(steps)
 
                 .build();
     }
 
     public ShowCasesSummaryResponse mapShowCaseToSummaryResponse(
-            ShowCases showCase
+            ShowCases showCase,
+            List<ShowcaseTagResponse> tags
     ) {
         return ShowCasesSummaryResponse.builder()
                 .id(showCase.getId())
@@ -127,13 +133,15 @@ public abstract class ShowCasesMapper {
                 .hasUnpublishedRevision(false)
                 .rejectionReason(showCase.getRejectionReason())
                 .viewCount(showCase.getViewCount())
+                .tags(tags)
                 .createdAt(showCase.getCreatedAt())
                 .updatedAt(showCase.getUpdatedAt())
                 .build();
     }
 
     public ShowCasesResponse mapRevisionToShowCaseResponse(
-            ShowcaseRevision revision
+            ShowcaseRevision revision,
+            List<ShowcaseTagResponse> tags
     ) {
         ShowCases showcase = revision.getShowcase();
 
@@ -169,12 +177,14 @@ public abstract class ShowCasesMapper {
                 .viewCount(showcase.getViewCount())
                 .createdAt(revision.getCreatedAt())
                 .updatedAt(revision.getUpdatedAt())
+                .tags(tags)
                 .steps(null)
                 .build();
     }
 
     public ShowCasesSummaryResponse mapRevisionToSummaryResponse(
-            ShowcaseRevision revision
+            ShowcaseRevision revision,
+            List<ShowcaseTagResponse> tags
     ) {
         ShowCases showcase = revision.getShowcase();
 
@@ -210,6 +220,7 @@ public abstract class ShowCasesMapper {
                 .hasUnpublishedRevision(true)
                 .rejectionReason(revision.getRejectionReason())
                 .viewCount(showcase.getViewCount())
+                .tags(tags)
                 .createdAt(revision.getCreatedAt())
                 .updatedAt(revision.getUpdatedAt())
                 .build();
@@ -217,6 +228,7 @@ public abstract class ShowCasesMapper {
 
     public ShowcaseReviewDetailResponse mapShowCaseToReviewDetail(
             ShowCases showcase,
+            List<ShowcaseTagResponse> tags,
             List<ShowcaseStepResponse> steps
     ) {
         return ShowcaseReviewDetailResponse.builder()
@@ -253,12 +265,14 @@ public abstract class ShowCasesMapper {
                 .reviewedAt(showcase.getReviewedAt())
                 .rejectionReason(showcase.getRejectionReason())
                 .submittedAt(showcase.getUpdatedAt())
+                .tags(tags)
                 .steps(steps)
                 .build();
     }
 
     public ShowcaseReviewDetailResponse mapRevisionToReviewDetail(
             ShowcaseRevision revision,
+            List<ShowcaseTagResponse> tags,
             List<ShowcaseStepResponse> steps
     ) {
         ShowCases showcase = revision.getShowcase();
@@ -298,6 +312,7 @@ public abstract class ShowCasesMapper {
                 .reviewedAt(revision.getReviewedAt())
                 .rejectionReason(revision.getRejectionReason())
                 .submittedAt(revision.getUpdatedAt())
+                .tags(tags)
                 .steps(steps)
                 .build();
     }

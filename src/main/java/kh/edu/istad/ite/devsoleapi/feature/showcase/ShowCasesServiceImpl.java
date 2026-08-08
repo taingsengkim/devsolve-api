@@ -13,9 +13,11 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewQueueItemResponse;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseTagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseViewCountResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.UpdateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.UpdateShowcaseStatusRequest;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.tag.ShowcaseTagService;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowCaseStepRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepMapper;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
@@ -38,6 +40,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -58,6 +61,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             showcaseReviewHistoryRepository;
     private final FollowNotificationService followNotificationService;
     private final ImageStorageService imageStorageService;
+    private final ShowcaseTagService showcaseTagService;
 
     @Override
     public Page<ShowCasesResponse> getAllPublished(
@@ -102,7 +106,24 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                         pageable
                 );
         }
-        return showcases.map(showCasesMapper::mapShowCaseToShowCaseResponse);
+        Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
+                showcaseTagService.tagsOfShowcases(idsOf(showcases));
+
+        return showcases.map(showcase ->
+                showCasesMapper.mapShowCaseToShowCaseResponse(
+                        showcase,
+                        tagsByShowcaseId.getOrDefault(
+                                showcase.getId(),
+                                List.of()
+                        )
+                ));
+    }
+
+    private List<UUID> idsOf(Page<ShowCases> showcases) {
+        return showcases.getContent()
+                .stream()
+                .map(ShowCases::getId)
+                .toList();
     }
 
     @Override
@@ -126,18 +147,16 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 );
 
         if (showcases.isEmpty()) {
-            return showcases.map(
-                    showCasesMapper::mapShowCaseToSummaryResponse
-            );
+            return showcases.map(showcase ->
+                    showCasesMapper.mapShowCaseToSummaryResponse(
+                            showcase,
+                            List.of()
+                    ));
         }
 
         Map<UUID, ShowcaseRevision> revisionsByShowcaseId =
                 showcaseRevisionRepository
-                        .findByShowcase_IdIn(
-                                showcases.stream()
-                                        .map(ShowCases::getId)
-                                        .toList()
-                        )
+                        .findByShowcase_IdIn(idsOf(showcases))
                         .stream()
                         .collect(Collectors.toMap(
                                 revision -> revision
@@ -146,15 +165,39 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                                 Function.identity()
                         ));
 
+        // A summary shows the revision's content when there is one, so its
+        // tags have to come from the same side.
+        Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
+                showcaseTagService.tagsOfShowcases(idsOf(showcases));
+        Map<UUID, List<ShowcaseTagResponse>> tagsByRevisionId =
+                showcaseTagService.tagsOfRevisions(
+                        revisionsByShowcaseId.values()
+                                .stream()
+                                .map(ShowcaseRevision::getId)
+                                .toList()
+                );
+
         return showcases.map(showcase -> {
             ShowcaseRevision revision =
                     revisionsByShowcaseId.get(showcase.getId());
 
             return revision == null
                     ? showCasesMapper
-                            .mapShowCaseToSummaryResponse(showcase)
+                            .mapShowCaseToSummaryResponse(
+                                    showcase,
+                                    tagsByShowcaseId.getOrDefault(
+                                            showcase.getId(),
+                                            List.of()
+                                    )
+                            )
                     : showCasesMapper
-                            .mapRevisionToSummaryResponse(revision);
+                            .mapRevisionToSummaryResponse(
+                                    revision,
+                                    tagsByRevisionId.getOrDefault(
+                                            revision.getId(),
+                                            List.of()
+                                    )
+                            );
         });
     }
 
@@ -166,7 +209,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             int pageSize
     ) {
         validatePagination(pageNumber, pageSize);
-        return showCaseRepository
+        Page<ShowCases> showcases = showCaseRepository
                 .findByAuthor_IdAndReviewStatusAndDeletedAtIsNull(
                         authorId,
                         ReviewStatus.APPROVED,
@@ -178,8 +221,19 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                                         "createdAt"
                                 )
                         )
-                )
-                .map(showCasesMapper::mapShowCaseToSummaryResponse);
+                );
+
+        Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
+                showcaseTagService.tagsOfShowcases(idsOf(showcases));
+
+        return showcases.map(showcase ->
+                showCasesMapper.mapShowCaseToSummaryResponse(
+                        showcase,
+                        tagsByShowcaseId.getOrDefault(
+                                showcase.getId(),
+                                List.of()
+                        )
+                ));
     }
 
     @Override
@@ -193,9 +247,42 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
         Pageable pageable = PageRequest.of(pageNumber, pageSize);
 
-        return showCaseRepository
-                .findReviewQueue(reviewStatus.name(), pageable)
-                .map(this::mapReviewQueueItem);
+        Page<ShowcaseReviewQueueProjection> queue = showCaseRepository
+                .findReviewQueue(reviewStatus.name(), pageable);
+
+        // A queued revision is reviewed on its own content, an initial
+        // submission on the showcase's.
+        Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
+                showcaseTagService.tagsOfShowcases(
+                        queue.getContent()
+                                .stream()
+                                .filter(item -> item.getRevisionId() == null)
+                                .map(ShowcaseReviewQueueProjection
+                                        ::getShowcaseId)
+                                .toList()
+                );
+        Map<UUID, List<ShowcaseTagResponse>> tagsByRevisionId =
+                showcaseTagService.tagsOfRevisions(
+                        queue.getContent()
+                                .stream()
+                                .map(ShowcaseReviewQueueProjection
+                                        ::getRevisionId)
+                                .filter(Objects::nonNull)
+                                .toList()
+                );
+
+        return queue.map(item -> mapReviewQueueItem(
+                item,
+                item.getRevisionId() == null
+                        ? tagsByShowcaseId.getOrDefault(
+                                item.getShowcaseId(),
+                                List.of()
+                        )
+                        : tagsByRevisionId.getOrDefault(
+                                item.getRevisionId(),
+                                List.of()
+                        )
+        ));
     }
 
     @Override
@@ -224,6 +311,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
             return showCasesMapper.mapShowCaseToReviewDetail(
                     showcase,
+                    showcaseTagService.tagsOfShowcase(showcaseId),
                     steps
             );
         }
@@ -238,6 +326,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
         return showCasesMapper.mapRevisionToReviewDetail(
                 revision,
+                showcaseTagService.tagsOfRevision(revision.getId()),
                 steps
         );
     }
@@ -279,6 +368,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
         return showCasesMapper.mapRevisionToReviewDetail(
                 revision,
+                showcaseTagService.tagsOfRevision(revision.getId()),
                 steps
         );
     }
@@ -331,11 +421,13 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
         return showCasesMapper.mapShowCaseToDetailResponse(
                 showcase,
+                showcaseTagService.tagsOfShowcase(id),
                 steps
         );
     }
 
     @Override
+    @Transactional
     public ShowCasesResponse create(CreateShowCasesRequest request) {
         UUID authorId = UUID.fromString(
                 AuthUtils.extractUserId()
@@ -405,8 +497,14 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         ShowCases saved =
                 showCaseRepository.save(showCase);
 
-        return showCasesMapper
-                .mapShowCaseToShowCaseResponse(saved);
+        return showCasesMapper.mapShowCaseToShowCaseResponse(
+                saved,
+                showcaseTagService.replaceShowcaseTags(
+                        saved,
+                        request.tagIds(),
+                        request.tags()
+                )
+        );
     }
 
     @Override
@@ -430,20 +528,43 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                     .getOrCreate(showCase, authorId);
 
             applyUpdate(revision, request);
+            List<ShowcaseTagResponse> tags = requestsTagChange(request)
+                    ? showcaseTagService.replaceRevisionTags(
+                            revision,
+                            request.tagIds(),
+                            request.tags()
+                    )
+                    : showcaseTagService.tagsOfRevision(revision.getId());
             showcaseRevisionWorkflow.submit(revision, authorId);
 
-            return showCasesMapper
-                    .mapRevisionToShowCaseResponse(revision);
+            return showCasesMapper.mapRevisionToShowCaseResponse(
+                    revision,
+                    tags
+            );
         }
 
         applyUpdate(showCase, request);
+        List<ShowcaseTagResponse> tags = requestsTagChange(request)
+                ? showcaseTagService.replaceShowcaseTags(
+                        showCase,
+                        request.tagIds(),
+                        request.tags()
+                )
+                : showcaseTagService.tagsOfShowcase(showcaseId);
         resubmitForReview(showCase);
 
         ShowCases saved =
                 showCaseRepository.save(showCase);
 
-        return showCasesMapper
-                .mapShowCaseToShowCaseResponse(saved);
+        return showCasesMapper.mapShowCaseToShowCaseResponse(saved, tags);
+    }
+
+    /**
+     * Tags are only touched when the request mentions them: an update that
+     * leaves both fields out keeps whatever is already there.
+     */
+    private boolean requestsTagChange(UpdateShowCasesRequest request) {
+        return request.tagIds() != null || request.tags() != null;
     }
 
     /**
@@ -476,8 +597,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             ));
             showcaseRevisionWorkflow.submit(revision, authorId);
 
-            return showCasesMapper
-                    .mapRevisionToShowCaseResponse(revision);
+            return showCasesMapper.mapRevisionToShowCaseResponse(
+                    revision,
+                    showcaseTagService.tagsOfRevision(revision.getId())
+            );
         }
 
         showcase.setCoverImageUrl(imageStorageService.replace(
@@ -488,7 +611,8 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         resubmitForReview(showcase);
 
         return showCasesMapper.mapShowCaseToShowCaseResponse(
-                showCaseRepository.save(showcase)
+                showCaseRepository.save(showcase),
+                showcaseTagService.tagsOfShowcase(showcaseId)
         );
     }
 
@@ -511,8 +635,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             revision.setCoverImageUrl(null);
             showcaseRevisionWorkflow.submit(revision, authorId);
 
-            return showCasesMapper
-                    .mapRevisionToShowCaseResponse(revision);
+            return showCasesMapper.mapRevisionToShowCaseResponse(
+                    revision,
+                    showcaseTagService.tagsOfRevision(revision.getId())
+            );
         }
 
         imageStorageService.remove(showcase.getCoverImageUrl());
@@ -520,7 +646,8 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         resubmitForReview(showcase);
 
         return showCasesMapper.mapShowCaseToShowCaseResponse(
-                showCaseRepository.save(showcase)
+                showCaseRepository.save(showcase),
+                showcaseTagService.tagsOfShowcase(showcaseId)
         );
     }
 
@@ -631,8 +758,9 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                     showcaseRevisionWorkflow.discard(revision);
                 });
 
-        // Steps and revisions hold a non-null FK to the showcase, so their
-        // deletes have to reach the database before the parent's.
+        // Steps, revisions and tag links hold a non-null FK to the showcase,
+        // so their deletes have to reach the database before the parent's.
+        showcaseTagService.deleteShowcaseTags(showCase);
         showcaseStepRepository.deleteByShowcase_Id(showcaseId);
         showCaseRepository.flush();
 
@@ -801,7 +929,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
-        return showCasesMapper.mapShowCaseToShowCaseResponse(saved);
+        return showCasesMapper.mapShowCaseToShowCaseResponse(
+                saved,
+                showcaseTagService.tagsOfShowcase(saved.getId())
+        );
     }
 
     private ShowCasesResponse reviewRevision(
@@ -835,8 +966,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                     )
             );
 
-            return showCasesMapper
-                    .mapRevisionToShowCaseResponse(rejected);
+            return showCasesMapper.mapRevisionToShowCaseResponse(
+                    rejected,
+                    showcaseTagService.tagsOfRevision(rejected.getId())
+            );
         }
 
         LocalDateTime submittedAt = revision.getUpdatedAt();
@@ -854,6 +987,8 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 showcaseRevisionWorkflow.imageUrlsOf(revision);
 
         showcaseRevisionWorkflow.promoteSteps(showcase, revision);
+        List<ShowcaseTagResponse> promotedTags =
+                showcaseTagService.promoteTags(showcase, revision);
         applyRevision(showcase, revision);
         showcase.setReviewStatus(ReviewStatus.APPROVED);
         showcase.setReviewedBy(reviewerId);
@@ -880,7 +1015,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         showcaseRevisionWorkflow.discard(revision);
         deleteUnreferencedImages(supersededImages, promotedImages);
 
-        return showCasesMapper.mapShowCaseToShowCaseResponse(saved);
+        return showCasesMapper.mapShowCaseToShowCaseResponse(
+                saved,
+                promotedTags
+        );
     }
 
     private void applyUpdate(
@@ -1076,7 +1214,8 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     }
 
     private ShowcaseReviewQueueItemResponse mapReviewQueueItem(
-            ShowcaseReviewQueueProjection item
+            ShowcaseReviewQueueProjection item,
+            List<ShowcaseTagResponse> tags
     ) {
         return new ShowcaseReviewQueueItemResponse(
                 item.getShowcaseId(),
@@ -1096,6 +1235,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 item.getRepoUrl(),
                 item.getVideoUrl(),
                 parseReviewStatus(item.getReviewStatus()),
+                tags,
                 item.getSubmittedAt()
         );
     }

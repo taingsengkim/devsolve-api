@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
 import lombok.Builder;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Builder
@@ -23,6 +24,7 @@ public record ShowCasesSummaryResponse(
         boolean hasUnpublishedRevision,
         String rejectionReason,
         Integer viewCount,
+        List<ShowcaseTagResponse> tags,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
