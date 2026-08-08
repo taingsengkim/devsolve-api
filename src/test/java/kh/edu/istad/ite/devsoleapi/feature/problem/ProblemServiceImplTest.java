@@ -158,6 +158,35 @@ class ProblemServiceImplTest {
     }
 
     @Test
+    void createsDraftWhenTagIdsAreOmitted() {
+        UUID userId = UUID.randomUUID();
+        authenticate(userId, "USER");
+        when(userProfileRepository.findById(userId))
+                .thenReturn(Optional.of(user(userId)));
+        when(tagRepository.findAllByIdIn(anySet())).thenReturn(List.of());
+        when(problemTagRepository.findAllByProblemId(any()))
+                .thenReturn(List.of());
+        when(technologyRepository
+                .findAllByProblemIdOrderByNameAsc(any()))
+                .thenReturn(List.of());
+        when(attachmentRepository
+                .findAllByProblemIdOrderByCreatedAtAsc(any()))
+                .thenReturn(List.of());
+
+        service.createDraft(new CreateProblemRequest(
+                null,
+                "How should I structure this service?",
+                SdlcPhase.DESIGN,
+                null,
+                List.of(),
+                null,
+                null
+        ));
+
+        verify(problemRepository).saveAndFlush(any(Problem.class));
+    }
+
+    @Test
     void submitsACompleteDraft() {
         UUID userId = UUID.randomUUID();
         UUID categoryId = UUID.randomUUID();
