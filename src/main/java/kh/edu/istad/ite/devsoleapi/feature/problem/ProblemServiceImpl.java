@@ -560,10 +560,10 @@ public class ProblemServiceImpl implements ProblemService {
             Set<String> tagNames
     ) {
         Set<UUID> requestedIds = tagIds == null
-                ? Set.of()
+                ? new LinkedHashSet<>()
                 : new LinkedHashSet<>(tagIds);
         Set<String> requestedNames = tagNames == null
-                ? Set.of()
+                ? new LinkedHashSet<>()
                 : new LinkedHashSet<>(tagNames);
         if (requestedIds.size() + requestedNames.size() > MAX_TAGS) {
             throw badRequest("A problem can contain at most 10 tags");
