@@ -121,7 +121,9 @@ public class ProblemMapper {
                 metrics.commentCount(),
                 metrics.voteScore(),
                 metrics.bookmarkCount(),
-                problem.getAcceptedSolutionId(),
+                problem.getAcceptedSolutions().stream()
+                        .map(ProblemAcceptedSolution::getSolutionId)
+                        .toList(),
                 metrics.bookmarkedByViewer(),
                 metrics.viewerVote(),
                 metrics.canEdit(),

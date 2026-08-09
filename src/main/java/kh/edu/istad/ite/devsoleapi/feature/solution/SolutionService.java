@@ -35,7 +35,7 @@ public interface SolutionService {
 
     ProblemResponse setAcceptedSolution(UUID problemId, AcceptedSolutionRequest request);
 
-    ProblemResponse removeAcceptedSolution(UUID problemId);
+    ProblemResponse removeAcceptedSolution(UUID problemId, UUID solutionId);
 
     SolutionResponse updateReviewStatus(UUID solutionId, UpdateSolutionReviewStatusRequest request);
 

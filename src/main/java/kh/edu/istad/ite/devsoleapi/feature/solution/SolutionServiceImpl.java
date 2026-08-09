@@ -10,6 +10,7 @@ import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemAcceptedSolution;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
@@ -91,8 +92,11 @@ public class SolutionServiceImpl implements SolutionService {
     public SolutionResponse createSolution(UUID problemId, SolutionRequest request) {
         Problem problem = problemRepository.findPublicById(problemId)
                 .orElseThrow(() -> notFound("Problem", problemId));
-        if (problem.getStatus() != ProblemStatus.PUBLISHED) {
-            throw conflict("Solutions can only be submitted to published problems");
+        if (problem.getStatus() != ProblemStatus.PUBLISHED
+                && problem.getStatus() != ProblemStatus.RESOLVED) {
+            throw conflict(
+                    "Solutions can only be submitted to published or resolved problems"
+            );
         }
 
         UUID authorId = requireCurrentUserId();
@@ -262,11 +266,16 @@ public class SolutionServiceImpl implements SolutionService {
                         solution.getProblem().getId()
                 )
                 .orElseThrow(() -> notFound("Problem", solution.getProblem().getId()));
-        if (Objects.equals(problem.getAcceptedSolutionId(), solution.getId())) {
+        Optional<ProblemAcceptedSolution> acceptance = findAcceptance(
+                problem,
+                solution.getId()
+        );
+        if (acceptance.isPresent()) {
             if (!admin) {
                 throw conflict("Remove acceptance before deleting this solution");
             }
-            clearAcceptance(problem);
+            problem.getAcceptedSolutions().remove(acceptance.get());
+            reopenIfNoAcceptedSolutions(problem);
             problemRepository.saveAndFlush(problem);
         }
         solution.setDeletedAt(LocalDateTime.now());
@@ -294,10 +303,14 @@ public class SolutionServiceImpl implements SolutionService {
         if (published == null || published.getModerationStatus() != ReviewStatus.APPROVED) {
             throw conflict("Only an approved solution can be accepted");
         }
-        if (!Objects.equals(problem.getAcceptedSolutionId(), solution.getId())) {
-            problem.setAcceptedSolutionId(solution.getId());
-            problem.setAcceptedBy(requireCurrentUserId());
-            problem.setAcceptedAt(LocalDateTime.now());
+        if (findAcceptance(problem, solution.getId()).isEmpty()) {
+            problem.getAcceptedSolutions().add(
+                    ProblemAcceptedSolution.builder()
+                            .problem(problem)
+                            .solutionId(solution.getId())
+                            .acceptedBy(requireCurrentUserId())
+                            .build()
+            );
             problem.setStatus(ProblemStatus.RESOLVED);
             problemRepository.saveAndFlush(problem);
         }
@@ -306,12 +319,20 @@ public class SolutionServiceImpl implements SolutionService {
 
     @Override
     @Transactional
-    public ProblemResponse removeAcceptedSolution(UUID problemId) {
+    public ProblemResponse removeAcceptedSolution(
+            UUID problemId,
+            UUID solutionId
+    ) {
         Problem problem = problemRepository.findActiveByIdForUpdate(problemId)
                 .orElseThrow(() -> notFound("Problem", problemId));
         requireAcceptancePermission(problem);
-        if (problem.getAcceptedSolutionId() != null) {
-            clearAcceptance(problem);
+        Optional<ProblemAcceptedSolution> acceptance = findAcceptance(
+                problem,
+                solutionId
+        );
+        if (acceptance.isPresent()) {
+            problem.getAcceptedSolutions().remove(acceptance.get());
+            reopenIfNoAcceptedSolutions(problem);
             problemRepository.saveAndFlush(problem);
         }
         return problemService.findById(problemId);
@@ -736,10 +757,8 @@ public class SolutionServiceImpl implements SolutionService {
                                 item.getCreatedAt()
                         ))
                         .toList(),
-                Objects.equals(
-                        solution.getProblem().getAcceptedSolutionId(),
-                        solution.getId()
-                ),
+                findAcceptance(solution.getProblem(), solution.getId())
+                        .isPresent(),
                 votes == null ? 0 : votes.getScore(),
                 commentRepository
                         .countByCommentableTypeAndCommentableIdAndDeletedAtIsNullAndInternalFalse(
@@ -810,11 +829,18 @@ public class SolutionServiceImpl implements SolutionService {
         }
     }
 
-    private void clearAcceptance(Problem problem) {
-        problem.setAcceptedSolutionId(null);
-        problem.setAcceptedBy(null);
-        problem.setAcceptedAt(null);
-        if (problem.getStatus() == ProblemStatus.RESOLVED) {
+    private Optional<ProblemAcceptedSolution> findAcceptance(
+            Problem problem,
+            UUID solutionId
+    ) {
+        return problem.getAcceptedSolutions().stream()
+                .filter(item -> item.getSolutionId().equals(solutionId))
+                .findFirst();
+    }
+
+    private void reopenIfNoAcceptedSolutions(Problem problem) {
+        if (problem.getAcceptedSolutions().isEmpty()
+                && problem.getStatus() == ProblemStatus.RESOLVED) {
             problem.setStatus(ProblemStatus.PUBLISHED);
         }
     }

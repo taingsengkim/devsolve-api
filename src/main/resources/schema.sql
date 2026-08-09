@@ -54,13 +54,6 @@ BEGIN
             ADD COLUMN IF NOT EXISTS severity VARCHAR(20);
         ALTER TABLE public.problems
             ADD COLUMN IF NOT EXISTS repository_url VARCHAR(1000);
-        ALTER TABLE public.problems
-            ADD COLUMN IF NOT EXISTS accepted_solution_id UUID;
-        ALTER TABLE public.problems
-            ADD COLUMN IF NOT EXISTS accepted_by UUID;
-        ALTER TABLE public.problems
-            ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP(6);
-
         CREATE TABLE IF NOT EXISTS public.problem_reproduction_steps (
             problem_id UUID NOT NULL REFERENCES public.problems (id),
             display_order INTEGER NOT NULL,
@@ -167,6 +160,17 @@ BEGIN
             mime_type VARCHAR(100) NOT NULL,
             file_size BIGINT NOT NULL,
             created_at TIMESTAMP(6) NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS public.problem_accepted_solutions (
+            id UUID PRIMARY KEY,
+            problem_id UUID NOT NULL
+                REFERENCES public.problems (id),
+            solution_id UUID NOT NULL,
+            accepted_by UUID NOT NULL,
+            accepted_at TIMESTAMP(6) NOT NULL,
+            CONSTRAINT uq_problem_accepted_solutions_problem_solution
+                UNIQUE (problem_id, solution_id)
         );
 
         INSERT INTO public.solution_revisions (
@@ -287,15 +291,65 @@ BEGIN
               WHERE resource.id = (md5(solution.id::text || ':diagram'))::uuid
           );
 
-        UPDATE public.problems problem
-        SET accepted_solution_id = accepted.id,
-            accepted_by = problem.author_id,
-            accepted_at = COALESCE(accepted.reviewed_at, accepted.updated_at)
+        INSERT INTO public.problem_accepted_solutions (
+            id,
+            problem_id,
+            solution_id,
+            accepted_by,
+            accepted_at
+        )
+        SELECT
+            (md5(accepted.problem_id::text || ':accepted:'
+                    || accepted.id::text))::uuid,
+            accepted.problem_id,
+            accepted.id,
+            problem.author_id,
+            COALESCE(accepted.reviewed_at, accepted.updated_at)
         FROM public.solutions accepted
-        WHERE accepted.problem_id = problem.id
-          AND accepted.review_status = 'ACCEPTED'
+        JOIN public.problems problem ON problem.id = accepted.problem_id
+        WHERE accepted.review_status = 'ACCEPTED'
           AND accepted.deleted_at IS NULL
-          AND problem.accepted_solution_id IS NULL;
+        ON CONFLICT (problem_id, solution_id) DO NOTHING;
+
+        -- Backfill deployments that previously stored one accepted solution
+        -- directly on problems. Dynamic SQL keeps fresh databases compatible
+        -- because those legacy columns are no longer part of the entity.
+        IF EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'problems'
+              AND column_name = 'accepted_solution_id'
+        ) THEN
+            EXECUTE $migration$
+                INSERT INTO public.problem_accepted_solutions (
+                    id,
+                    problem_id,
+                    solution_id,
+                    accepted_by,
+                    accepted_at
+                )
+                SELECT
+                    (md5(problem.id::text || ':accepted:'
+                            || problem.accepted_solution_id::text))::uuid,
+                    problem.id,
+                    problem.accepted_solution_id,
+                    COALESCE(problem.accepted_by, problem.author_id),
+                    COALESCE(problem.accepted_at, problem.updated_at)
+                FROM public.problems problem
+                WHERE problem.accepted_solution_id IS NOT NULL
+                ON CONFLICT (problem_id, solution_id) DO NOTHING
+            $migration$;
+
+            ALTER TABLE public.problems
+                DROP CONSTRAINT IF EXISTS fk_problems_accepted_solution;
+            ALTER TABLE public.problems
+                DROP COLUMN IF EXISTS accepted_solution_id;
+            ALTER TABLE public.problems
+                DROP COLUMN IF EXISTS accepted_by;
+            ALTER TABLE public.problems
+                DROP COLUMN IF EXISTS accepted_at;
+        END IF;
 
         IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
@@ -319,11 +373,11 @@ BEGIN
 
         IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
-            WHERE conname = 'fk_problems_accepted_solution'
+            WHERE conname = 'fk_problem_accepted_solutions_solution'
         ) THEN
-            ALTER TABLE public.problems
-                ADD CONSTRAINT fk_problems_accepted_solution
-                FOREIGN KEY (accepted_solution_id)
+            ALTER TABLE public.problem_accepted_solutions
+                ADD CONSTRAINT fk_problem_accepted_solutions_solution
+                FOREIGN KEY (solution_id)
                 REFERENCES public.solutions (id);
         END IF;
 

@@ -95,7 +95,7 @@ public class SolutionController {
         solutionService.deleteSolution(id);
     }
 
-    @PutMapping("/problems/{problemId}/accepted-solution")
+    @PutMapping("/problems/{problemId}/accepted-solutions")
     public ProblemResponse setAcceptedSolution(
             @PathVariable UUID problemId,
             @Valid @RequestBody AcceptedSolutionRequest request
@@ -103,9 +103,14 @@ public class SolutionController {
         return solutionService.setAcceptedSolution(problemId, request);
     }
 
-    @DeleteMapping("/problems/{problemId}/accepted-solution")
-    public ProblemResponse removeAcceptedSolution(@PathVariable UUID problemId) {
-        return solutionService.removeAcceptedSolution(problemId);
+    @DeleteMapping(
+            "/problems/{problemId}/accepted-solutions/{solutionId}"
+    )
+    public ProblemResponse removeAcceptedSolution(
+            @PathVariable UUID problemId,
+            @PathVariable UUID solutionId
+    ) {
+        return solutionService.removeAcceptedSolution(problemId, solutionId);
     }
 
     @PostMapping(
