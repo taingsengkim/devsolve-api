@@ -30,6 +30,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -97,6 +98,9 @@ public class ProblemServiceImpl implements ProblemService {
     private final ObjectStorageService objectStorageService;
     private final FollowNotificationService followNotificationService;
     private final TagResolver tagResolver;
+
+    @Autowired(required = false)
+    private ProblemResponseEnricher responseEnricher;
 
     @Override
     @Transactional(readOnly = true)
@@ -202,9 +206,23 @@ public class ProblemServiceImpl implements ProblemService {
     @Transactional
     public ProblemResponse updateDraft(
             UUID id,
-            ProblemUpdateRequest request
+            ProblemUpdateRequest request,
+            long expectedVersion
     ) {
         Problem problem = findOwnedEditableProblem(id);
+        if (problem.getVersion() != expectedVersion) {
+            throw new ResponseStatusException(
+                    HttpStatus.PRECONDITION_FAILED,
+                    "The problem changed after it was read; fetch it again before editing"
+            );
+        }
+        return updateDraft(problem, request);
+    }
+
+    private ProblemResponse updateDraft(
+            Problem problem,
+            ProblemUpdateRequest request
+    ) {
 
         if (request.categoryId() != null) {
             validateDraftCategory(request.categoryId());
@@ -212,6 +230,9 @@ public class ProblemServiceImpl implements ProblemService {
         }
         if (request.title() != null) {
             problem.setTitle(contentSafety.normalizeText(request.title()));
+        }
+        if (request.problemType() != null) {
+            problem.setProblemType(request.problemType());
         }
         if (request.description() != null) {
             problem.setDescription(
@@ -224,13 +245,42 @@ public class ProblemServiceImpl implements ProblemService {
         if (request.sdlcPhase() != null) {
             problem.setSdlcPhase(request.sdlcPhase());
         }
+        if (request.expectedBehavior() != null) {
+            problem.setExpectedBehavior(normalizeOptional(request.expectedBehavior()));
+        }
+        if (request.actualBehavior() != null) {
+            problem.setActualBehavior(normalizeOptional(request.actualBehavior()));
+        }
+        if (request.reproductionSteps() != null) {
+            problem.setReproductionSteps(normalizeSteps(request.reproductionSteps()));
+        }
+        if (request.environment() != null) {
+            problem.setEnvironment(request.environment().stream()
+                    .map(item -> new ProblemEnvironment(
+                            requireText(item.technology(), "Environment technology"),
+                            trimToNull(item.version())
+                    ))
+                    .collect(Collectors.toCollection(ArrayList::new)));
+        }
+        if (request.attemptsTried() != null) {
+            problem.setAttemptsTried(normalizeOptional(request.attemptsTried()));
+        }
+        if (request.errorMessage() != null) {
+            problem.setErrorMessage(normalizeOptional(request.errorMessage()));
+        }
+        if (request.severity() != null) {
+            problem.setSeverity(request.severity());
+        }
+        if (request.repositoryUrl() != null) {
+            problem.setRepositoryUrl(trimToNull(request.repositoryUrl()));
+        }
 
         Problem saved = problemRepository.saveAndFlush(problem);
         if (request.technologies() != null) {
             replaceTechnologies(saved, request.technologies());
         }
-        if (request.tagIds() != null || request.tags() != null) {
-            replaceTags(saved, request.tagIds(), request.tags());
+        if (request.tagIds() != null || request.newTagNames() != null) {
+            replaceTags(saved, request.tagIds(), request.newTagNames());
         }
         return toResponse(saved);
     }
@@ -427,9 +477,7 @@ public class ProblemServiceImpl implements ProblemService {
     ) {
         UUID authorId = currentUserId();
         findAuthor(authorId);
-        if (request.categoryId() != null) {
-            validateDraftCategory(request.categoryId());
-        }
+        validateDraftCategory(request.categoryId());
 
         String title = contentSafety.normalizeText(request.title());
         String description = Objects.requireNonNullElse(
@@ -440,11 +488,25 @@ public class ProblemServiceImpl implements ProblemService {
         Problem problem = problemMapper.toEntity(request, authorId);
         problem.setTitle(title);
         problem.setDescription(description);
+        problem.setExpectedBehavior(normalizeOptional(request.expectedBehavior()));
+        problem.setActualBehavior(normalizeOptional(request.actualBehavior()));
+        problem.setReproductionSteps(normalizeSteps(request.reproductionSteps()));
+        problem.setEnvironment(request.environment() == null
+                ? new ArrayList<>()
+                : request.environment().stream()
+                .map(item -> new ProblemEnvironment(
+                        requireText(item.technology(), "Environment technology"),
+                        trimToNull(item.version())
+                ))
+                .collect(Collectors.toCollection(ArrayList::new)));
+        problem.setAttemptsTried(normalizeOptional(request.attemptsTried()));
+        problem.setErrorMessage(normalizeOptional(request.errorMessage()));
+        problem.setRepositoryUrl(trimToNull(request.repositoryUrl()));
         problem.setStatus(ProblemStatus.DRAFT);
         problem.setViewCount(0L);
         problem = problemRepository.saveAndFlush(problem);
         replaceTechnologies(problem, request.technologies());
-        replaceTags(problem, request.tagIds(), request.tags());
+        replaceTags(problem, request.tagIds(), request.newTagNames());
 
         if (submit) {
             validateForSubmission(problem);
@@ -484,25 +546,34 @@ public class ProblemServiceImpl implements ProblemService {
         ).orElseThrow(() -> badRequest(
                 "A submitted problem needs an active PROBLEM category"
         ));
-        if (technologyRepository
-                .findAllByProblemIdOrderByNameAsc(problem.getId())
-                .isEmpty()) {
-            throw badRequest(
-                    "A submitted problem needs at least one technology"
-            );
+        if (problem.getProblemType() == null) {
+            throw badRequest("A submitted problem needs a problem type");
+        }
+        if (problem.getProblemType()
+                == kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemType.BUG) {
+            if (trimToNull(problem.getExpectedBehavior()) == null
+                    || trimToNull(problem.getActualBehavior()) == null
+                    || problem.getReproductionSteps().isEmpty()) {
+                throw badRequest(
+                        "BUG problems require expectedBehavior, actualBehavior, "
+                                + "and at least one reproduction step"
+                );
+            }
         }
     }
 
     private void validateDraftCategory(UUID categoryId) {
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Category not found"
-                ));
-        if (category.getScope() == CategoryScope.SHOWCASE) {
-            throw badRequest(
-                    "A showcase category cannot be used for a problem"
-            );
+        if (categoryId == null) {
+            throw badRequest("Category is required");
         }
+        Category category = categoryRepository
+                .findByIdAndScopeAndIsActiveTrue(
+                        categoryId,
+                        CategoryScope.PROBLEM
+                )
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Active problem category not found"
+                ));
     }
 
     private void replaceTechnologies(
@@ -630,6 +701,9 @@ public class ProblemServiceImpl implements ProblemService {
                 ? null
                 : categoryRepository.findById(problem.getCategoryId())
                 .orElse(null);
+        ProblemResponseMetrics metrics = responseEnricher == null
+                ? ProblemResponseMetrics.empty()
+                : responseEnricher.read(problem);
         return problemMapper.toResponse(
                 problem,
                 author,
@@ -643,7 +717,8 @@ public class ProblemServiceImpl implements ProblemService {
                 contentSafety.warnings(
                         problem.getTitle(),
                         problem.getDescription()
-                )
+                ),
+                metrics
         );
     }
 
@@ -703,6 +778,31 @@ public class ProblemServiceImpl implements ProblemService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String normalizeOptional(String value) {
+        String normalized = contentSafety.normalizeText(value);
+        return trimToNull(normalized);
+    }
+
+    private List<String> normalizeSteps(List<String> steps) {
+        if (steps == null) {
+            return new ArrayList<>();
+        }
+        if (steps.size() > 20) {
+            throw badRequest("A problem can contain at most 20 reproduction steps");
+        }
+        return steps.stream()
+                .map(step -> requireText(step, "Reproduction step"))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private String requireText(String value, String fieldName) {
+        String normalized = normalizeOptional(value);
+        if (normalized == null) {
+            throw badRequest(fieldName + " cannot be blank");
+        }
+        return normalized;
     }
 
     private void deleteStoredObjectQuietly(String storageKey) {

@@ -128,6 +128,7 @@ class ProblemServiceImplTest {
     @Test
     void createsDraftWithAuthorFromJwt() {
         UUID userId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
         authenticate(userId, "USER");
         when(userProfileRepository.findById(userId))
                 .thenReturn(Optional.of(user(userId)));
@@ -139,12 +140,16 @@ class ProblemServiceImplTest {
         when(attachmentRepository
                 .findAllByProblemIdOrderByCreatedAtAsc(any()))
                 .thenReturn(List.of());
+        when(categoryRepository.findByIdAndScopeAndIsActiveTrue(
+                categoryId,
+                CategoryScope.PROBLEM
+        )).thenReturn(Optional.of(category(categoryId)));
 
         service.createDraft(new CreateProblemRequest(
-                null,
+                categoryId,
                 "How should I structure this service?",
                 SdlcPhase.DESIGN,
-                null,
+                "I need guidance on structuring this service for maintainability.",
                 List.of(),
                 Set.of(),
                 Set.of()
@@ -161,6 +166,7 @@ class ProblemServiceImplTest {
     @Test
     void createsDraftWhenTagIdsAreOmitted() {
         UUID userId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
         authenticate(userId, "USER");
         when(userProfileRepository.findById(userId))
                 .thenReturn(Optional.of(user(userId)));
@@ -172,12 +178,16 @@ class ProblemServiceImplTest {
         when(attachmentRepository
                 .findAllByProblemIdOrderByCreatedAtAsc(any()))
                 .thenReturn(List.of());
+        when(categoryRepository.findByIdAndScopeAndIsActiveTrue(
+                categoryId,
+                CategoryScope.PROBLEM
+        )).thenReturn(Optional.of(category(categoryId)));
 
         service.createDraft(new CreateProblemRequest(
-                null,
+                categoryId,
                 "How should I structure this service?",
                 SdlcPhase.DESIGN,
-                null,
+                "I need guidance on structuring this service for maintainability.",
                 List.of(),
                 null,
                 null
@@ -277,7 +287,8 @@ class ProblemServiceImplTest {
                         null,
                         Set.of(newTag.getId()),
                         null
-                )
+                ),
+                problem.getVersion()
         );
 
         verify(problemTagRepository).deleteById(

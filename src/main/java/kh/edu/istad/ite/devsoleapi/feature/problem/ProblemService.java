@@ -43,7 +43,8 @@ public interface ProblemService {
 
     ProblemResponse updateDraft(
             UUID id,
-            ProblemUpdateRequest request
+            ProblemUpdateRequest request,
+            long expectedVersion
     );
 
     ProblemResponse submit(UUID id);

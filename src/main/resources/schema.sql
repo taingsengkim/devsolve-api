@@ -19,6 +19,341 @@ BEGIN
 END
 $$^^^
 
+-- Problem context and solution revisioning. These statements are guarded so
+-- they upgrade an existing Hibernate-managed database; on a fresh database
+-- Hibernate creates the same structures from the entity mappings.
+DO $$
+BEGIN
+    IF to_regclass('public.problems') IS NOT NULL THEN
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS problem_type VARCHAR(30);
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF to_regclass('public.problems') IS NOT NULL THEN
+        UPDATE public.problems
+        SET problem_type = 'GENERAL'
+        WHERE problem_type IS NULL;
+
+        ALTER TABLE public.problems
+            ALTER COLUMN problem_type SET DEFAULT 'GENERAL';
+        ALTER TABLE public.problems
+            ALTER COLUMN problem_type SET NOT NULL;
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS expected_behavior TEXT;
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS actual_behavior TEXT;
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS attempts_tried TEXT;
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS error_message TEXT;
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS severity VARCHAR(20);
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS repository_url VARCHAR(1000);
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS accepted_solution_id UUID;
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS accepted_by UUID;
+        ALTER TABLE public.problems
+            ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP(6);
+
+        CREATE TABLE IF NOT EXISTS public.problem_reproduction_steps (
+            problem_id UUID NOT NULL REFERENCES public.problems (id),
+            display_order INTEGER NOT NULL,
+            instruction VARCHAR(1000) NOT NULL,
+            PRIMARY KEY (problem_id, display_order)
+        );
+
+        CREATE TABLE IF NOT EXISTS public.problem_environments (
+            problem_id UUID NOT NULL REFERENCES public.problems (id),
+            display_order INTEGER NOT NULL,
+            technology VARCHAR(100) NOT NULL,
+            version VARCHAR(50),
+            PRIMARY KEY (problem_id, display_order)
+        );
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF to_regclass('public.solutions') IS NOT NULL THEN
+        -- Keep nullable compatibility columns so this idempotent backfill can
+        -- also run after a database was first created from the new entities.
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS description TEXT;
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS video_url VARCHAR(500);
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS diagram_url VARCHAR(500);
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS review_status VARCHAR(20);
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS reviewed_by UUID;
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP(6);
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS current_published_revision_id UUID;
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS latest_revision_id UUID;
+        ALTER TABLE public.solutions
+            ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+        -- Legacy content remains only as migration input. New writes use
+        -- solution_revisions, so this old column can no longer be NOT NULL.
+        ALTER TABLE public.solutions
+            ALTER COLUMN description DROP NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS public.solution_revisions (
+            id UUID PRIMARY KEY,
+            solution_id UUID NOT NULL
+                REFERENCES public.solutions (id),
+            revision_number INTEGER NOT NULL,
+            summary VARCHAR(250) NOT NULL,
+            body_markdown TEXT NOT NULL,
+            approach_type VARCHAR(20) NOT NULL,
+            tradeoffs TEXT,
+            moderation_status VARCHAR(20) NOT NULL,
+            rejection_reason TEXT,
+            reviewed_by UUID,
+            reviewed_at TIMESTAMP(6),
+            created_at TIMESTAMP(6) NOT NULL,
+            updated_at TIMESTAMP(6) NOT NULL,
+            CONSTRAINT uq_solution_revisions_number
+                UNIQUE (solution_id, revision_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS public.solution_revision_verification_steps (
+            solution_revision_id UUID NOT NULL
+                REFERENCES public.solution_revisions (id),
+            display_order INTEGER NOT NULL,
+            instruction VARCHAR(1000) NOT NULL,
+            expected_result VARCHAR(1000) NOT NULL,
+            PRIMARY KEY (solution_revision_id, display_order)
+        );
+
+        CREATE TABLE IF NOT EXISTS public.solution_revision_tested_with (
+            solution_revision_id UUID NOT NULL
+                REFERENCES public.solution_revisions (id),
+            display_order INTEGER NOT NULL,
+            technology VARCHAR(100) NOT NULL,
+            version VARCHAR(50),
+            PRIMARY KEY (solution_revision_id, display_order)
+        );
+
+        CREATE TABLE IF NOT EXISTS public.solution_resources (
+            id UUID PRIMARY KEY,
+            solution_revision_id UUID NOT NULL
+                REFERENCES public.solution_revisions (id),
+            type VARCHAR(30) NOT NULL,
+            label VARCHAR(150) NOT NULL,
+            url VARCHAR(1000) NOT NULL,
+            display_order INTEGER NOT NULL,
+            created_at TIMESTAMP(6) NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS public.solution_attachments (
+            id UUID PRIMARY KEY,
+            solution_revision_id UUID NOT NULL
+                REFERENCES public.solution_revisions (id),
+            file_name VARCHAR(255) NOT NULL,
+            storage_key VARCHAR(500) NOT NULL,
+            mime_type VARCHAR(100) NOT NULL,
+            file_size BIGINT NOT NULL,
+            created_at TIMESTAMP(6) NOT NULL
+        );
+
+        INSERT INTO public.solution_revisions (
+            id,
+            solution_id,
+            revision_number,
+            summary,
+            body_markdown,
+            approach_type,
+            moderation_status,
+            rejection_reason,
+            reviewed_by,
+            reviewed_at,
+            created_at,
+            updated_at
+        )
+        SELECT
+            (md5(solution.id::text || ':revision:1'))::uuid,
+            solution.id,
+            1,
+            LEFT(
+                CASE
+                    WHEN solution.description IS NULL
+                         OR btrim(solution.description) = ''
+                    THEN 'Migrated solution'
+                    ELSE regexp_replace(
+                        btrim(solution.description),
+                        '[[:space:]]+',
+                        ' ',
+                        'g'
+                    )
+                END,
+                250
+            ),
+            COALESCE(NULLIF(btrim(solution.description), ''),
+                    'Migrated solution content.'),
+            'EXPLANATION',
+            CASE
+                WHEN solution.review_status IN ('APPROVED', 'ACCEPTED')
+                    THEN 'APPROVED'
+                WHEN solution.review_status = 'REJECTED'
+                    THEN 'REJECTED'
+                ELSE 'PENDING'
+            END,
+            solution.rejection_reason,
+            solution.reviewed_by,
+            solution.reviewed_at,
+            solution.created_at,
+            solution.updated_at
+        FROM public.solutions solution
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM public.solution_revisions revision
+            WHERE revision.solution_id = solution.id
+        );
+
+        UPDATE public.solutions solution
+        SET latest_revision_id = revision.id,
+            current_published_revision_id = CASE
+                WHEN revision.moderation_status = 'APPROVED'
+                    THEN revision.id
+                ELSE NULL
+            END
+        FROM public.solution_revisions revision
+        WHERE revision.solution_id = solution.id
+          AND revision.revision_number = 1
+          AND solution.latest_revision_id IS NULL;
+
+        INSERT INTO public.solution_resources (
+            id,
+            solution_revision_id,
+            type,
+            label,
+            url,
+            display_order,
+            created_at
+        )
+        SELECT
+            (md5(solution.id::text || ':video'))::uuid,
+            solution.latest_revision_id,
+            'VIDEO',
+            'Video',
+            solution.video_url,
+            0,
+            solution.created_at
+        FROM public.solutions solution
+        WHERE solution.video_url IS NOT NULL
+          AND btrim(solution.video_url) <> ''
+          AND lower(btrim(solution.video_url)) LIKE 'https://%'
+          AND NOT EXISTS (
+              SELECT 1 FROM public.solution_resources resource
+              WHERE resource.id = (md5(solution.id::text || ':video'))::uuid
+          );
+
+        INSERT INTO public.solution_resources (
+            id,
+            solution_revision_id,
+            type,
+            label,
+            url,
+            display_order,
+            created_at
+        )
+        SELECT
+            (md5(solution.id::text || ':diagram'))::uuid,
+            solution.latest_revision_id,
+            'DIAGRAM',
+            'Diagram',
+            solution.diagram_url,
+            1,
+            solution.created_at
+        FROM public.solutions solution
+        WHERE solution.diagram_url IS NOT NULL
+          AND btrim(solution.diagram_url) <> ''
+          AND lower(btrim(solution.diagram_url)) LIKE 'https://%'
+          AND NOT EXISTS (
+              SELECT 1 FROM public.solution_resources resource
+              WHERE resource.id = (md5(solution.id::text || ':diagram'))::uuid
+          );
+
+        UPDATE public.problems problem
+        SET accepted_solution_id = accepted.id,
+            accepted_by = problem.author_id,
+            accepted_at = COALESCE(accepted.reviewed_at, accepted.updated_at)
+        FROM public.solutions accepted
+        WHERE accepted.problem_id = problem.id
+          AND accepted.review_status = 'ACCEPTED'
+          AND accepted.deleted_at IS NULL
+          AND problem.accepted_solution_id IS NULL;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_solutions_current_published_revision'
+        ) THEN
+            ALTER TABLE public.solutions
+                ADD CONSTRAINT fk_solutions_current_published_revision
+                FOREIGN KEY (current_published_revision_id)
+                REFERENCES public.solution_revisions (id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_solutions_latest_revision'
+        ) THEN
+            ALTER TABLE public.solutions
+                ADD CONSTRAINT fk_solutions_latest_revision
+                FOREIGN KEY (latest_revision_id)
+                REFERENCES public.solution_revisions (id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_problems_accepted_solution'
+        ) THEN
+            ALTER TABLE public.problems
+                ADD CONSTRAINT fk_problems_accepted_solution
+                FOREIGN KEY (accepted_solution_id)
+                REFERENCES public.solutions (id);
+        END IF;
+
+        CREATE INDEX IF NOT EXISTS idx_solution_revisions_moderation
+            ON public.solution_revisions (moderation_status, created_at);
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uq_solutions_published_revision'
+        ) THEN
+            ALTER TABLE public.solutions
+                ADD CONSTRAINT uq_solutions_published_revision
+                UNIQUE (current_published_revision_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uq_solutions_latest_revision'
+        ) THEN
+            ALTER TABLE public.solutions
+                ADD CONSTRAINT uq_solutions_latest_revision
+                UNIQUE (latest_revision_id);
+        END IF;
+        CREATE INDEX IF NOT EXISTS idx_solutions_problem_published
+            ON public.solutions (problem_id)
+            WHERE current_published_revision_id IS NOT NULL
+              AND deleted_at IS NULL;
+    END IF;
+END
+$$^^^
+
 DO $$
 BEGIN
     IF NOT EXISTS (

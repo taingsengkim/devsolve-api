@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.common.exception;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -90,6 +91,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(status).body(buildError(
                 status,
                 "Attachment cannot exceed 10 MiB",
+                null
+        ));
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<RestErrorResponse> handleOptimisticLock(
+            OptimisticLockingFailureException exception
+    ) {
+        HttpStatus status = HttpStatus.PRECONDITION_FAILED;
+        return ResponseEntity.status(status).body(buildError(
+                status,
+                "The resource changed after it was read; fetch it again",
                 null
         ));
     }

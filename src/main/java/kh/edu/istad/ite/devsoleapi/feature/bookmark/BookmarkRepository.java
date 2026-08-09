@@ -26,6 +26,11 @@ public interface BookmarkRepository
             UUID bookmarkableId
     );
 
+    long countByBookmarkableTypeAndBookmarkableId(
+            BookmarkType bookmarkableType,
+            UUID bookmarkableId
+    );
+
     long deleteByUser_IdAndBookmarkableTypeAndBookmarkableId(
             UUID userId,
             BookmarkType bookmarkableType,

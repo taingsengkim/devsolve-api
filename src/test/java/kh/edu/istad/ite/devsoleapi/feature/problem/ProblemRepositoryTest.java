@@ -97,6 +97,7 @@ class ProblemRepositoryTest {
     private Problem saveProblem(ProblemStatus status) {
         return problemRepository.saveAndFlush(Problem.builder()
                 .authorId(UUID.randomUUID())
+                .categoryId(UUID.randomUUID())
                 .title("A valid repository test title")
                 .description("A valid repository test description")
                 .status(status)
