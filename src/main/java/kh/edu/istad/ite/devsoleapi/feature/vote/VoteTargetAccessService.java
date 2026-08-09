@@ -22,7 +22,7 @@ import java.util.UUID;
 public class VoteTargetAccessService {
 
     private static final List<ReviewStatus> PUBLIC_SOLUTION_STATUSES =
-            List.of(ReviewStatus.APPROVED, ReviewStatus.ACCEPTED);
+            List.of(ReviewStatus.APPROVED);
 
     private final ProblemRepository problemRepository;
     private final SolutionRepository solutionRepository;

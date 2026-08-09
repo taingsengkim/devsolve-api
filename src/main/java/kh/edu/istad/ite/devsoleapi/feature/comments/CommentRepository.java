@@ -16,6 +16,11 @@ import java.util.UUID;
 
 public interface CommentRepository extends JpaRepository<Comment, UUID> {
 
+    long countByCommentableTypeAndCommentableIdAndDeletedAtIsNullAndInternalFalse(
+            CommentableType commentableType,
+            UUID commentableId
+    );
+
     Optional<Comment> findByIdAndDeletedAtIsNull(UUID id);
 
     @Query("""

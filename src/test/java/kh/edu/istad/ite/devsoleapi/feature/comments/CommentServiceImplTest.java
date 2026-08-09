@@ -231,10 +231,7 @@ class CommentServiceImplTest {
         when(solutionRepository
                 .findByIdAndReviewStatusInAndDeletedAtIsNull(
                         solutionId,
-                        List.of(
-                                ReviewStatus.APPROVED,
-                                ReviewStatus.ACCEPTED
-                        )
+                        List.of(ReviewStatus.APPROVED)
                 ))
                 .thenReturn(Optional.of(mock(Solution.class)));
         when(commentRepository.findRootComments(
@@ -256,10 +253,7 @@ class CommentServiceImplTest {
         verify(solutionRepository)
                 .findByIdAndReviewStatusInAndDeletedAtIsNull(
                         solutionId,
-                        List.of(
-                                ReviewStatus.APPROVED,
-                                ReviewStatus.ACCEPTED
-                        )
+                        List.of(ReviewStatus.APPROVED)
                 );
     }
 

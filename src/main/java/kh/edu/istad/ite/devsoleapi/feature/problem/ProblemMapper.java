@@ -22,7 +22,27 @@ public class ProblemMapper {
                 .categoryId(request.categoryId())
                 .title(request.title())
                 .description(request.description())
+                .problemType(request.problemType())
                 .sdlcPhase(request.sdlcPhase())
+                .severity(request.severity())
+                .expectedBehavior(request.expectedBehavior())
+                .actualBehavior(request.actualBehavior())
+                .reproductionSteps(request.reproductionSteps() == null
+                        ? new java.util.ArrayList<>()
+                        : new java.util.ArrayList<>(request.reproductionSteps()))
+                .environment(request.environment() == null
+                        ? new java.util.ArrayList<>()
+                        : request.environment().stream()
+                        .map(item -> new ProblemEnvironment(
+                                item.technology(),
+                                item.version()
+                        ))
+                        .collect(java.util.stream.Collectors.toCollection(
+                                java.util.ArrayList::new
+                        )))
+                .attemptsTried(request.attemptsTried())
+                .errorMessage(request.errorMessage())
+                .repositoryUrl(request.repositoryUrl())
                 .build();
     }
 
@@ -35,13 +55,49 @@ public class ProblemMapper {
             List<ProblemAttachment> attachments,
             List<String> warnings
     ) {
+        return toResponse(
+                problem,
+                author,
+                category,
+                technologies,
+                problemTags,
+                attachments,
+                warnings,
+                ProblemResponseMetrics.empty()
+        );
+    }
+
+    public ProblemResponse toResponse(
+            Problem problem,
+            UserProfile author,
+            Category category,
+            List<ProblemTechnology> technologies,
+            List<ProblemTag> problemTags,
+            List<ProblemAttachment> attachments,
+            List<String> warnings,
+            ProblemResponseMetrics metrics
+    ) {
         return new ProblemResponse(
                 problem.getId(),
                 toAuthorSummary(author),
                 toCategorySummary(category),
                 problem.getTitle(),
                 problem.getDescription(),
+                problem.getProblemType(),
                 problem.getSdlcPhase(),
+                problem.getSeverity(),
+                problem.getExpectedBehavior(),
+                problem.getActualBehavior(),
+                List.copyOf(problem.getReproductionSteps()),
+                problem.getEnvironment().stream()
+                        .map(item -> new ProblemResponse.EnvironmentSummary(
+                                item.getTechnology(),
+                                item.getVersion()
+                        ))
+                        .toList(),
+                problem.getAttemptsTried(),
+                problem.getErrorMessage(),
+                problem.getRepositoryUrl(),
                 problem.getStatus(),
                 problem.getViewCount(),
                 technologies.stream()
@@ -61,6 +117,16 @@ public class ProblemMapper {
                         .map(this::toAttachmentSummary)
                         .toList(),
                 warnings,
+                metrics.solutionCount(),
+                metrics.commentCount(),
+                metrics.voteScore(),
+                metrics.bookmarkCount(),
+                problem.getAcceptedSolutionId(),
+                metrics.bookmarkedByViewer(),
+                metrics.viewerVote(),
+                metrics.canEdit(),
+                metrics.canDelete(),
+                metrics.canAcceptSolution(),
                 problem.getPublishedAt(),
                 problem.getDeletedAt(),
                 problem.getVersion(),

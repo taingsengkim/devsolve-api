@@ -2,6 +2,8 @@ package kh.edu.istad.ite.devsoleapi.feature.problem.dto;
 
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemSeverity;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemType;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
 
 import java.time.Instant;
@@ -15,13 +17,32 @@ public record ProblemResponse(
         CategorySummary category,
         String title,
         String description,
+        ProblemType problemType,
         SdlcPhase sdlcPhase,
+        ProblemSeverity severity,
+        String expectedBehavior,
+        String actualBehavior,
+        List<String> reproductionSteps,
+        List<EnvironmentSummary> environment,
+        String attemptsTried,
+        String errorMessage,
+        String repositoryUrl,
         ProblemStatus status,
         long viewCount,
         List<TechnologySummary> technologies,
         List<TagSummary> tags,
         List<AttachmentSummary> attachments,
         List<String> contentWarnings,
+        long solutionCount,
+        long commentCount,
+        long voteScore,
+        long bookmarkCount,
+        UUID acceptedSolutionId,
+        boolean isBookmarkedByViewer,
+        String viewerVote,
+        boolean canEdit,
+        boolean canDelete,
+        boolean canAcceptSolution,
         Instant publishedAt,
         Instant deletedAt,
         long version,
@@ -47,6 +68,12 @@ public record ProblemResponse(
     public record TechnologySummary(
             UUID id,
             String name,
+            String version
+    ) {
+    }
+
+    public record EnvironmentSummary(
+            String technology,
             String version
     ) {
     }

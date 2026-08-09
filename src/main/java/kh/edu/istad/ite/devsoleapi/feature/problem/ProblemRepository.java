@@ -8,6 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Lock;
+
+import jakarta.persistence.LockModeType;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +20,10 @@ public interface ProblemRepository extends JpaRepository<Problem, UUID> {
 
     @Query("select p from Problem p where p.id = :id")
     Optional<Problem> findActiveById(@Param("id") UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Problem p where p.id = :id")
+    Optional<Problem> findActiveByIdForUpdate(@Param("id") UUID id);
 
     @Query("""
             select p

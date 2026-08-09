@@ -12,6 +12,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCases;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.Solution;
+import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRevision;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -84,16 +85,23 @@ class BookmarkTargetAccessServiceTest {
                 .title("How do I secure JWT authentication?")
                 .description("Question details")
                 .build();
-        Solution solution = new Solution();
+        Solution solution = Solution.builder().build();
         solution.setId(solutionId);
         solution.setProblem(problem);
-        solution.setDescription("Validate issuer and audience claims.");
+        SolutionRevision revision = SolutionRevision.builder()
+                .solution(solution)
+                .revisionNumber(1)
+                .summary("Validate JWT claims")
+                .bodyMarkdown("Validate issuer and audience claims.")
+                .approachType(kh.edu.istad.ite.devsoleapi.feature.solution.enums.ApproachType.FIX)
+                .moderationStatus(kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus.APPROVED)
+                .build();
+        solution.setCurrentPublishedRevision(revision);
         when(solutionRepository
                 .findByIdAndReviewStatusInAndDeletedAtIsNull(
                         solutionId,
                         List.of(
-                                kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus.APPROVED,
-                                kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus.ACCEPTED
+                                kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus.APPROVED
                         )
                 ))
                 .thenReturn(Optional.of(solution));

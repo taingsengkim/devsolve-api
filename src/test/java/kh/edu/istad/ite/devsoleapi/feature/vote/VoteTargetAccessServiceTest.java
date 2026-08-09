@@ -71,10 +71,7 @@ class VoteTargetAccessServiceTest {
         when(solutionRepository
                 .findByIdAndReviewStatusInAndDeletedAtIsNull(
                         targetId,
-                        List.of(
-                                ReviewStatus.APPROVED,
-                                ReviewStatus.ACCEPTED
-                        )
+                        List.of(ReviewStatus.APPROVED)
                 ))
                 .thenReturn(Optional.of(solution));
 

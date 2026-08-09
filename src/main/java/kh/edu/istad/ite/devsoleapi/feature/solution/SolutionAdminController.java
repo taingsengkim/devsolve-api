@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
 
 import java.util.UUID;
 
@@ -47,18 +48,27 @@ public class SolutionAdminController {
     }
 
     @GetMapping("/{id}")
-    public SolutionResponse getReviewDetail(
+    public ResponseEntity<SolutionResponse> getReviewDetail(
             @PathVariable UUID id
     ) {
-        return solutionService.getAdminById(id);
+        SolutionResponse response = solutionService.getAdminById(id);
+        return ResponseEntity.ok()
+                .eTag("\"" + response.version() + "\"")
+                .body(response);
     }
 
     @PatchMapping("/{id}/review-status")
-    public SolutionResponse updateReviewStatus(
+    public ResponseEntity<SolutionResponse> updateReviewStatus(
             @PathVariable UUID id,
             @Valid
             @RequestBody UpdateSolutionReviewStatusRequest request
     ) {
-        return solutionService.updateReviewStatus(id, request);
+        SolutionResponse response = solutionService.updateReviewStatus(
+                id,
+                request
+        );
+        return ResponseEntity.ok()
+                .eTag("\"" + response.version() + "\"")
+                .body(response);
     }
 }

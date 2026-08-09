@@ -66,14 +66,13 @@ public class BookmarkTargetAccessService {
                     .findByIdAndReviewStatusInAndDeletedAtIsNull(
                             targetId,
                             List.of(
-                                    kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus.APPROVED,
-                                    kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus.ACCEPTED
+                                    kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus.APPROVED
                             )
                     )
                     .map(solution -> new BookmarkTarget(
                             "Solution for: "
                                     + solution.getProblem().getTitle(),
-                            preview(solution.getDescription()),
+                            preview(solution.getCurrentPublishedRevision().getBodyMarkdown()),
                             null
                     ));
             case SHOWCASE -> showCasesRepository
