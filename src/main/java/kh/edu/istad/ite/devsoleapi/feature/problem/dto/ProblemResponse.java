@@ -37,7 +37,7 @@ public record ProblemResponse(
         long commentCount,
         long voteScore,
         long bookmarkCount,
-        UUID acceptedSolutionId,
+        List<UUID> acceptedSolutionIds,
         boolean isBookmarkedByViewer,
         String viewerVote,
         boolean canEdit,

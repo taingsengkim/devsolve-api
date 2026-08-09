@@ -5,10 +5,12 @@ import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemAcceptedSolution;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.AcceptedSolutionRequest;
+import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.UpdateSolutionReviewStatusRequest;
@@ -40,6 +42,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +50,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class SolutionServiceImplTest {
@@ -232,25 +236,115 @@ class SolutionServiceImplTest {
                 new AcceptedSolutionRequest(solution.getId())
         );
 
-        assertEquals(solution.getId(), problem.getAcceptedSolutionId());
+        assertEquals(
+                List.of(solution.getId()),
+                problem.getAcceptedSolutions().stream()
+                        .map(ProblemAcceptedSolution::getSolutionId)
+                        .toList()
+        );
         assertEquals(ProblemStatus.RESOLVED, problem.getStatus());
         assertEquals(ReviewStatus.APPROVED, approved.getModerationStatus());
     }
 
     @Test
-    void removingAcceptanceReopensProblem() {
+    void ownerCanAcceptMultipleApprovedSolutions() {
+        UUID ownerId = UUID.randomUUID();
+        Problem problem = problem(
+                UUID.randomUUID(),
+                ownerId,
+                ProblemStatus.PUBLISHED
+        );
+        Solution first = approvedSolution(problem, UUID.randomUUID());
+        Solution second = approvedSolution(problem, UUID.randomUUID());
+        authenticate(ownerId, false);
+        when(problemRepository.findActiveByIdForUpdate(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        when(solutionRepository.findActiveByIdForUpdate(first.getId()))
+                .thenReturn(Optional.of(first));
+        when(solutionRepository.findActiveByIdForUpdate(second.getId()))
+                .thenReturn(Optional.of(second));
+
+        service.setAcceptedSolution(
+                problem.getId(),
+                new AcceptedSolutionRequest(first.getId())
+        );
+        service.setAcceptedSolution(
+                problem.getId(),
+                new AcceptedSolutionRequest(second.getId())
+        );
+
+        assertEquals(
+                List.of(first.getId(), second.getId()),
+                problem.getAcceptedSolutions().stream()
+                        .map(ProblemAcceptedSolution::getSolutionId)
+                        .toList()
+        );
+        assertEquals(ProblemStatus.RESOLVED, problem.getStatus());
+    }
+
+    @Test
+    void sameAuthorCanPostMultipleSolutionsAfterProblemIsResolved() {
+        UUID authorId = UUID.randomUUID();
+        Problem problem = problem(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ProblemStatus.RESOLVED
+        );
+        addAcceptance(problem, UUID.randomUUID(), problem.getAuthorId());
+        authenticate(authorId, false);
+        when(problemRepository.findPublicById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        stubAuthor(authorId);
+        SolutionRequest request = new SolutionRequest(
+                "Alternative verified solution",
+                "This alternative solution contains enough implementation detail.",
+                ApproachType.ALTERNATIVE,
+                List.of(),
+                List.of(),
+                null,
+                List.of()
+        );
+
+        service.createSolution(problem.getId(), request);
+        service.createSolution(problem.getId(), request);
+
+        ArgumentCaptor<SolutionRevision> revisions =
+                ArgumentCaptor.forClass(SolutionRevision.class);
+        verify(revisionRepository, times(2)).saveAndFlush(revisions.capture());
+        Solution first = revisions.getAllValues().get(0).getSolution();
+        Solution second = revisions.getAllValues().get(1).getSolution();
+        assertNotSame(first, second);
+        assertEquals(authorId, first.getAuthorId());
+        assertEquals(authorId, second.getAuthorId());
+        assertSame(problem, first.getProblem());
+        assertSame(problem, second.getProblem());
+    }
+
+    @Test
+    void removingOnlyOneAcceptanceKeepsProblemResolved() {
         UUID ownerId = UUID.randomUUID();
         Problem problem = problem(UUID.randomUUID(), ownerId, ProblemStatus.RESOLVED);
-        problem.setAcceptedSolutionId(UUID.randomUUID());
-        problem.setAcceptedBy(ownerId);
-        problem.setAcceptedAt(java.time.LocalDateTime.now());
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+        addAcceptance(problem, firstId, ownerId);
+        addAcceptance(problem, secondId, ownerId);
         authenticate(ownerId, false);
         when(problemRepository.findActiveByIdForUpdate(problem.getId()))
                 .thenReturn(Optional.of(problem));
 
-        service.removeAcceptedSolution(problem.getId());
+        service.removeAcceptedSolution(problem.getId(), firstId);
 
-        assertNull(problem.getAcceptedSolutionId());
+        assertEquals(
+                List.of(secondId),
+                problem.getAcceptedSolutions().stream()
+                        .map(ProblemAcceptedSolution::getSolutionId)
+                        .toList()
+        );
+        assertEquals(ProblemStatus.RESOLVED, problem.getStatus());
+
+        service.removeAcceptedSolution(problem.getId(), secondId);
+
+        assertTrue(problem.getAcceptedSolutions().isEmpty());
         assertEquals(ProblemStatus.PUBLISHED, problem.getStatus());
     }
 
@@ -271,6 +365,35 @@ class SolutionServiceImplTest {
                 .problem(problem)
                 .authorId(authorId)
                 .build();
+    }
+
+    private Solution approvedSolution(Problem problem, UUID authorId) {
+        Solution solution = solution(problem, authorId);
+        SolutionRevision approved = revision(
+                solution,
+                1,
+                ReviewStatus.APPROVED,
+                "Approved solution"
+        );
+        solution.setCurrentPublishedRevision(approved);
+        solution.setLatestRevision(approved);
+        return solution;
+    }
+
+    private void addAcceptance(
+            Problem problem,
+            UUID solutionId,
+            UUID acceptedBy
+    ) {
+        problem.getAcceptedSolutions().add(
+                ProblemAcceptedSolution.builder()
+                        .id(UUID.randomUUID())
+                        .problem(problem)
+                        .solutionId(solutionId)
+                        .acceptedBy(acceptedBy)
+                        .acceptedAt(java.time.LocalDateTime.now())
+                        .build()
+        );
     }
 
     private SolutionRevision revision(

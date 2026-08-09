@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import jakarta.persistence.CollectionTable;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
@@ -10,6 +11,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
@@ -27,7 +30,6 @@ import lombok.Setter;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -117,14 +119,14 @@ public class Problem extends BasedEntity {
     @Column(name = "published_at")
     private Instant publishedAt;
 
-    @Column(name = "accepted_solution_id")
-    private UUID acceptedSolutionId;
-
-    @Column(name = "accepted_by")
-    private UUID acceptedBy;
-
-    @Column(name = "accepted_at")
-    private LocalDateTime acceptedAt;
+    @OneToMany(
+            mappedBy = "problem",
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @OrderBy("acceptedAt ASC")
+    @Builder.Default
+    private List<ProblemAcceptedSolution> acceptedSolutions = new ArrayList<>();
 
     @Column(name = "deleted_at")
     private Instant deletedAt;

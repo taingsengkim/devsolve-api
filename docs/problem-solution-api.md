@@ -80,16 +80,22 @@ pending revision, leaving the published attachment set untouched.
 
 ## Acceptance
 
-Acceptance is stored on the problem and never changes revision moderation:
+Acceptance is stored as an audited collection on the problem and never
+changes revision moderation:
 
 ```http
-PUT /api/v1/problems/{problemId}/accepted-solution
+PUT /api/v1/problems/{problemId}/accepted-solutions
 Content-Type: application/json
 
 {"solutionId":"00000000-0000-0000-0000-000000000000"}
 ```
 
-Only an approved solution belonging to that problem can be accepted. The
-problem owner or an admin may replace it atomically. Use `DELETE
-/api/v1/problems/{problemId}/accepted-solution` to remove acceptance and move
-a resolved problem back to `PUBLISHED`.
+Only approved solutions belonging to that problem can be accepted. The
+problem owner or an admin may accept multiple solutions, and repeating the
+same request is idempotent. Problem responses expose all selections through
+`acceptedSolutionIds`.
+
+Use `DELETE
+/api/v1/problems/{problemId}/accepted-solutions/{solutionId}` to remove one
+selection. The problem remains `RESOLVED` while at least one accepted solution
+remains and returns to `PUBLISHED` after the final selection is removed.
