@@ -466,6 +466,47 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void adminCanViewFullPendingProgramDetails() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(UUID.randomUUID(), "ADMIN");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        var response = service(new ProgramMapper())
+                .getProgramForAdmin(program.getId());
+
+        assertEquals(program.getId(), response.id());
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                response.submissionState()
+        );
+        assertEquals(program.getPolicy(), response.policy());
+        assertEquals(
+                program.getProofOfConceptRequirements(),
+                response.proofOfConceptRequirements()
+        );
+        assertEquals(1, response.assets().size());
+    }
+
+    @Test
+    void nonAdminCannotViewAdminProgramDetails() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        authenticate(UUID.randomUUID(), "COMPANY");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().getProgramForAdmin(program.getId())
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verifyNoInteractions(programRepository);
+    }
+
+    @Test
     void publicListIncludesOrganizationNameAndOnlyInScopeAssets() {
         Organization organization = activeOwnedOrganization(UUID.randomUUID());
         organization.setName("Acme Corporation");

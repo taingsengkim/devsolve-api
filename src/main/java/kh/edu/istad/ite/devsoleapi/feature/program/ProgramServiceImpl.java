@@ -349,6 +349,15 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public ProgramResponseDto getProgramForAdmin(UUID id) {
+        requireRole(ADMIN_ROLE);
+        Program program = programRepository.findById(id)
+                .orElseThrow(this::programNotFound);
+        return mapper.toResponseDto(program);
+    }
+
+    @Override
     @Transactional
     public ProgramResponseDto approveProgram(UUID id) {
         requireRole(ADMIN_ROLE);
