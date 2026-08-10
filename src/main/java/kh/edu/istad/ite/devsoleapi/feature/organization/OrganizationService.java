@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.*;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -52,6 +53,13 @@ public interface OrganizationService {
     OrganizationResponse reject(UUID id, RejectOrganizationRequest request);
 
     OrganizationResponse resubmit();
+
+    Page<OrganizationReviewSummaryResponse> getOrganizationsForAdmin(
+            String query,
+            OrganizationStatus status,
+            int pageNumber,
+            int pageSize
+    );
 
     Page<OrganizationReviewSummaryResponse> getPendingOrganizations(
             int pageNumber,

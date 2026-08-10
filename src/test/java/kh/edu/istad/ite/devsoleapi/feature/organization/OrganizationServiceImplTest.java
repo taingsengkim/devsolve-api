@@ -354,6 +354,61 @@ class OrganizationServiceImplTest {
     }
 
     @Test
+    void adminListsAndFiltersAllOrganizationsNewestFirst() {
+        authenticate("ADMIN");
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        ArgumentCaptor<Pageable> pageableCaptor =
+                ArgumentCaptor.forClass(Pageable.class);
+        when(organizationRepository.findForAdmin(
+                eq("%acme%"),
+                eq(OrganizationStatus.ACTIVE),
+                pageableCaptor.capture()
+        )).thenReturn(new PageImpl<>(List.of(organization)));
+
+        Page<OrganizationReviewSummaryResponse> result =
+                createService(new WebsiteUrlServiceImpl())
+                        .getOrganizationsForAdmin(
+                                "  AcMe  ",
+                                OrganizationStatus.ACTIVE,
+                                1,
+                                25
+                        );
+
+        OrganizationReviewSummaryResponse response =
+                result.getContent().getFirst();
+        assertEquals(organization.getId(), response.id());
+        assertEquals(OrganizationStatus.ACTIVE, response.status());
+        assertEquals(1, pageableCaptor.getValue().getPageNumber());
+        assertEquals(25, pageableCaptor.getValue().getPageSize());
+        assertEquals(
+                Sort.Direction.DESC,
+                pageableCaptor.getValue().getSort()
+                        .getOrderFor("createdAt")
+                        .getDirection()
+        );
+    }
+
+    @Test
+    void nonAdminCannotListAllOrganizations() {
+        authenticate("COMPANY");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> createService(new WebsiteUrlServiceImpl())
+                        .getOrganizationsForAdmin(null, null, 0, 20)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verify(organizationRepository, never()).findForAdmin(
+                any(),
+                any(),
+                any()
+        );
+    }
+
+    @Test
     void adminListsPendingOrganizationsOldestFirst() {
         authenticate("ADMIN");
         Organization organization = reviewOrganization(
