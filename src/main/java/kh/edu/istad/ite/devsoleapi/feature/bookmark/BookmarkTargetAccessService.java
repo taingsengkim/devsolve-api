@@ -45,7 +45,7 @@ public class BookmarkTargetAccessService {
     ) {
         return switch (type) {
             case PROGRAM -> programRepository
-                    .findByIdAndStateAndSubmissionStateAndVisibility(
+                    .findByIdAndStateAndSubmissionStateAndVisibilityAndDeletedAtIsNull(
                             targetId,
                             ProgramState.ACTIVE,
                             SubmissionState.APPROVED,

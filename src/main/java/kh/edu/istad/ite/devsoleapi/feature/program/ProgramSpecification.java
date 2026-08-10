@@ -23,6 +23,7 @@ public final class ProgramSpecification {
     ) {
         return (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
+            predicates.add(criteriaBuilder.isNull(root.get("deletedAt")));
             predicates.add(criteriaBuilder.equal(
                     root.get("state"),
                     ProgramState.ACTIVE
@@ -64,18 +65,24 @@ public final class ProgramSpecification {
     public static Specification<Program> organizationPrograms(
             UUID organizationId
     ) {
-        return (root, query, criteriaBuilder) -> criteriaBuilder.equal(
-                root.get("organizationId"),
-                organizationId
+        return (root, query, criteriaBuilder) -> criteriaBuilder.and(
+                criteriaBuilder.equal(
+                        root.get("organizationId"),
+                        organizationId
+                ),
+                criteriaBuilder.isNull(root.get("deletedAt"))
         );
     }
 
     public static Specification<Program> programsForReview(
             SubmissionState submissionState
     ) {
-        return (root, query, criteriaBuilder) -> criteriaBuilder.equal(
-                root.get("submissionState"),
-                submissionState
+        return (root, query, criteriaBuilder) -> criteriaBuilder.and(
+                criteriaBuilder.equal(
+                        root.get("submissionState"),
+                        submissionState
+                ),
+                criteriaBuilder.isNull(root.get("deletedAt"))
         );
     }
 }

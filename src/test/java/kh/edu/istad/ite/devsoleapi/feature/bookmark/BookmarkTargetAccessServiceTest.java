@@ -47,7 +47,7 @@ class BookmarkTargetAccessServiceTest {
         program.setName("Security Research Program");
         program.setDescription("Public program description");
         when(programRepository
-                .findByIdAndStateAndSubmissionStateAndVisibility(
+                .findByIdAndStateAndSubmissionStateAndVisibilityAndDeletedAtIsNull(
                         programId,
                         ProgramState.ACTIVE,
                         SubmissionState.APPROVED,

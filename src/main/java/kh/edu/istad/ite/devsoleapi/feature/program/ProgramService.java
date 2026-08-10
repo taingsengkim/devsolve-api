@@ -48,6 +48,8 @@ public interface ProgramService {
 
     ProgramResponseDto closeProgram(UUID id);
 
+    void deleteProgram(UUID id);
+
     Page<ProgramUpdateChangeLogDto> getPublicProgramUpdates(
             UUID id,
             Pageable pageable

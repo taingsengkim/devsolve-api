@@ -549,6 +549,7 @@ public class ReportServiceImpl implements ReportService {
 
     private Program findReportableProgram(UUID programId) {
         Program program = programRepository.findById(programId)
+                .filter(candidate -> candidate.getDeletedAt() == null)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Program not found"
                 ));

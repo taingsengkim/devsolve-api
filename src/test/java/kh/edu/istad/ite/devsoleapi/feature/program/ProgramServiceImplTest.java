@@ -41,12 +41,14 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -385,6 +387,52 @@ class ProgramServiceImplTest {
                 "Program resumed",
                 updateCaptor.getValue().getChangeSummary()
         );
+    }
+
+    @Test
+    void ownerCanSoftDeletePublishedProgram() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().deleteProgram(program.getId());
+
+        assertEquals(ProgramState.CLOSED, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+        assertNotNull(program.getDeletedAt());
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program deleted",
+                updateCaptor.getValue().getChangeSummary()
+        );
+        verifyNoInteractions(followNotificationService);
+    }
+
+    @Test
+    void deletedProgramCannotBeManagedAgain() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(UUID.randomUUID(), "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().deleteProgram(program.getId())
+        );
+
+        verifyNoInteractions(organizationRepository);
+        verifyNoInteractions(programUpdateRepository);
     }
 
     @Test

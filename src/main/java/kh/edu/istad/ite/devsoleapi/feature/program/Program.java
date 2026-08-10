@@ -28,6 +28,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -96,6 +97,9 @@ public class Program extends BasedEntity {
     )
     @Builder.Default
     private Visibility visibility = Visibility.PRIVATE;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
 
     @Column(name = "policy", columnDefinition = "TEXT")
     private String policy;

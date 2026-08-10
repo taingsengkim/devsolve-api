@@ -346,7 +346,7 @@ public class CommentServiceImpl implements CommentService {
             }
             case PROGRAM -> {
                 programRepository
-                    .findByIdAndStateAndSubmissionStateAndVisibility(
+                    .findByIdAndStateAndSubmissionStateAndVisibilityAndDeletedAtIsNull(
                             commentableId,
                             ProgramState.ACTIVE,
                             SubmissionState.APPROVED,
