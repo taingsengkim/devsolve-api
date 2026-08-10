@@ -613,6 +613,50 @@ class ProgramServiceImplTest {
         verifyNoInteractions(programRepository);
     }
 
+    @Test
+    void reviewListIncludesOrganizationDisplayInformation() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        organization.setName("Acme Corporation");
+        organization.setSlug("acme-corporation");
+        organization.setLogoUrl("https://acme.test/logo.png");
+        organization.setWebsiteUrl("https://acme.test");
+        Program program = validProgram(organization.getId());
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        PageRequest pageable = PageRequest.of(0, 20);
+        authenticate(UUID.randomUUID(), "ADMIN");
+
+        when(programRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<Program>>any(),
+                eq(pageable)
+        )).thenReturn(new PageImpl<>(List.of(program), pageable, 1));
+        when(organizationRepository.findAllById(Set.of(organization.getId())))
+                .thenReturn(List.of(organization));
+
+        var response = service(new ProgramMapper())
+                .getProgramsForReview(
+                        SubmissionState.PENDING_REVIEW,
+                        pageable
+                )
+                .getContent()
+                .getFirst();
+
+        assertEquals("Acme Corporation", response.organizationName());
+        assertEquals("acme-corporation", response.organizationSlug());
+        assertEquals(
+                "https://acme.test/logo.png",
+                response.organizationLogoUrl()
+        );
+        assertEquals(
+                "https://acme.test",
+                response.organizationWebsiteUrl()
+        );
+        assertEquals(
+                OrganizationStatus.ACTIVE,
+                response.organizationStatus()
+        );
+    }
+
     private ProgramServiceImpl service() {
         lenient().when(programUpdateRepository.save(any(ProgramUpdate.class)))
                 .thenAnswer(invocation -> {

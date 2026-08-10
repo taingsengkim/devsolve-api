@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
@@ -194,11 +195,17 @@ public class ProgramMapper {
     }
 
     public ProgramManagementSummaryResponseDto toManagementSummaryDto(
-            Program program
+            Program program,
+            Organization organization
     ) {
         return new ProgramManagementSummaryResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
+                organization == null ? null : organization.getName(),
+                organization == null ? null : organization.getSlug(),
+                organization == null ? null : organization.getLogoUrl(),
+                organization == null ? null : organization.getWebsiteUrl(),
+                organization == null ? null : organization.getStatus(),
                 program.getHandle(),
                 program.getName(),
                 program.getEngagementType(),

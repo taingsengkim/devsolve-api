@@ -138,7 +138,10 @@ public class ProgramServiceImpl implements ProgramService {
                         ),
                         validatedPageable
                 )
-                .map(mapper::toManagementSummaryDto);
+                .map(program -> mapper.toManagementSummaryDto(
+                        program,
+                        organization
+                ));
     }
 
     @Override
@@ -339,13 +342,17 @@ public class ProgramServiceImpl implements ProgramService {
                 pageable,
                 PROGRAM_SORT_PROPERTIES
         );
-        return programRepository.findAll(
-                        ProgramSpecification.programsForReview(
-                                submissionState
-                        ),
-                        validatedPageable
-                )
-                .map(mapper::toManagementSummaryDto);
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.programsForReview(submissionState),
+                validatedPageable
+        );
+        Map<UUID, Organization> organizationsById = loadOrganizationsById(
+                programs.getContent()
+        );
+        return programs.map(program -> mapper.toManagementSummaryDto(
+                program,
+                organizationsById.get(program.getOrganizationId())
+        ));
     }
 
     @Override
@@ -685,6 +692,23 @@ public class ProgramServiceImpl implements ProgramService {
                 organizationNames,
                 assetsByProgram
         );
+    }
+
+    private Map<UUID, Organization> loadOrganizationsById(
+            Collection<Program> programs
+    ) {
+        if (programs.isEmpty()) {
+            return Map.of();
+        }
+        Set<UUID> organizationIds = programs.stream()
+                .map(Program::getOrganizationId)
+                .collect(Collectors.toSet());
+        return organizationRepository.findAllById(organizationIds)
+                .stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        Organization::getId,
+                        organization -> organization
+                ));
     }
 
     private record PublicProgramContext(
