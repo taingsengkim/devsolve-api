@@ -22,5 +22,15 @@ public interface ProgramAssetRepository
             @Param("programIds") Collection<UUID> programIds
     );
 
+    @Query("""
+            select asset
+            from ProgramAsset asset
+            where asset.program.id in :programIds
+            order by asset.createdAt asc
+            """)
+    List<ProgramAsset> findByProgramIds(
+            @Param("programIds") Collection<UUID> programIds
+    );
+
     List<ProgramAsset> findByProgramIdOrderByCreatedAtAsc(UUID programId);
 }
