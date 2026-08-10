@@ -31,6 +31,8 @@ public interface ProgramService {
             Pageable pageable
     );
 
+    ProgramResponseDto getMyProgram(UUID id);
+
     ProgramResponseDto createProgram(ProgramRequestDto request);
 
     ProgramResponseDto updateProgram(
