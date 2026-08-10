@@ -15,7 +15,9 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissi
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -56,6 +58,21 @@ public class OrganizationController {
             @Valid @RequestBody OrganizationUpdateRequest request
     ) {
         return organizationService.updateMe(request);
+    }
+
+    @PutMapping(
+            value = "/me/logo",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public OrganizationResponse uploadLogo(
+            @RequestPart("file") MultipartFile file
+    ) {
+        return organizationService.uploadLogo(file);
+    }
+
+    @DeleteMapping("/me/logo")
+    public OrganizationResponse removeLogo() {
+        return organizationService.removeLogo();
     }
 
     @PostMapping("/me/resubmit")

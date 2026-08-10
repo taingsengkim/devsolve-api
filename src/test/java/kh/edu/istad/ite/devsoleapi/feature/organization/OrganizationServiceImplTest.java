@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
@@ -31,6 +32,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
@@ -64,6 +66,9 @@ class OrganizationServiceImplTest {
 
     @Mock
     private CompanyIdentityService companyIdentityService;
+
+    @Mock
+    private ImageStorageService imageStorageService;
 
     @Mock
     private OrganizationReviewHistoryRepository reviewHistoryRepository;
@@ -201,6 +206,66 @@ class OrganizationServiceImplTest {
                 any(),
                 any()
         );
+    }
+
+    @Test
+    void ownerCanUploadOrganizationLogo() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        organization.setLogoUrl("https://cdn.example.com/old-logo.png");
+        MockMultipartFile logo = new MockMultipartFile(
+                "file",
+                "logo.png",
+                "image/png",
+                new byte[]{1, 2, 3}
+        );
+        String uploadedUrl = "https://cdn.example.com/new-logo.png";
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(imageStorageService.replace(
+                "organizations/" + organization.getId(),
+                organization.getLogoUrl(),
+                logo
+        )).thenReturn(uploadedUrl);
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        OrganizationResponse response = createService(
+                new WebsiteUrlServiceImpl()
+        ).uploadLogo(logo);
+
+        assertEquals(uploadedUrl, response.logoUrl());
+        assertEquals(uploadedUrl, organization.getLogoUrl());
+        verify(organizationRepository).saveAndFlush(organization);
+    }
+
+    @Test
+    void ownerCanRemoveOrganizationLogo() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        String currentLogoUrl = "https://cdn.example.com/logo.png";
+        organization.setLogoUrl(currentLogoUrl);
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        OrganizationResponse response = createService(
+                new WebsiteUrlServiceImpl()
+        ).removeLogo();
+
+        assertNull(response.logoUrl());
+        assertNull(organization.getLogoUrl());
+        verify(imageStorageService).remove(currentLogoUrl);
+        verify(organizationRepository).saveAndFlush(organization);
     }
 
     @Test
@@ -570,6 +635,7 @@ class OrganizationServiceImplTest {
                 userProfileRepository,
                 new OrganizationMapper(websiteUrlService),
                 websiteUrlService,
+                imageStorageService,
                 companyIdentityService,
                 reviewHistoryRepository,
                 eventPublisher
