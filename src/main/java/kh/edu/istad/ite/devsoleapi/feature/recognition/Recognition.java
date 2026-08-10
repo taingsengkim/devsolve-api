@@ -7,6 +7,9 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -30,7 +33,8 @@ public class Recognition extends BasedEntity {
     @Column(name = "program_id", nullable = false)
     private UUID programId;
 
-    @Column(name = "report_id")
+    @NotNull(message = "Report ID is required")
+    @Column(name = "report_id", nullable = false)
     private UUID reportId;
 
     @NotBlank(message = "Title is required")
@@ -48,4 +52,11 @@ public class Recognition extends BasedEntity {
     @NotNull(message = "Awarded at is required")
     @Column(name = "awarded_at", nullable = false)
     private LocalDateTime awardedAt;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "severity", nullable = false, columnDefinition = "severity_enum")
+    private Severity severity;
+
+
 }

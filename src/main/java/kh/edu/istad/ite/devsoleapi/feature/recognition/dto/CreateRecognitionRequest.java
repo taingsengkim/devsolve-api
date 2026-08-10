@@ -14,6 +14,7 @@ public record CreateRecognitionRequest(
         @NotNull(message = "Program ID is required")
         UUID programId,
 
+        @NotNull(message = "Report ID is required")
         UUID reportId,
 
         @NotBlank(message = "Title is required")
