@@ -58,4 +58,31 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             UUID id,
             UserStatus status
     );
+
+    @Query("""
+            select count(profile) as totalUsers,
+                   coalesce(sum(case when profile.status = :activeStatus
+                       then 1 else 0 end), 0) as activeUsers,
+                   coalesce(sum(case when profile.status = :suspendedStatus
+                       then 1 else 0 end), 0) as suspendedUsers,
+                   coalesce(sum(case when profile.status = :removedStatus
+                       then 1 else 0 end), 0) as removedUsers
+            from UserProfile profile
+            """)
+    AdminUserCounts findAdminCounts(
+            @Param("activeStatus") UserStatus activeStatus,
+            @Param("suspendedStatus") UserStatus suspendedStatus,
+            @Param("removedStatus") UserStatus removedStatus
+    );
+
+    interface AdminUserCounts {
+
+        long getTotalUsers();
+
+        long getActiveUsers();
+
+        long getSuspendedUsers();
+
+        long getRemovedUsers();
+    }
 }

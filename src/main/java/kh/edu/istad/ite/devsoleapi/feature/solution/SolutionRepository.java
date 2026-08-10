@@ -44,6 +44,17 @@ public interface SolutionRepository extends JpaRepository<Solution, UUID> {
             Pageable pageable
     );
 
+    @Query("""
+            select count(solution)
+            from Solution solution
+            join solution.latestRevision revision
+            where solution.deletedAt is null
+              and revision.moderationStatus = :reviewStatus
+            """)
+    long countForModeration(
+            @Param("reviewStatus") ReviewStatus reviewStatus
+    );
+
     Optional<Solution> findByIdAndDeletedAtIsNull(UUID id);
 
     Optional<Solution>

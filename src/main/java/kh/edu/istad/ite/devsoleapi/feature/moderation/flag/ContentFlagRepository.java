@@ -45,4 +45,6 @@ public interface ContentFlagRepository extends JpaRepository<ContentFlag, UUID> 
             FlaggableType flaggableType,
             UUID flaggableId
     );
+
+    long countByStatus(FlagStatus status);
 }

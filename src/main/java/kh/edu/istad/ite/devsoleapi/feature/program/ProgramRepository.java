@@ -46,10 +46,50 @@ public interface ProgramRepository extends JpaRepository<Program, UUID>, JpaSpec
             @Param("programId") UUID programId
     );
 
+    @Query("""
+            select count(program) as totalPrograms,
+                   coalesce(sum(case when program.state = :draftState
+                       then 1 else 0 end), 0) as draftPrograms,
+                   coalesce(sum(case when program.state = :activeState
+                       then 1 else 0 end), 0) as activePrograms,
+                   coalesce(sum(case when program.state = :pausedState
+                       then 1 else 0 end), 0) as pausedPrograms,
+                   coalesce(sum(case when program.state = :closedState
+                       then 1 else 0 end), 0) as closedPrograms,
+                   coalesce(sum(case when program.submissionState =
+                       :pendingSubmissionState
+                       then 1 else 0 end), 0) as pendingReviewPrograms
+            from Program program
+            where program.deletedAt is null
+            """)
+    AdminProgramCounts findAdminCounts(
+            @Param("draftState") ProgramState draftState,
+            @Param("activeState") ProgramState activeState,
+            @Param("pausedState") ProgramState pausedState,
+            @Param("closedState") ProgramState closedState,
+            @Param("pendingSubmissionState")
+            SubmissionState pendingSubmissionState
+    );
+
     interface PublicProgramStatistics {
 
         long getTotalResearchers();
 
         long getTotalSubmissions();
+    }
+
+    interface AdminProgramCounts {
+
+        long getTotalPrograms();
+
+        long getDraftPrograms();
+
+        long getActivePrograms();
+
+        long getPausedPrograms();
+
+        long getClosedPrograms();
+
+        long getPendingReviewPrograms();
     }
 }
