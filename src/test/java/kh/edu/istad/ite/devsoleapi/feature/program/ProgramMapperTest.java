@@ -1,5 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
@@ -140,11 +142,32 @@ class ProgramMapperTest {
         Program program = program();
         program.setAssets(null);
         program.setRewards(null);
+        Organization organization = new Organization();
+        organization.setId(program.getOrganizationId());
+        organization.setName("Acme Corporation");
+        organization.setSlug("acme-corporation");
+        organization.setLogoUrl("https://acme.test/logo.png");
+        organization.setWebsiteUrl("https://acme.test");
+        organization.setStatus(OrganizationStatus.ACTIVE);
 
         ProgramManagementSummaryResponseDto result =
-                mapper.toManagementSummaryDto(program);
+                mapper.toManagementSummaryDto(program, organization);
 
         assertEquals(program.getId(), result.id());
+        assertEquals("Acme Corporation", result.organizationName());
+        assertEquals("acme-corporation", result.organizationSlug());
+        assertEquals(
+                "https://acme.test/logo.png",
+                result.organizationLogoUrl()
+        );
+        assertEquals(
+                "https://acme.test",
+                result.organizationWebsiteUrl()
+        );
+        assertEquals(
+                OrganizationStatus.ACTIVE,
+                result.organizationStatus()
+        );
         assertEquals(ProgramState.ACTIVE, result.state());
         assertEquals(SubmissionState.APPROVED, result.submissionState());
         assertEquals(Visibility.PUBLIC, result.visibility());
