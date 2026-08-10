@@ -98,6 +98,11 @@ public class ProgramController {
         return programService.getMyPrograms(pageable);
     }
 
+    @GetMapping("/organizations/me/programs/{id}")
+    public ProgramResponseDto getMyProgram(@PathVariable UUID id) {
+        return programService.getMyProgram(id);
+    }
+
     @PostMapping("/organizations/me/programs")
     @ResponseStatus(HttpStatus.CREATED)
     public ProgramResponseDto createProgram(

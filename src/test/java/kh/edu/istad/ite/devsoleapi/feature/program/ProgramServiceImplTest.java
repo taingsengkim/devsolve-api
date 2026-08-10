@@ -119,6 +119,67 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void ownerGetsCompleteSavedDraftForEditing() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDescription("Full draft description");
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setVisibility(Visibility.PRIVATE);
+        authenticate(ownerId, "COMPANY");
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        var response = service(new ProgramMapper())
+                .getMyProgram(program.getId());
+
+        assertEquals("Full draft description", response.description());
+        assertEquals(EngagementType.BOUNTY, response.engagementType());
+        assertEquals(Visibility.PRIVATE, response.visibility());
+        assertEquals(program.getPolicy(), response.policy());
+        assertEquals(
+                program.getProofOfConceptRequirements(),
+                response.proofOfConceptRequirements()
+        );
+        assertEquals(
+                program.getRulesOfEngagement(),
+                response.rulesOfEngagement()
+        );
+        assertEquals(program.getExclusions(), response.exclusions());
+        assertEquals(program.getOffersBounties(), response.offersBounties());
+        assertEquals(1, response.assets().size());
+    }
+
+    @Test
+    void userWithoutProgramAccessCannotGetSavedDraft() {
+        UUID otherUserId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = validProgram(organization.getId());
+        authenticate(otherUserId, "COMPANY");
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+        when(organizationMemberRepository.findByOrganizationIdAndUserId(
+                organization.getId(),
+                otherUserId
+        )).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service(new ProgramMapper())
+                        .getMyProgram(program.getId())
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+    }
+
+    @Test
     void createProgramAllowsPublicVisibilityWhilePendingApproval() {
         UUID userId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(userId);

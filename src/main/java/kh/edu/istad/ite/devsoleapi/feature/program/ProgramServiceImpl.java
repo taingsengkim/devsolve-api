@@ -146,6 +146,16 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public ProgramResponseDto getMyProgram(UUID id) {
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.VIEW_PROGRAMS
+        );
+        return mapper.toResponseDto(program);
+    }
+
+    @Override
     @Transactional
     public ProgramResponseDto createProgram(ProgramRequestDto request) {
         Organization organization = findAccessibleOrganization(
