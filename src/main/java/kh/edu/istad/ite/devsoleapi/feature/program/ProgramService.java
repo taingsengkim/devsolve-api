@@ -58,6 +58,8 @@ public interface ProgramService {
             Pageable pageable
     );
 
+    ProgramResponseDto getProgramForAdmin(UUID id);
+
     ProgramResponseDto approveProgram(UUID id);
 
     ProgramResponseDto rejectProgram(UUID id, String reason);

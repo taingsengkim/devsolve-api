@@ -48,6 +48,11 @@ public class ProgramAdminController {
         );
     }
 
+    @GetMapping("/{id}")
+    public ProgramResponseDto getProgram(@PathVariable UUID id) {
+        return programService.getProgramForAdmin(id);
+    }
+
     @PatchMapping("/{id}/approve")
     public ProgramResponseDto approveProgram(@PathVariable UUID id) {
         return programService.approveProgram(id);
