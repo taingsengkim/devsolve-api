@@ -196,7 +196,8 @@ public class ProgramMapper {
 
     public ProgramManagementSummaryResponseDto toManagementSummaryDto(
             Program program,
-            Organization organization
+            Organization organization,
+            List<ProgramAsset> assets
     ) {
         return new ProgramManagementSummaryResponseDto(
                 program.getId(),
@@ -208,12 +209,14 @@ public class ProgramMapper {
                 organization == null ? null : organization.getStatus(),
                 program.getHandle(),
                 program.getName(),
+                program.getDescription(),
                 program.getEngagementType(),
                 program.getState(),
                 program.getSubmissionState(),
                 program.getVisibility(),
                 program.getOffersBounties(),
                 program.getMaximumBounty(),
+                toAssetResponses(assets),
                 program.getCreatedAt(),
                 program.getUpdatedAt()
         );

@@ -133,16 +133,19 @@ public class ProgramServiceImpl implements ProgramService {
                 pageable,
                 PROGRAM_SORT_PROPERTIES
         );
-        return programRepository.findAll(
-                        ProgramSpecification.organizationPrograms(
-                                organization.getId()
-                        ),
-                        validatedPageable
-                )
-                .map(program -> mapper.toManagementSummaryDto(
-                        program,
-                        organization
-                ));
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.organizationPrograms(
+                        organization.getId()
+                ),
+                validatedPageable
+        );
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                loadProgramAssets(programs.getContent());
+        return programs.map(program -> mapper.toManagementSummaryDto(
+                program,
+                organization,
+                assetsByProgram.getOrDefault(program.getId(), List.of())
+        ));
     }
 
     @Override
@@ -373,9 +376,12 @@ public class ProgramServiceImpl implements ProgramService {
         Map<UUID, Organization> organizationsById = loadOrganizationsById(
                 programs.getContent()
         );
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                loadProgramAssets(programs.getContent());
         return programs.map(program -> mapper.toManagementSummaryDto(
                 program,
-                organizationsById.get(program.getOrganizationId())
+                organizationsById.get(program.getOrganizationId()),
+                assetsByProgram.getOrDefault(program.getId(), List.of())
         ));
     }
 
@@ -736,6 +742,22 @@ public class ProgramServiceImpl implements ProgramService {
                 .collect(Collectors.toUnmodifiableMap(
                         Organization::getId,
                         organization -> organization
+                ));
+    }
+
+    private Map<UUID, List<ProgramAsset>> loadProgramAssets(
+            Collection<Program> programs
+    ) {
+        if (programs.isEmpty()) {
+            return Map.of();
+        }
+        Set<UUID> programIds = programs.stream()
+                .map(Program::getId)
+                .collect(Collectors.toSet());
+        return programAssetRepository.findByProgramIds(programIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        asset -> asset.getProgram().getId()
                 ));
     }
 

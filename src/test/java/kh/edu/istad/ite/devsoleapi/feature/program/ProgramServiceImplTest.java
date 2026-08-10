@@ -180,6 +180,54 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void myProgramsIncludeDescriptionAndAllAssetsFromOneBulkLoad() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDescription("Full saved draft description");
+        ProgramAsset inScope = program.getAssets().getFirst();
+        ProgramAsset outOfScope = ProgramAsset.builder()
+                .id(UUID.randomUUID())
+                .program(program)
+                .assetType(AssetType.URL)
+                .identifier("https://legacy.acme.test")
+                .isInScope(false)
+                .build();
+        PageRequest pageable = PageRequest.of(0, 20);
+        authenticate(ownerId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(programRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<Program>>any(),
+                eq(pageable)
+        )).thenReturn(new PageImpl<>(List.of(program), pageable, 1));
+        when(programAssetRepository.findByProgramIds(Set.of(program.getId())))
+                .thenReturn(List.of(inScope, outOfScope));
+
+        var response = service(new ProgramMapper())
+                .getMyPrograms(pageable)
+                .getContent()
+                .getFirst();
+
+        assertEquals(
+                "Full saved draft description",
+                response.description()
+        );
+        assertEquals(2, response.assets().size());
+        assertTrue(response.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+                        && "https://legacy.acme.test".equals(
+                                asset.identifier()
+                        )
+        ));
+        verify(programAssetRepository).findByProgramIds(
+                Set.of(program.getId())
+        );
+    }
+
+    @Test
     void createProgramAllowsPublicVisibilityWhilePendingApproval() {
         UUID userId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(userId);

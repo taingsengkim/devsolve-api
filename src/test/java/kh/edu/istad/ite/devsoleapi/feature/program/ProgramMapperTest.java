@@ -138,10 +138,19 @@ class ProgramMapperTest {
     }
 
     @Test
-    void managementSummaryContainsWorkflowFieldsWithoutRelationships() {
+    void managementSummaryContainsDescriptionAssetsAndWorkflowFields() {
         Program program = program();
-        program.setAssets(null);
         program.setRewards(null);
+        ProgramAsset inScope = asset(
+                program,
+                true,
+                "https://app.acme.test"
+        );
+        ProgramAsset outOfScope = asset(
+                program,
+                false,
+                "https://legacy.acme.test"
+        );
         Organization organization = new Organization();
         organization.setId(program.getOrganizationId());
         organization.setName("Acme Corporation");
@@ -151,7 +160,11 @@ class ProgramMapperTest {
         organization.setStatus(OrganizationStatus.ACTIVE);
 
         ProgramManagementSummaryResponseDto result =
-                mapper.toManagementSummaryDto(program, organization);
+                mapper.toManagementSummaryDto(
+                        program,
+                        organization,
+                        List.of(inScope, outOfScope)
+                );
 
         assertEquals(program.getId(), result.id());
         assertEquals("Acme Corporation", result.organizationName());
@@ -171,6 +184,11 @@ class ProgramMapperTest {
         assertEquals(ProgramState.ACTIVE, result.state());
         assertEquals(SubmissionState.APPROVED, result.submissionState());
         assertEquals(Visibility.PUBLIC, result.visibility());
+        assertEquals("Security research program", result.description());
+        assertEquals(2, result.assets().size());
+        assertTrue(result.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+        ));
         assertEquals(program.getCreatedAt(), result.createdAt());
     }
 
