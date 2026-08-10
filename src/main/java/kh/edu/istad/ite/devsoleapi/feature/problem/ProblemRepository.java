@@ -86,6 +86,8 @@ public interface ProblemRepository extends JpaRepository<Problem, UUID> {
             Pageable pageable
     );
 
+    long countByStatus(ProblemStatus status);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             update Problem p

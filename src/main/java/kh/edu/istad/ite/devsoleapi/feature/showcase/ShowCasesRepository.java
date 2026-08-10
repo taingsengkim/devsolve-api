@@ -161,6 +161,37 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
             Pageable pageable
     );
 
+    @Query(
+            value = """
+                    SELECT
+                        (
+                            SELECT COUNT(*)
+                            FROM public.showcases showcase
+                            WHERE UPPER(REPLACE(
+                                      CAST(showcase.review_status AS TEXT),
+                                      '_approval',
+                                      ''
+                                  )) = :reviewStatus
+                              AND showcase.deleted_at IS NULL
+                        )
+                        +
+                        (
+                            SELECT COUNT(*)
+                            FROM public.showcase_revisions revision
+                            JOIN public.showcases showcase
+                              ON showcase.id = revision.showcase_id
+                            WHERE UPPER(REPLACE(
+                                      CAST(revision.review_status AS TEXT),
+                                      '_approval',
+                                      ''
+                                  )) = :reviewStatus
+                              AND showcase.deleted_at IS NULL
+                        )
+                    """,
+            nativeQuery = true
+    )
+    long countReviewQueue(@Param("reviewStatus") String reviewStatus);
+
     Optional<ShowCases> findByIdAndDeletedAtIsNull(
             UUID id
     );
