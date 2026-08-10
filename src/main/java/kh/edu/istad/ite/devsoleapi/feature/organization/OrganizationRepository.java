@@ -4,6 +4,7 @@ import jakarta.persistence.LockModeType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -39,6 +40,31 @@ public interface OrganizationRepository extends JpaRepository<Organization, UUID
 
     Page<Organization> findByStatusAndDeletedAtIsNull(
             OrganizationStatus status,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = "owner")
+    @Query("""
+            select organization
+            from Organization organization
+            where organization.deletedAt is null
+              and (
+                    :status is null
+                    or organization.status = :status
+              )
+              and (
+                    :queryPattern is null
+                    or lower(organization.name) like :queryPattern
+                    or lower(organization.slug) like :queryPattern
+                    or lower(organization.websiteUrl) like :queryPattern
+                    or lower(organization.country) like :queryPattern
+                    or lower(organization.owner.fullName) like :queryPattern
+                    or lower(organization.owner.email) like :queryPattern
+              )
+            """)
+    Page<Organization> findForAdmin(
+            @Param("queryPattern") String queryPattern,
+            @Param("status") OrganizationStatus status,
             Pageable pageable
     );
 

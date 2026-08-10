@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewRe
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.RejectOrganizationRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -28,6 +29,26 @@ import java.util.UUID;
 public class OrganizationAdminController {
 
     private final OrganizationService organizationService;
+
+    @GetMapping
+    public Page<OrganizationReviewSummaryResponse> getOrganizations(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) OrganizationStatus status,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "pageNumber must be >= 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "pageSize must be >= 1")
+            @Max(value = 100, message = "pageSize must be <= 100")
+            int pageSize
+    ) {
+        return organizationService.getOrganizationsForAdmin(
+                query,
+                status,
+                pageNumber,
+                pageSize
+        );
+    }
 
     @GetMapping("/pending")
     public Page<OrganizationReviewSummaryResponse> getPendingOrganizations(

@@ -570,6 +570,34 @@ public class OrganizationServiceImpl implements OrganizationService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<OrganizationReviewSummaryResponse> getOrganizationsForAdmin(
+            String query,
+            OrganizationStatus status,
+            int pageNumber,
+            int pageSize
+    ) {
+        requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
+        validatePagination(pageNumber, pageSize);
+
+        String normalizedQuery = trimToNull(query);
+        String queryPattern = normalizedQuery == null
+                ? null
+                : "%" + normalizedQuery.toLowerCase(Locale.ROOT) + "%";
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        return organizationRepository.findForAdmin(
+                queryPattern,
+                status,
+                pageable
+        ).map(organizationMapper::toReviewSummary);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<OrganizationReviewSummaryResponse> getPendingOrganizations(
             int pageNumber,
             int pageSize
