@@ -20,7 +20,7 @@ public interface ProgramRepository extends JpaRepository<Program, UUID>, JpaSpec
     Optional<Program> findByHandle(String handle);
 
     Optional<Program>
-    findByIdAndStateAndSubmissionStateAndVisibility(
+    findByIdAndStateAndSubmissionStateAndVisibilityAndDeletedAtIsNull(
             UUID id,
             ProgramState state,
             SubmissionState submissionState,

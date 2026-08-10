@@ -703,6 +703,9 @@ ALTER TABLE IF EXISTS public.organization_members
 ALTER TABLE IF EXISTS public.organization_members
     ADD COLUMN IF NOT EXISTS invitation_token VARCHAR(36)^^^
 
+ALTER TABLE IF EXISTS public.programs
+    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP(6)^^^
+
 DO $$
 BEGIN
     IF to_regclass('public.organizations') IS NOT NULL

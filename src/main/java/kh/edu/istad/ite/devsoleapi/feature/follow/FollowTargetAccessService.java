@@ -41,7 +41,7 @@ public class FollowTargetAccessService {
             case PROBLEM -> problemRepository.findPublicById(targetId)
                     .orElseThrow(() -> notFound(type));
             case PROGRAM -> programRepository
-                    .findByIdAndStateAndSubmissionStateAndVisibility(
+                    .findByIdAndStateAndSubmissionStateAndVisibilityAndDeletedAtIsNull(
                             targetId,
                             ProgramState.ACTIVE,
                             SubmissionState.APPROVED,

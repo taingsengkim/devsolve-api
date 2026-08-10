@@ -16,6 +16,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -136,5 +137,11 @@ public class ProgramController {
     @PatchMapping("/programs/{id}/close")
     public ProgramResponseDto closeProgram(@PathVariable UUID id) {
         return programService.closeProgram(id);
+    }
+
+    @DeleteMapping("/programs/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteProgram(@PathVariable UUID id) {
+        programService.deleteProgram(id);
     }
 }

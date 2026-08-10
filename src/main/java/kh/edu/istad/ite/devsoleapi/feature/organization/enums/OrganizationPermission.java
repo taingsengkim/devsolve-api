@@ -8,6 +8,7 @@ public enum OrganizationPermission {
     CREATE_PROGRAM,
     EDIT_PROGRAM,
     MANAGE_PROGRAM_STATE,
+    DELETE_PROGRAM,
     VIEW_REPORTS,
     TRIAGE_REPORTS,
     MANAGE_DISCLOSURE,

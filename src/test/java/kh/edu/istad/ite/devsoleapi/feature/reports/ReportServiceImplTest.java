@@ -44,6 +44,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -147,6 +148,36 @@ class ReportServiceImplTest {
         assertNull(report.getTriageSeverity());
         assertNull(report.getSeverity());
         assertEquals(ReportState.NEW, report.getState());
+    }
+
+    @Test
+    void hackerCannotCreateReportForDeletedProgram() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(hackerId, "USER");
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().create(
+                        program.getId(),
+                        new CreateReportRequest(
+                                "Broken access control",
+                                "A user can read another account.",
+                                "Private account data is exposed.",
+                                Severity.HIGH,
+                                null,
+                                program.getAssets().getFirst().getId()
+                        )
+                )
+        );
+
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
     }
 
     @Test

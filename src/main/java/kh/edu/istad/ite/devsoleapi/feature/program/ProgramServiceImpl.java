@@ -37,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -316,6 +317,19 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     @Override
+    @Transactional
+    public void deleteProgram(UUID id) {
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.DELETE_PROGRAM
+        );
+        program.setState(ProgramState.CLOSED);
+        program.setVisibility(Visibility.PRIVATE);
+        logUpdate(program, "Program deleted");
+        program.setDeletedAt(LocalDateTime.now());
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Page<ProgramUpdateChangeLogDto> getPublicProgramUpdates(
             UUID id,
@@ -360,6 +374,7 @@ public class ProgramServiceImpl implements ProgramService {
     public ProgramResponseDto getProgramForAdmin(UUID id) {
         requireRole(ADMIN_ROLE);
         Program program = programRepository.findById(id)
+                .filter(candidate -> candidate.getDeletedAt() == null)
                 .orElseThrow(this::programNotFound);
         return mapper.toResponseDto(program);
     }
@@ -409,6 +424,7 @@ public class ProgramServiceImpl implements ProgramService {
             OrganizationPermission permission
     ) {
         Program program = programRepository.findById(id)
+                .filter(candidate -> candidate.getDeletedAt() == null)
                 .orElseThrow(this::programNotFound);
         organizationAuthorization.requirePermission(
                 program.getOrganizationId(),
@@ -420,6 +436,7 @@ public class ProgramServiceImpl implements ProgramService {
 
     private Program findPendingProgramForReview(UUID id) {
         Program program = programRepository.findById(id)
+                .filter(candidate -> candidate.getDeletedAt() == null)
                 .orElseThrow(this::programNotFound);
         if (program.getSubmissionState() != SubmissionState.PENDING_REVIEW) {
             throw conflict("Program is not pending admin review");
@@ -448,7 +465,8 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     private boolean isPubliclyAccessible(Program program) {
-        return program.getState() == ProgramState.ACTIVE
+        return program.getDeletedAt() == null
+                && program.getState() == ProgramState.ACTIVE
                 && program.getSubmissionState() == SubmissionState.APPROVED
                 && program.getVisibility() == Visibility.PUBLIC;
     }
