@@ -39,7 +39,7 @@ public final class AuthUtils {
         return SecurityContextHolder.getContext().getAuthentication();
     }
 
-    private static JwtAuthenticationToken extractJwtPrincipal() {
+    public static JwtAuthenticationToken extractJwtPrincipal() {
         Authentication authentication = getAuth();
         if (!isAuthenticated(authentication)
                 || !(authentication instanceof JwtAuthenticationToken jwtAuthentication)) {
