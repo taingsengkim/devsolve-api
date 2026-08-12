@@ -137,9 +137,17 @@ public class ProblemMapper {
         );
     }
 
+    /**
+     * Null when the author's profile row could not be loaded, so a listing
+     * renders the rest of the problem instead of failing the whole page over
+     * one missing byline.
+     */
     private ProblemResponse.AuthorSummary toAuthorSummary(
             UserProfile author
     ) {
+        if (author == null) {
+            return null;
+        }
         return new ProblemResponse.AuthorSummary(
                 author.getId(),
                 author.getFullName(),

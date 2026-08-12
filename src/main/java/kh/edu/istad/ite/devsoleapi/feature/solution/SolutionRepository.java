@@ -8,8 +8,11 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
+
 import jakarta.persistence.LockModeType;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,6 +27,22 @@ public interface SolutionRepository extends JpaRepository<Solution, UUID> {
     Page<Solution> findAllByAuthorIdAndDeletedAtIsNull(
             UUID authorId,
             Pageable pageable
+    );
+
+    /**
+     * Published solution counts for a whole page of problems in one round
+     * trip. Problems with no published solution are absent from the result.
+     */
+    @Query("""
+            select solution.problem.id as id, count(solution) as total
+            from Solution solution
+            where solution.problem.id in :problemIds
+              and solution.currentPublishedRevision is not null
+              and solution.deletedAt is null
+            group by solution.problem.id
+            """)
+    List<IdCountProjection> countPublishedByProblemIds(
+            @Param("problemIds") Collection<UUID> problemIds
     );
 
     Page<Solution>

@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,6 +15,12 @@ public interface ProblemTagRepository
     @EntityGraph(attributePaths = "tag")
     @Query("select pt from ProblemTag pt where pt.problem.id = :problemId")
     List<ProblemTag> findAllByProblemId(@Param("problemId") UUID problemId);
+
+    @EntityGraph(attributePaths = "tag")
+    @Query("select pt from ProblemTag pt where pt.problem.id in :problemIds")
+    List<ProblemTag> findAllByProblemIdIn(
+            @Param("problemIds") Collection<UUID> problemIds
+    );
 
     @Query("delete from ProblemTag pt where pt.problem.id = :problemId")
     @org.springframework.data.jpa.repository.Modifying
