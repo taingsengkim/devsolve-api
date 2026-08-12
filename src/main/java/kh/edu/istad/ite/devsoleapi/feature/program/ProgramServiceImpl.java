@@ -168,12 +168,15 @@ public class ProgramServiceImpl implements ProgramService {
 
         Program program = mapper.toEntity(request);
         program.setOrganizationId(organization.getId());
-        program.setState(ProgramState.DRAFT);
+        program.setState(resolveInitialState(request.state()));
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         validateProgramConfiguration(program);
 
         Program saved = programRepository.saveAndFlush(program);
-        logUpdate(saved, "Program created and submitted for admin review");
+        logUpdate(saved, saved.getState() == ProgramState.ACTIVE
+                ? "Program created and submitted for admin review; "
+                        + "launches on approval"
+                : "Program created and submitted for admin review");
         return mapper.toResponseDto(saved);
     }
 
@@ -527,6 +530,31 @@ public class ProgramServiceImpl implements ProgramService {
         );
         validateAssets(program.getAssets());
         validateRewards(program);
+    }
+
+    /**
+     * The state a new program starts in, defaulting to {@code DRAFT}.
+     *
+     * <p>Creating as {@code ACTIVE} does not skip review: the submission state
+     * is still {@code PENDING_REVIEW}, and the public listing requires both
+     * {@code ACTIVE} and {@code APPROVED}. It only settles in advance what
+     * happens once an admin approves — go live immediately, rather than wait
+     * for a separate call to publish.
+     *
+     * <p>{@code PAUSED} and {@code CLOSED} describe a program that has already
+     * run, so neither is a coherent starting point.
+     */
+    private ProgramState resolveInitialState(ProgramState requested) {
+        if (requested == null) {
+            return ProgramState.DRAFT;
+        }
+        if (requested != ProgramState.DRAFT
+                && requested != ProgramState.ACTIVE) {
+            throw badRequest(
+                    "A program can only be created as DRAFT or ACTIVE"
+            );
+        }
+        return requested;
     }
 
     private boolean hasChanges(ProgramUpdateRequestDto request) {

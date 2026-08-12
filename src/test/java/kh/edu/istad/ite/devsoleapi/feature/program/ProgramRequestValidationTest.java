@@ -44,6 +44,7 @@ class ProgramRequestValidationTest {
                 "Security research program",
                 EngagementType.BOUNTY,
                 Visibility.PRIVATE,
+                null,
                 "Only test assets explicitly listed as in scope.",
                 guidelines(
                         "Include reproducible steps and evidence",
@@ -75,6 +76,7 @@ class ProgramRequestValidationTest {
                 null,
                 null,
                 Visibility.PRIVATE,
+                null,
                 " ",
                 null,
                 null,
@@ -125,6 +127,7 @@ class ProgramRequestValidationTest {
                 null,
                 EngagementType.RESPONSE,
                 Visibility.PRIVATE,
+                null,
                 "Test only assets explicitly listed as in scope.",
                 guidelines(
                         "Include reproducible steps and evidence",
