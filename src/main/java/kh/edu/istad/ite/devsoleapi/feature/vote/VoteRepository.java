@@ -7,6 +7,10 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
+
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -69,6 +73,29 @@ public interface VoteRepository extends JpaRepository<Vote, UUID> {
     VoteSummaryProjection summarize(
             @Param("votableType") VoteType votableType,
             @Param("votableId") UUID votableId
+    );
+
+    /**
+     * Vote scores for a whole page in one round trip. Ids with no votes are
+     * simply absent from the result.
+     */
+    @Query("""
+            select vote.votableId as id,
+                   coalesce(sum(vote.voteValue), 0) as total
+            from Vote vote
+            where vote.votableType = :votableType
+              and vote.votableId in :votableIds
+            group by vote.votableId
+            """)
+    List<IdCountProjection> summarizeAll(
+            @Param("votableType") VoteType votableType,
+            @Param("votableIds") Collection<UUID> votableIds
+    );
+
+    List<Vote> findAllByUserIdAndVotableTypeAndVotableIdIn(
+            UUID userId,
+            VoteType votableType,
+            Collection<UUID> votableIds
     );
 
     @Query("""

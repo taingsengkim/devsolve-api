@@ -98,6 +98,24 @@ public class ProgramController {
         return programService.getMyPrograms(pageable);
     }
 
+    /**
+     * Mapped above {@code /organizations/me/programs/{id}} on purpose: the
+     * literal segment wins over the variable, so "deleted" never reaches the
+     * UUID converter.
+     */
+    @GetMapping("/organizations/me/programs/deleted")
+    public Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            @PageableDefault(
+                    size = 20,
+                    sort = "deletedAt",
+                    direction = Sort.Direction.DESC
+            )
+            @ParameterObject
+            Pageable pageable
+    ) {
+        return programService.getMyDeletedPrograms(pageable);
+    }
+
     @GetMapping("/organizations/me/programs/{id}")
     public ProgramResponseDto getMyProgram(@PathVariable UUID id) {
         return programService.getMyProgram(id);
@@ -148,5 +166,10 @@ public class ProgramController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteProgram(@PathVariable UUID id) {
         programService.deleteProgram(id);
+    }
+
+    @PostMapping("/programs/{id}/restore")
+    public ProgramResponseDto restoreProgram(@PathVariable UUID id) {
+        return programService.restoreProgram(id);
     }
 }

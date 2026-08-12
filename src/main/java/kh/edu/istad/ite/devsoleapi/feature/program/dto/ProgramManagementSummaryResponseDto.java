@@ -31,6 +31,12 @@ public record ProgramManagementSummaryResponseDto(
         BigDecimal maximumBounty,
         List<ProgramAssetResponseDto> assets,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+
+        /**
+         * Null for every live program. Only the recycle-bin listing returns
+         * rows where this is set.
+         */
+        LocalDateTime deletedAt
 ) {
 }

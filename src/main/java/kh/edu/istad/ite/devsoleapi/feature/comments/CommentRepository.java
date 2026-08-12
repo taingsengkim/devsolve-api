@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.comments;
 
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -19,6 +20,24 @@ public interface CommentRepository extends JpaRepository<Comment, UUID> {
     long countByCommentableTypeAndCommentableIdAndDeletedAtIsNullAndInternalFalse(
             CommentableType commentableType,
             UUID commentableId
+    );
+
+    /**
+     * Visible comment counts for a whole page in one round trip. Ids with no
+     * comments are absent from the result.
+     */
+    @Query("""
+            select comment.commentableId as id, count(comment) as total
+            from Comment comment
+            where comment.commentableType = :commentableType
+              and comment.commentableId in :commentableIds
+              and comment.deletedAt is null
+              and comment.internal = false
+            group by comment.commentableId
+            """)
+    List<IdCountProjection> countAllByCommentableIds(
+            @Param("commentableType") CommentableType commentableType,
+            @Param("commentableIds") Collection<UUID> commentableIds
     );
 
     Optional<Comment> findByIdAndDeletedAtIsNull(UUID id);

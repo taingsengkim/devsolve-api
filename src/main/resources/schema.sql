@@ -810,3 +810,28 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Problem listings all filter on soft-deleted rows and then on either status
+-- or author, and the public feed sorts by published_at. Without these each
+-- page is a sequential scan over every problem ever posted.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'problems'
+    ) THEN
+        CREATE INDEX IF NOT EXISTS idx_problems_public_feed
+            ON public.problems (status, published_at DESC)
+            WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_problems_author
+            ON public.problems (author_id, status)
+            WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_problems_category
+            ON public.problems (category_id)
+            WHERE deleted_at IS NULL;
+    END IF;
+END
+$$^^^

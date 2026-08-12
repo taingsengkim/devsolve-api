@@ -27,6 +27,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
@@ -75,6 +76,8 @@ public class Problem extends BasedEntity {
     @Column(name = "actual_behavior", columnDefinition = "TEXT")
     private String actualBehavior;
 
+    // Batched so a page of problems costs a couple of extra selects rather
+    // than two per row; every response maps both collections.
     @ElementCollection
     @CollectionTable(
             name = "problem_reproduction_steps",
@@ -82,6 +85,7 @@ public class Problem extends BasedEntity {
     )
     @OrderColumn(name = "display_order")
     @Column(name = "instruction", nullable = false, length = 1_000)
+    @BatchSize(size = 50)
     @Builder.Default
     private List<String> reproductionSteps = new ArrayList<>();
 
@@ -91,6 +95,7 @@ public class Problem extends BasedEntity {
             joinColumns = @JoinColumn(name = "problem_id")
     )
     @OrderColumn(name = "display_order")
+    @BatchSize(size = 50)
     @Builder.Default
     private List<ProblemEnvironment> environment = new ArrayList<>();
 
