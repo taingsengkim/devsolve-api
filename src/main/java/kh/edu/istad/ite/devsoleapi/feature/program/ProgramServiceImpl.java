@@ -97,7 +97,7 @@ public class ProgramServiceImpl implements ProgramService {
         );
         return programs.map(program -> mapper.toSummaryDto(
                 program,
-                context.organizationNames().get(program.getOrganizationId()),
+                context.organizations().get(program.getOrganizationId()),
                 context.assetsByProgram().getOrDefault(
                         program.getId(),
                         List.of()
@@ -674,9 +674,8 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     private PublicProgramResponseDto toPublicResponse(Program program) {
-        String organizationName = organizationRepository
+        Organization organization = organizationRepository
                 .findById(program.getOrganizationId())
-                .map(Organization::getName)
                 .orElseThrow(this::programNotFound);
         List<ProgramAsset> assets = programAssetRepository
                 .findByProgramIdOrderByCreatedAtAsc(program.getId());
@@ -686,7 +685,7 @@ public class ProgramServiceImpl implements ProgramService {
                 );
         return mapper.toPublicResponseDto(
                 program,
-                organizationName,
+                organization,
                 assets,
                 statistics.getTotalResearchers(),
                 statistics.getTotalSubmissions()
@@ -700,16 +699,9 @@ public class ProgramServiceImpl implements ProgramService {
             return new PublicProgramContext(Map.of(), Map.of());
         }
 
-        Set<UUID> organizationIds = programs.stream()
-                .map(Program::getOrganizationId)
-                .collect(Collectors.toSet());
-        Map<UUID, String> organizationNames = organizationRepository
-                .findAllById(organizationIds)
-                .stream()
-                .collect(Collectors.toUnmodifiableMap(
-                        Organization::getId,
-                        Organization::getName
-                ));
+        // The whole row, not just the name: the public listing now carries the
+        // organization's profile, and this query already had to load it.
+        Map<UUID, Organization> organizations = loadOrganizationsById(programs);
 
         Set<UUID> programIds = programs.stream()
                 .map(Program::getId)
@@ -723,7 +715,7 @@ public class ProgramServiceImpl implements ProgramService {
                         ));
 
         return new PublicProgramContext(
-                organizationNames,
+                organizations,
                 assetsByProgram
         );
     }
@@ -762,7 +754,7 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     private record PublicProgramContext(
-            Map<UUID, String> organizationNames,
+            Map<UUID, Organization> organizations,
             Map<UUID, List<ProgramAsset>> assetsByProgram
     ) {
     }

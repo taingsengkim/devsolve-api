@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
@@ -106,13 +107,24 @@ class ProgramMapperTest {
 
         ProgramSummaryResponseDto result = mapper.toSummaryDto(
                 program,
-                "Acme Corporation",
+                organization(program),
                 List.of(inScope, outOfScope)
         );
 
         assertEquals(program.getId(), result.id());
         assertEquals(program.getOrganizationId(), result.organizationId());
         assertEquals("Acme Corporation", result.organizationName());
+        assertEquals(
+                program.getOrganizationId(),
+                result.organization().id()
+        );
+        assertEquals("acme-corporation", result.organization().slug());
+        assertEquals(
+                "https://acme.test/logo.png",
+                result.organization().logoUrl()
+        );
+        assertEquals(Industry.TECHNOLOGY, result.organization().industry());
+        assertEquals("Cambodia", result.organization().country());
         assertEquals(1, result.inScopeAssets().size());
         assertEquals(
                 "https://app.acme.test",
@@ -204,13 +216,18 @@ class ProgramMapperTest {
 
         PublicProgramResponseDto result = mapper.toPublicResponseDto(
                 program,
-                "Acme Corporation",
+                organization(program),
                 List.of(inScope, outOfScope),
                 7,
                 12
         );
 
         assertEquals("Acme Corporation", result.organizationName());
+        assertEquals("acme-corporation", result.organization().slug());
+        assertEquals(
+                "Security-first payments company",
+                result.organization().description()
+        );
         assertEquals(
                 program.getProofOfConceptRequirements(),
                 result.proofOfConceptRequirements()
@@ -233,6 +250,20 @@ class ProgramMapperTest {
                 "https://app.acme.test",
                 result.assets().getFirst().identifier()
         );
+    }
+
+    private Organization organization(Program program) {
+        Organization organization = new Organization();
+        organization.setId(program.getOrganizationId());
+        organization.setName("Acme Corporation");
+        organization.setSlug("acme-corporation");
+        organization.setLogoUrl("https://acme.test/logo.png");
+        organization.setWebsiteUrl("https://acme.test");
+        organization.setDescription("Security-first payments company");
+        organization.setIndustry(Industry.TECHNOLOGY);
+        organization.setCountry("Cambodia");
+        organization.setStatus(OrganizationStatus.ACTIVE);
+        return organization;
     }
 
     private Program program() {
