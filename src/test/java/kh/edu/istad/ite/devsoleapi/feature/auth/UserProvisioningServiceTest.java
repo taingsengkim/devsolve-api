@@ -43,16 +43,18 @@ class UserProvisioningServiceTest {
     void createsProfileFromFederatedClaims() {
         when(userProfileRepository.existsById(USER_ID)).thenReturn(false);
 
-        userProvisioningService.ensureProvisioned(authentication(
-                Map.of(
-                        "email", "Sok.Dara@gmail.com",
-                        "given_name", "Sok",
-                        "family_name", "Dara",
-                        "picture", "https://lh3.googleusercontent.com/a/photo"
-                ),
-                "ROLE_USER"
-        ));
+        UserProvisioningService.Outcome outcome =
+                userProvisioningService.ensureProvisioned(authentication(
+                        Map.of(
+                                "email", "Sok.Dara@gmail.com",
+                                "given_name", "Sok",
+                                "family_name", "Dara",
+                                "picture", "https://lh3.googleusercontent.com/a/photo"
+                        ),
+                        "ROLE_USER"
+                ));
 
+        assertEquals(UserProvisioningService.Outcome.CREATED, outcome);
         UserProfile saved = captureSavedProfile();
         assertEquals(USER_ID, saved.getId());
         assertEquals("sok.dara@gmail.com", saved.getEmail());
@@ -68,31 +70,37 @@ class UserProvisioningServiceTest {
     void leavesExistingProfileAlone() {
         when(userProfileRepository.existsById(USER_ID)).thenReturn(true);
 
-        userProvisioningService.ensureProvisioned(authentication(
-                Map.of("email", "sok.dara@gmail.com"),
-                "ROLE_USER"
-        ));
+        UserProvisioningService.Outcome outcome =
+                userProvisioningService.ensureProvisioned(authentication(
+                        Map.of("email", "sok.dara@gmail.com"),
+                        "ROLE_USER"
+                ));
 
+        assertEquals(UserProvisioningService.Outcome.ALREADY_PRESENT, outcome);
         verify(userProfileRepository, never()).saveAndFlush(any());
     }
 
     @Test
     void neverProvisionsCompanyAccounts() {
-        userProvisioningService.ensureProvisioned(authentication(
-                Map.of("email", "contact@acme.com"),
-                "ROLE_COMPANY"
-        ));
+        UserProvisioningService.Outcome outcome =
+                userProvisioningService.ensureProvisioned(authentication(
+                        Map.of("email", "contact@acme.com"),
+                        "ROLE_COMPANY"
+                ));
 
+        assertEquals(UserProvisioningService.Outcome.SKIPPED_PRIVILEGED, outcome);
         verifyNoInteractions(userProfileRepository);
     }
 
     @Test
     void neverProvisionsAdminAccounts() {
-        userProvisioningService.ensureProvisioned(authentication(
-                Map.of("email", "admin@devsolve.com"),
-                "ROLE_ADMIN"
-        ));
+        UserProvisioningService.Outcome outcome =
+                userProvisioningService.ensureProvisioned(authentication(
+                        Map.of("email", "admin@devsolve.com"),
+                        "ROLE_ADMIN"
+                ));
 
+        assertEquals(UserProvisioningService.Outcome.SKIPPED_PRIVILEGED, outcome);
         verifyNoInteractions(userProfileRepository);
     }
 
@@ -100,23 +108,48 @@ class UserProvisioningServiceTest {
     void skipsProvisioningWhenTokenCarriesNoEmail() {
         when(userProfileRepository.existsById(USER_ID)).thenReturn(false);
 
-        userProvisioningService.ensureProvisioned(authentication(
-                Map.of("preferred_username", "dara"),
-                "ROLE_USER"
-        ));
+        UserProvisioningService.Outcome outcome =
+                userProvisioningService.ensureProvisioned(authentication(
+                        Map.of("preferred_username", "dara"),
+                        "ROLE_USER"
+                ));
 
+        assertEquals(UserProvisioningService.Outcome.SKIPPED_NO_EMAIL, outcome);
         verify(userProfileRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void skipsProvisioningWhenSubjectIsNotAUserId() {
+        JwtAuthenticationToken authentication = new JwtAuthenticationToken(
+                Jwt.withTokenValue("token")
+                        .header("alg", "none")
+                        .subject("service-account-devsolve")
+                        .claim("email", "svc@devsolve.com")
+                        .build(),
+                List.of(new SimpleGrantedAuthority("ROLE_USER"))
+        );
+
+        UserProvisioningService.Outcome outcome =
+                userProvisioningService.ensureProvisioned(authentication);
+
+        assertEquals(
+                UserProvisioningService.Outcome.SKIPPED_UNRECOGNISED_SUBJECT,
+                outcome
+        );
+        verifyNoInteractions(userProfileRepository);
     }
 
     @Test
     void fallsBackToEmailLocalPartWhenNoNameClaimIsPresent() {
         when(userProfileRepository.existsById(USER_ID)).thenReturn(false);
 
-        userProvisioningService.ensureProvisioned(authentication(
-                Map.of("email", "dara@gmail.com"),
-                "ROLE_USER"
-        ));
+        UserProvisioningService.Outcome outcome =
+                userProvisioningService.ensureProvisioned(authentication(
+                        Map.of("email", "dara@gmail.com"),
+                        "ROLE_USER"
+                ));
 
+        assertEquals(UserProvisioningService.Outcome.CREATED, outcome);
         UserProfile saved = captureSavedProfile();
         assertEquals("dara", saved.getFullName());
         assertNull(saved.getAvatarUrl());

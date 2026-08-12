@@ -47,20 +47,37 @@ public class UserProvisioningService {
     private final UserProfileRepository userProfileRepository;
 
     /**
+     * What {@link #ensureProvisioned} did, so a caller that can report a failure
+     * to the client is able to tell the skips apart. The filter ignores this;
+     * {@code POST /api/v1/auth/social/sync} turns each skip into an error the
+     * frontend can act on instead of a log line nobody reads.
+     */
+    public enum Outcome {
+        CREATED,
+        ALREADY_PRESENT,
+        SKIPPED_PRIVILEGED,
+        SKIPPED_NO_EMAIL,
+        SKIPPED_UNRECOGNISED_SUBJECT
+    }
+
+    /**
      * Creates the caller's profile row when it is missing. A no-op for accounts
      * that already have one, and for company and admin accounts, which are
      * provisioned by their own registration flows and must never be created as
      * a side effect of a request.
      */
     @Transactional
-    public void ensureProvisioned(JwtAuthenticationToken authentication) {
+    public Outcome ensureProvisioned(JwtAuthenticationToken authentication) {
         if (isPrivilegedAccount(authentication)) {
-            return;
+            return Outcome.SKIPPED_PRIVILEGED;
         }
 
         UUID userId = parseUserId(authentication.getToken().getSubject());
-        if (userId == null || userProfileRepository.existsById(userId)) {
-            return;
+        if (userId == null) {
+            return Outcome.SKIPPED_UNRECOGNISED_SUBJECT;
+        }
+        if (userProfileRepository.existsById(userId)) {
+            return Outcome.ALREADY_PRESENT;
         }
 
         Jwt token = authentication.getToken();
@@ -73,7 +90,7 @@ public class UserProvisioningService {
                     "Skipping provisioning for {}: token carries no email claim",
                     userId
             );
-            return;
+            return Outcome.SKIPPED_NO_EMAIL;
         }
 
         UserProfile userProfile = new UserProfile();
@@ -85,6 +102,7 @@ public class UserProvisioningService {
         userProfileRepository.saveAndFlush(userProfile);
 
         log.info("Provisioned profile for federated user {}", userId);
+        return Outcome.CREATED;
     }
 
     private boolean isPrivilegedAccount(JwtAuthenticationToken authentication) {
