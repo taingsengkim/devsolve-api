@@ -19,6 +19,7 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.Tag;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagResolver;
+import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +29,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -46,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.never;
@@ -79,6 +84,8 @@ class ProblemServiceImplTest {
     private ObjectStorageService objectStorageService;
     @Mock
     private FollowNotificationService followNotificationService;
+    @Mock
+    private SolutionRepository solutionRepository;
 
     private ProblemServiceImpl service;
 
@@ -98,7 +105,8 @@ class ProblemServiceImplTest {
                 attachmentValidator,
                 objectStorageService,
                 followNotificationService,
-                new TagResolver(tagRepository)
+                new TagResolver(tagRepository),
+                solutionRepository
         );
         lenient().when(contentSafety.normalizeText(any(String.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -134,12 +142,6 @@ class ProblemServiceImplTest {
                 .thenReturn(Optional.of(user(userId)));
         when(problemTagRepository.findAllByProblemId(any()))
                 .thenReturn(List.of());
-        when(technologyRepository
-                .findAllByProblemIdOrderByNameAsc(any()))
-                .thenReturn(List.of());
-        when(attachmentRepository
-                .findAllByProblemIdOrderByCreatedAtAsc(any()))
-                .thenReturn(List.of());
         when(categoryRepository.findByIdAndScopeAndIsActiveTrue(
                 categoryId,
                 CategoryScope.PROBLEM
@@ -171,12 +173,6 @@ class ProblemServiceImplTest {
         when(userProfileRepository.findById(userId))
                 .thenReturn(Optional.of(user(userId)));
         when(problemTagRepository.findAllByProblemId(any()))
-                .thenReturn(List.of());
-        when(technologyRepository
-                .findAllByProblemIdOrderByNameAsc(any()))
-                .thenReturn(List.of());
-        when(attachmentRepository
-                .findAllByProblemIdOrderByCreatedAtAsc(any()))
                 .thenReturn(List.of());
         when(categoryRepository.findByIdAndScopeAndIsActiveTrue(
                 categoryId,
@@ -214,7 +210,7 @@ class ProblemServiceImplTest {
                 CategoryScope.PROBLEM
         )).thenReturn(Optional.of(category));
         when(technologyRepository
-                .findAllByProblemIdOrderByNameAsc(problem.getId()))
+                .findAllByProblemIdInOrderByNameAsc(anyCollection()))
                 .thenReturn(List.of(technology(problem)));
         stubResponseDependencies(problem, userId);
 
@@ -277,7 +273,7 @@ class ProblemServiceImplTest {
                 .thenReturn(List.of(oldAssociation));
         stubResponseDependencies(problem, authorId);
 
-        service.updateDraft(
+        service.update(
                 problem.getId(),
                 new ProblemUpdateRequest(
                         null,
@@ -386,7 +382,7 @@ class ProblemServiceImplTest {
                 CategoryScope.PROBLEM
         )).thenReturn(Optional.of(category));
         when(technologyRepository
-                .findAllByProblemIdOrderByNameAsc(problem.getId()))
+                .findAllByProblemIdInOrderByNameAsc(anyCollection()))
                 .thenReturn(List.of(technology(problem)));
         stubResponseDependencies(problem, authorId);
 
@@ -399,12 +395,256 @@ class ProblemServiceImplTest {
         assertTrue(problem.getPublishedAt() != null);
     }
 
+    @Test
+    void authorEditsAPublishedProblemInPlace() {
+        UUID authorId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, categoryId);
+        Instant publishedAt = problem.getPublishedAt();
+        authenticate(authorId, "USER");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        when(categoryRepository.findByIdAndScopeAndIsActiveTrue(
+                categoryId,
+                CategoryScope.PROBLEM
+        )).thenReturn(Optional.of(category(categoryId)));
+        stubResponseDependencies(problem, authorId);
+
+        service.update(
+                problem.getId(),
+                new ProblemUpdateRequest(
+                        null,
+                        "A corrected title that is long enough",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                problem.getVersion()
+        );
+
+        assertEquals(
+                "A corrected title that is long enough",
+                problem.getTitle()
+        );
+        assertEquals(ProblemStatus.PUBLISHED, problem.getStatus());
+        assertEquals(publishedAt, problem.getPublishedAt());
+    }
+
+    @Test
+    void aPublishedProblemCannotBeEditedBelowThePublishingBar() {
+        UUID authorId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, categoryId);
+        authenticate(authorId, "USER");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.update(
+                        problem.getId(),
+                        new ProblemUpdateRequest(
+                                null,
+                                "too short",
+                                null,
+                                null,
+                                null,
+                                null,
+                                null
+                        ),
+                        problem.getVersion()
+                )
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(problemRepository, never()).saveAndFlush(problem);
+    }
+
+    @Test
+    void aProblemUnderReviewCannotBeEdited() {
+        UUID authorId = UUID.randomUUID();
+        Problem problem = editableProblem(authorId);
+        problem.setStatus(ProblemStatus.PENDING_APPROVAL);
+        authenticate(authorId, "USER");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.update(
+                        problem.getId(),
+                        new ProblemUpdateRequest(
+                                null,
+                                "Another title entirely",
+                                null,
+                                null,
+                                null,
+                                null,
+                                null
+                        ),
+                        problem.getVersion()
+                )
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+    }
+
+    @Test
+    void authorDeletesTheirOwnPublishedProblem() {
+        UUID authorId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, UUID.randomUUID());
+        authenticate(authorId, "USER");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        when(solutionRepository
+                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
+                        problem.getId()
+                ))
+                .thenReturn(0L);
+
+        service.softDelete(problem.getId());
+
+        assertTrue(problem.getDeletedAt() != null);
+        verify(problemRepository).saveAndFlush(problem);
+    }
+
+    @Test
+    void authorCannotDeleteAProblemThatHasPublishedSolutions() {
+        UUID authorId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, UUID.randomUUID());
+        authenticate(authorId, "USER");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        when(solutionRepository
+                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
+                        problem.getId()
+                ))
+                .thenReturn(2L);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.softDelete(problem.getId())
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertNull(problem.getDeletedAt());
+        verify(problemRepository, never()).saveAndFlush(problem);
+    }
+
+    @Test
+    void adminCanStillDeleteAnAnsweredProblem() {
+        UUID authorId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, UUID.randomUUID());
+        authenticate(UUID.randomUUID(), "ADMIN");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+
+        service.softDelete(problem.getId());
+
+        assertTrue(problem.getDeletedAt() != null);
+        verify(solutionRepository, never())
+                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
+                        any()
+                );
+    }
+
+    @Test
+    void deletingAProblemAlsoDiscardsItsStoredAttachments() {
+        UUID authorId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, UUID.randomUUID());
+        ProblemAttachment attachment = ProblemAttachment.builder()
+                .id(UUID.randomUUID())
+                .problem(problem)
+                .originalFileName("trace.log")
+                .storageKey("problems/" + problem.getId() + "/trace.log")
+                .mimeType("text/plain")
+                .sizeBytes(12L)
+                .uploadedBy(authorId)
+                .build();
+        authenticate(authorId, "USER");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        when(solutionRepository
+                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
+                        problem.getId()
+                ))
+                .thenReturn(0L);
+        when(attachmentRepository
+                .findAllByProblemIdOrderByCreatedAtAsc(problem.getId()))
+                .thenReturn(List.of(attachment));
+
+        service.softDelete(problem.getId());
+
+        verify(attachmentRepository).deleteAll(List.of(attachment));
+        // No transaction is bound in a unit test, so the object store call
+        // runs inline instead of waiting on a commit that never happens.
+        verify(objectStorageService).delete(attachment.getStorageKey());
+    }
+
+    /**
+     * The point of the batch loader: cost is per page, not per row. If this
+     * ever regresses to one query per problem the listing quietly turns into
+     * a hundred round trips.
+     */
+    @Test
+    void aListingLoadsItsAssociationsOncePerPageNotPerProblem() {
+        UUID authorId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        Problem first = publishedProblem(authorId, categoryId);
+        Problem second = publishedProblem(authorId, categoryId);
+        authenticate(authorId, "USER");
+        when(problemRepository.findPublished(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(first, second)));
+        stubResponseDependencies(first, authorId);
+
+        service.findPublished(
+                null,
+                null,
+                null,
+                null,
+                PageRequest.of(0, 20)
+        );
+
+        verify(userProfileRepository).findAllById(anyCollection());
+        verify(categoryRepository).findAllById(anyCollection());
+        verify(technologyRepository)
+                .findAllByProblemIdInOrderByNameAsc(anyCollection());
+        verify(problemTagRepository).findAllByProblemIdIn(anyCollection());
+        verify(attachmentRepository)
+                .findAllByProblemIdInOrderByCreatedAtAsc(anyCollection());
+        verify(userProfileRepository, never()).findById(any());
+        verify(problemTagRepository, never()).findAllByProblemId(any());
+    }
+
+    private Problem publishedProblem(UUID authorId, UUID categoryId) {
+        Problem problem = Problem.builder()
+                .id(UUID.randomUUID())
+                .authorId(authorId)
+                .categoryId(categoryId)
+                .title("A published problem title")
+                .description(
+                        "This description contains enough detail to stay "
+                                + "published after an edit."
+                )
+                .status(ProblemStatus.PUBLISHED)
+                .publishedAt(Instant.now())
+                .build();
+        return problem;
+    }
+
     private void stubResponseDependencies(
             Problem problem,
             UUID authorId
     ) {
-        when(userProfileRepository.findById(authorId))
-                .thenReturn(Optional.of(user(authorId)));
+        lenient().when(userProfileRepository.findAllById(anyCollection()))
+                .thenReturn(List.of(user(authorId)));
     }
 
     private Problem editableProblem(UUID authorId) {

@@ -98,12 +98,12 @@ public class ProblemController {
     }
 
     @PatchMapping("/{id}")
-    public ResponseEntity<ProblemResponse> updateDraft(
+    public ResponseEntity<ProblemResponse> update(
             @PathVariable UUID id,
             @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch,
             @Valid @RequestBody ProblemUpdateRequest request
     ) {
-        return withEtag(problemService.updateDraft(
+        return withEtag(problemService.update(
                 id,
                 request,
                 parseEtag(ifMatch)

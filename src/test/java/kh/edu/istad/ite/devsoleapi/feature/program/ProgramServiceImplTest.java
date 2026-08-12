@@ -49,6 +49,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -601,6 +602,134 @@ class ProgramServiceImplTest {
 
         verifyNoInteractions(organizationRepository);
         verifyNoInteractions(programUpdateRepository);
+    }
+
+    @Test
+    void restoreBringsBackAPrivateDraftInsteadOfRepublishing() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.CLOSED);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PRIVATE);
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().restoreProgram(program.getId());
+
+        assertNull(program.getDeletedAt());
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+        assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program restored as a private draft",
+                updateCaptor.getValue().getChangeSummary()
+        );
+        verifyNoInteractions(followNotificationService);
+    }
+
+    @Test
+    void restoreKeepsAPendingProgramWaitingForReview() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.CLOSED);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().restoreProgram(program.getId());
+
+        assertNull(program.getDeletedAt());
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+    }
+
+    @Test
+    void liveProgramCannotBeRestored() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().restoreProgram(program.getId())
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals("Program is not deleted", exception.getReason());
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        assertEquals(Visibility.PUBLIC, program.getVisibility());
+        verifyNoInteractions(programUpdateRepository);
+    }
+
+    @Test
+    void outsiderCannotRestoreAnotherOrganizationsProgram() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(UUID.randomUUID(), "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service().restoreProgram(program.getId())
+        );
+
+        assertNotNull(program.getDeletedAt());
+        verifyNoInteractions(programUpdateRepository);
+    }
+
+    @Test
+    void deletedProgramsListingIsScopedToTheOwnOrganization() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(ownerId, "COMPANY");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(programRepository.findAll(
+                any(Specification.class),
+                any(PageRequest.class)
+        )).thenReturn(new PageImpl<>(List.of(program)));
+
+        service().getMyDeletedPrograms(PageRequest.of(
+                0,
+                20,
+                Sort.by(Sort.Direction.DESC, "deletedAt")
+        ));
+
+        verify(programMapper).toManagementSummaryDto(
+                eq(program),
+                eq(organization),
+                any()
+        );
     }
 
     @Test

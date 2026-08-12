@@ -41,7 +41,11 @@ public interface ProblemService {
 
     ProblemResponse createAndSubmit(CreateProblemRequest request);
 
-    ProblemResponse updateDraft(
+    /**
+     * Applies an edit to a draft, a rejected problem, or live published work.
+     * Live edits stay published; they do not go back through moderation.
+     */
+    ProblemResponse update(
             UUID id,
             ProblemUpdateRequest request,
             long expectedVersion
