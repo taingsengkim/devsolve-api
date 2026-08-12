@@ -1,7 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
-import kh.edu.istad.ite.devsoleapi.feature.notification.Notification;
-import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationDispatcher;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -9,7 +8,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -18,7 +16,7 @@ public class OrganizationNotificationService {
 
     private static final String ADMIN_ROLE = "ADMIN";
 
-    private final NotificationRepository notificationRepository;
+    private final NotificationDispatcher notificationDispatcher;
     private final CompanyIdentityService companyIdentityService;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -40,15 +38,14 @@ public class OrganizationNotificationService {
                 : "Organization registration resubmitted";
         String content = event.organizationName()
                 + " is ready for administrator review.";
-        List<Notification> notifications = adminIds.stream()
-                .map(adminId -> notification(
-                        adminId,
-                        event,
-                        title,
-                        content
-                ))
-                .toList();
-        notificationRepository.saveAll(notifications);
+        notificationDispatcher.dispatchToMany(
+                adminIds,
+                title,
+                content,
+                NotificationType.ORGANIZATION,
+                event.organizationId(),
+                eventKey(event)
+        );
     }
 
     private void notifyOwner(OrganizationLifecycleEvent event) {
@@ -62,29 +59,14 @@ public class OrganizationNotificationService {
             title = "Organization registration rejected";
             content = event.reason();
         }
-        notificationRepository.save(notification(
+        notificationDispatcher.dispatch(
                 event.ownerId(),
-                event,
                 title,
-                content
-        ));
-    }
-
-    private Notification notification(
-            UUID userId,
-            OrganizationLifecycleEvent event,
-            String title,
-            String content
-    ) {
-        return Notification.builder()
-                .userId(userId)
-                .title(title)
-                .content(content)
-                .notifiableType(NotificationType.ORGANIZATION)
-                .notifiableId(event.organizationId())
-                .eventKey(eventKey(event))
-                .read(false)
-                .build();
+                content,
+                NotificationType.ORGANIZATION,
+                event.organizationId(),
+                eventKey(event)
+        );
     }
 
     private String eventKey(OrganizationLifecycleEvent event) {
