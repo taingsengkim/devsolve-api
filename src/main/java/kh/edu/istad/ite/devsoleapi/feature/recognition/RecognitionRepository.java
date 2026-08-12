@@ -9,6 +9,5 @@ import java.util.UUID;
 
 public interface RecognitionRepository extends JpaRepository<Recognition, UUID> {
 
-    Page<Recognition> findByUserIdOrderByAwardedAtDesc(UUID userId, Pageable pageable);
     List<Recognition> findAllByUserId(UUID userId);
 }

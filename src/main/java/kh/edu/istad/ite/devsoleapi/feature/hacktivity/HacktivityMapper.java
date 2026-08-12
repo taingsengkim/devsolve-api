@@ -1,26 +1,22 @@
 package kh.edu.istad.ite.devsoleapi.feature.hacktivity;
 
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.dto.HacktivityResponse;
-import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
-import kh.edu.istad.ite.devsoleapi.feature.program.Program;
-import kh.edu.istad.ite.devsoleapi.feature.recognition.Recognition;
-import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.springframework.stereotype.Component;
 
 @Component
 public class HacktivityMapper {
 
-    public HacktivityResponse toResponse(
-            Recognition recognition,
-            UserProfile user,
-            Organization organization,
-            Report report,
-            Program program
-    ) {
+    public HacktivityResponse toResponse(Hacktivity hacktivity) {
+
+        var user = hacktivity.getUser();
+        var organization = hacktivity.getOrganization();
+        var report = hacktivity.getReport();
+        var recognition = hacktivity.getRecognition();
+        var program = hacktivity.getProgram();
 
         return new HacktivityResponse(
-                recognition.getId(),
+
+                hacktivity.getId(),
 
                 new HacktivityResponse.User(
                         user.getId(),
@@ -50,7 +46,7 @@ public class HacktivityMapper {
                         program.getName()
                 ),
 
-                recognition.getCreatedAt()
+                hacktivity.getCreatedAt()
         );
     }
 }

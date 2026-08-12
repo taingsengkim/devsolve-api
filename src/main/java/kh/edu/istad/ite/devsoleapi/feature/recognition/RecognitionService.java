@@ -11,7 +11,6 @@ import java.util.UUID;
 
 public interface RecognitionService {
     RecognitionResponse awardRecognition(CreateRecognitionRequest request, UUID awardedBy);
-    Page<RecognitionResponse> getUserRecognitions(UUID userId, Pageable pageable);
 
     List<RecognitionResponse> getRecognitionsByUser(UUID userId);
 }
