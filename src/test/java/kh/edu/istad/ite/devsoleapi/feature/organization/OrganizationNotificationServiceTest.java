@@ -1,7 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
-import kh.edu.istad.ite.devsoleapi.feature.notification.Notification;
-import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationDispatcher;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,21 +8,24 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
+import java.util.Collection;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class OrganizationNotificationServiceTest {
 
     @Mock
-    private NotificationRepository notificationRepository;
+    private NotificationDispatcher notificationDispatcher;
 
     @Mock
     private CompanyIdentityService companyIdentityService;
@@ -34,21 +36,28 @@ class OrganizationNotificationServiceTest {
         UUID secondAdmin = UUID.randomUUID();
         when(companyIdentityService.findUserIdsByRealmRole("ADMIN"))
                 .thenReturn(Set.of(firstAdmin, secondAdmin));
-        OrganizationNotificationService service = service();
+        OrganizationLifecycleEvent event = event(
+                OrganizationLifecycleEventType.REGISTERED,
+                null
+        );
 
-        service.deliver(event(OrganizationLifecycleEventType.REGISTERED, null));
+        service().deliver(event);
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<Notification>> captor = ArgumentCaptor.forClass(
-                List.class
+        ArgumentCaptor<Collection<UUID>> captor = ArgumentCaptor.forClass(
+                Collection.class
         );
-        verify(notificationRepository).saveAll(captor.capture());
-        assertEquals(2, captor.getValue().size());
+        verify(notificationDispatcher).dispatchToMany(
+                captor.capture(),
+                eq("New organization registration"),
+                any(),
+                eq(NotificationType.ORGANIZATION),
+                eq(event.organizationId()),
+                any()
+        );
         assertEquals(
                 Set.of(firstAdmin, secondAdmin),
-                captor.getValue().stream()
-                        .map(Notification::getUserId)
-                        .collect(java.util.stream.Collectors.toSet())
+                Set.copyOf(captor.getValue())
         );
     }
 
@@ -61,30 +70,34 @@ class OrganizationNotificationServiceTest {
 
         service().deliver(event);
 
-        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(
-                Notification.class
+        verify(notificationDispatcher).dispatch(
+                eq(event.ownerId()),
+                eq("Organization approved"),
+                any(),
+                eq(NotificationType.ORGANIZATION),
+                eq(event.organizationId()),
+                any()
         );
-        verify(notificationRepository).save(captor.capture());
-        Notification notification = captor.getValue();
-        assertEquals(event.ownerId(), notification.getUserId());
-        assertEquals(NotificationType.ORGANIZATION, notification.getNotifiableType());
-        assertEquals("Organization approved", notification.getTitle());
     }
 
     @Test
     void rejectionNotificationContainsReviewReason() {
         String reason = "The submitted website could not be verified.";
-
-        service().deliver(event(
+        OrganizationLifecycleEvent event = event(
                 OrganizationLifecycleEventType.REJECTED,
                 reason
-        ));
-
-        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(
-                Notification.class
         );
-        verify(notificationRepository).save(captor.capture());
-        assertEquals(reason, captor.getValue().getContent());
+
+        service().deliver(event);
+
+        verify(notificationDispatcher).dispatch(
+                eq(event.ownerId()),
+                any(),
+                eq(reason),
+                eq(NotificationType.ORGANIZATION),
+                eq(event.organizationId()),
+                any()
+        );
     }
 
     @Test
@@ -94,12 +107,12 @@ class OrganizationNotificationServiceTest {
 
         service().deliver(event(OrganizationLifecycleEventType.REGISTERED, null));
 
-        verify(notificationRepository, never()).saveAll(any());
+        verifyNoInteractions(notificationDispatcher);
     }
 
     private OrganizationNotificationService service() {
         return new OrganizationNotificationService(
-                notificationRepository,
+                notificationDispatcher,
                 companyIdentityService
         );
     }
