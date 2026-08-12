@@ -221,7 +221,8 @@ public class ProgramMapper {
                 program.getMaximumBounty(),
                 toAssetResponses(assets),
                 program.getCreatedAt(),
-                program.getUpdatedAt()
+                program.getUpdatedAt(),
+                program.getDeletedAt()
         );
     }
 

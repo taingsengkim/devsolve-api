@@ -61,6 +61,14 @@ public class ProgramServiceImpl implements ProgramService {
             "state",
             "submissionState"
     );
+    private static final Set<String> DELETED_PROGRAM_SORT_PROPERTIES = Set.of(
+            "id",
+            "createdAt",
+            "updatedAt",
+            "deletedAt",
+            "name",
+            "handle"
+    );
     private static final Set<String> PROGRAM_UPDATE_SORT_PROPERTIES =
             Set.of("id", "createdAt");
 
@@ -135,6 +143,33 @@ public class ProgramServiceImpl implements ProgramService {
         );
         Page<Program> programs = programRepository.findAll(
                 ProgramSpecification.organizationPrograms(
+                        organization.getId()
+                ),
+                validatedPageable
+        );
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                loadProgramAssets(programs.getContent());
+        return programs.map(program -> mapper.toManagementSummaryDto(
+                program,
+                organization,
+                assetsByProgram.getOrDefault(program.getId(), List.of())
+        ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            Pageable pageable
+    ) {
+        Organization organization = findAccessibleOrganization(
+                OrganizationPermission.VIEW_PROGRAMS
+        );
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                DELETED_PROGRAM_SORT_PROPERTIES
+        );
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.deletedOrganizationPrograms(
                         organization.getId()
                 ),
                 validatedPageable
@@ -343,6 +378,39 @@ public class ProgramServiceImpl implements ProgramService {
         program.setVisibility(Visibility.PRIVATE);
         logUpdate(program, "Program deleted");
         program.setDeletedAt(LocalDateTime.now());
+    }
+
+    /**
+     * Undoes a delete without republishing. Deleting closes the program and
+     * makes it private, and restoring deliberately does not undo that: it
+     * hands back a private draft the organization must relaunch on purpose.
+     * Anything else would put a program back on the public internet — with
+     * researchers notified — as the side effect of an undo click.
+     *
+     * <p>The admin decision rides along untouched, so a program that was
+     * approved before the delete needs no second review. A deleted handle
+     * stays reserved against {@code existsByHandleIgnoreCase}, so nothing
+     * can have claimed it in the meantime.
+     */
+    @Override
+    @Transactional
+    public ProgramResponseDto restoreProgram(UUID id) {
+        Program program = programRepository.findById(id)
+                .orElseThrow(this::programNotFound);
+        organizationAuthorization.requirePermission(
+                program.getOrganizationId(),
+                extractCurrentUserId(),
+                OrganizationPermission.DELETE_PROGRAM
+        );
+        if (program.getDeletedAt() == null) {
+            throw conflict("Program is not deleted");
+        }
+
+        program.setDeletedAt(null);
+        program.setState(ProgramState.DRAFT);
+        program.setVisibility(Visibility.PRIVATE);
+        logUpdate(program, "Program restored as a private draft");
+        return mapper.toResponseDto(program);
     }
 
     @Override
