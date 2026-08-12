@@ -37,9 +37,10 @@ class ProgramMapperTest {
                 .engagementType(EngagementType.RESPONSE)
                 .visibility(Visibility.PRIVATE)
                 .policy("Follow the rules of engagement.")
-                .proofOfConceptRequirements(
-                        "  Include reproducible steps and evidence.  "
-                )
+                .proofOfConceptRequirements(guidelines(
+                        "  Include reproducible steps and evidence.  ",
+                        "  Attach a request trace.  "
+                ))
                 .rulesOfEngagement(guidelines(
                         "  Follow these rules.  ",
                         "  Test only in scope.  "
@@ -52,7 +53,11 @@ class ProgramMapperTest {
 
         assertEquals(
                 "Include reproducible steps and evidence.",
-                program.getProofOfConceptRequirements()
+                program.getProofOfConceptRequirements().description()
+        );
+        assertEquals(
+                "Attach a request trace.",
+                program.getProofOfConceptRequirements().rules().getFirst()
         );
         assertEquals(
                 "Follow these rules.",
@@ -75,7 +80,10 @@ class ProgramMapperTest {
                         null,
                         null,
                         null,
-                        "  Provide an HTTP request trace.  ",
+                        guidelines(
+                                "  Provide an HTTP request trace.  ",
+                                "  Include the response body.  "
+                        ),
                         null,
                         null,
                         null,
@@ -89,7 +97,11 @@ class ProgramMapperTest {
 
         assertEquals(
                 "Provide an HTTP request trace.",
-                program.getProofOfConceptRequirements()
+                program.getProofOfConceptRequirements().description()
+        );
+        assertEquals(
+                "Include the response body.",
+                program.getProofOfConceptRequirements().rules().getFirst()
         );
     }
 
@@ -278,9 +290,10 @@ class ProgramMapperTest {
                 .submissionState(SubmissionState.APPROVED)
                 .visibility(Visibility.PUBLIC)
                 .policy("Follow the program rules of engagement.")
-                .proofOfConceptRequirements(
-                        "Include reproducible steps and supporting evidence."
-                )
+                .proofOfConceptRequirements(guidelines(
+                        "Include reproducible steps and supporting evidence.",
+                        "Attach a request trace."
+                ))
                 .rulesOfEngagement(guidelines(
                         "Follow these rules during testing.",
                         "Test only in-scope assets"

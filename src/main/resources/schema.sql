@@ -779,3 +779,34 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- Proof of concept requirements became structured guidelines, like the rules
+-- of engagement and exclusions beside it. Existing rows hold free text: keep it
+-- as the description and leave the rule list empty, which is the only reading
+-- that loses nothing. Guarded on the current type so a database Hibernate has
+-- already migrated is left alone.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'programs'
+          AND column_name = 'proof_of_concept_requirements'
+          AND data_type <> 'jsonb'
+    ) THEN
+        ALTER TABLE public.programs
+            ALTER COLUMN proof_of_concept_requirements
+            TYPE jsonb
+            USING CASE
+                WHEN proof_of_concept_requirements IS NULL
+                     OR btrim(proof_of_concept_requirements) = ''
+                    THEN NULL
+                ELSE jsonb_build_object(
+                    'description', proof_of_concept_requirements,
+                    'rules', '[]'::jsonb
+                )
+            END;
+    END IF;
+END
+$$^^^

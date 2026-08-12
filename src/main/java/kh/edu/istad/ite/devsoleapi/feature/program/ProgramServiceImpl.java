@@ -507,10 +507,10 @@ public class ProgramServiceImpl implements ProgramService {
         if (program.getPolicy() == null || program.getPolicy().isBlank()) {
             throw badRequest("Program policy is required");
         }
-        if (program.getProofOfConceptRequirements() == null
-                || program.getProofOfConceptRequirements().isBlank()) {
-            throw badRequest("Proof of concept requirements are required");
-        }
+        validateGuidelines(
+                "Proof of concept requirements",
+                program.getProofOfConceptRequirements()
+        );
         validateGuidelines(
                 "Rules of engagement",
                 program.getRulesOfEngagement()

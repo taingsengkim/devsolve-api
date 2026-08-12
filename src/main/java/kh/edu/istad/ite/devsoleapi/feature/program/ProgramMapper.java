@@ -35,9 +35,9 @@ public class ProgramMapper {
                 .engagementType(request.engagementType())
                 .visibility(request.visibility())
                 .policy(request.policy().trim())
-                .proofOfConceptRequirements(
-                        request.proofOfConceptRequirements().trim()
-                )
+                .proofOfConceptRequirements(normalizeGuidelines(
+                        request.proofOfConceptRequirements()
+                ))
                 .rulesOfEngagement(normalizeGuidelines(
                         request.rulesOfEngagement()
                 ))
@@ -78,9 +78,9 @@ public class ProgramMapper {
             program.setPolicy(request.policy().trim());
         }
         if (request.proofOfConceptRequirements() != null) {
-            program.setProofOfConceptRequirements(
-                    request.proofOfConceptRequirements().trim()
-            );
+            program.setProofOfConceptRequirements(normalizeGuidelines(
+                    request.proofOfConceptRequirements()
+            ));
         }
         if (request.rulesOfEngagement() != null) {
             program.setRulesOfEngagement(normalizeGuidelines(

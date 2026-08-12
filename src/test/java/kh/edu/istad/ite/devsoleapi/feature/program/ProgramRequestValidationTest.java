@@ -45,7 +45,10 @@ class ProgramRequestValidationTest {
                 EngagementType.BOUNTY,
                 Visibility.PRIVATE,
                 "Only test assets explicitly listed as in scope.",
-                "Include reproducible steps, affected endpoints, and evidence.",
+                guidelines(
+                        "Include reproducible steps and evidence",
+                        "Attach the affected endpoints"
+                ),
                 guidelines("Follow the testing rules", "Test only in scope"),
                 guidelines("These findings are excluded", "Self-XSS"),
                 false,
@@ -73,7 +76,7 @@ class ProgramRequestValidationTest {
                 null,
                 Visibility.PRIVATE,
                 " ",
-                " ",
+                null,
                 null,
                 null,
                 false,
@@ -123,7 +126,10 @@ class ProgramRequestValidationTest {
                 EngagementType.RESPONSE,
                 Visibility.PRIVATE,
                 "Test only assets explicitly listed as in scope.",
-                "Include reproducible steps and evidence.",
+                guidelines(
+                        "Include reproducible steps and evidence",
+                        "Attach a request trace"
+                ),
                 new ProgramGuidelinesDto(" ", List.of(" ")),
                 guidelines("These findings are excluded", "Self-XSS"),
                 false,
