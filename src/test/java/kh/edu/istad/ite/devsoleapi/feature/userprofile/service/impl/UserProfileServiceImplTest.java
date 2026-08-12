@@ -291,15 +291,7 @@ class UserProfileServiceImplTest {
                 .url("https://facebook.com/old-profile")
                 .build());
         authenticate(userId, "USER");
-        when(userProfileRepository.findById(userId))
-                .thenReturn(Optional.of(profile));
-        when(keycloakAdminProps.getTargetRealm()).thenReturn("devsolve");
-        when(keycloak.realm("devsolve")).thenReturn(realmResource);
-        when(realmResource.users()).thenReturn(usersResource);
-        when(usersResource.get(userId.toString()))
-                .thenReturn(userResource);
-        when(userResource.toRepresentation())
-                .thenReturn(new UserRepresentation());
+        stubProfile(userId, profile);
 
         service().updateMe(new UpdateUserProfileRequest(
                 null,
@@ -339,7 +331,7 @@ class UserProfileServiceImplTest {
         profile.setId(userId);
         profile.setAvatarUrl("https://cdn.example.com/bucket/public/old.png");
         authenticate(userId, "USER");
-        stubProfileAndKeycloak(userId, profile);
+        stubProfile(userId, profile);
 
         MockMultipartFile file = new MockMultipartFile(
                 "file",
@@ -393,7 +385,7 @@ class UserProfileServiceImplTest {
         profile.setId(userId);
         profile.setAvatarUrl("https://cdn.example.com/bucket/public/old.png");
         authenticate(userId, "USER");
-        stubProfileAndKeycloak(userId, profile);
+        stubProfile(userId, profile);
 
         service().removeAvatar();
 
@@ -403,16 +395,14 @@ class UserProfileServiceImplTest {
         verify(userProfileRepository).saveAndFlush(profile);
     }
 
-    private void stubProfileAndKeycloak(UUID userId, UserProfile profile) {
+    /**
+     * Reads answer from the local row and the caller's token, so no Keycloak
+     * admin stubbing belongs here: only a first or last name change goes to
+     * Keycloak now.
+     */
+    private void stubProfile(UUID userId, UserProfile profile) {
         when(userProfileRepository.findById(userId))
                 .thenReturn(Optional.of(profile));
-        when(keycloakAdminProps.getTargetRealm()).thenReturn("devsolve");
-        when(keycloak.realm("devsolve")).thenReturn(realmResource);
-        when(realmResource.users()).thenReturn(usersResource);
-        when(usersResource.get(userId.toString()))
-                .thenReturn(userResource);
-        when(userResource.toRepresentation())
-                .thenReturn(new UserRepresentation());
     }
 
     private UserProfileServiceImpl service() {
