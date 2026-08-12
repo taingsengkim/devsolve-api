@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program.dto;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.dto.ProgramRewardRequestDto;
@@ -47,6 +48,14 @@ public record ProgramRequestDto(
 
         @NotNull(message = "Visibility is required")
         Visibility visibility,
+
+        /**
+         * {@code DRAFT} or {@code ACTIVE} only, defaulting to {@code DRAFT}.
+         * Choosing {@code ACTIVE} does not skip review — it means the program
+         * goes live the moment an admin approves it, instead of waiting for a
+         * separate call to {@code PATCH /programs/{id}/publish}.
+         */
+        ProgramState state,
 
         @NotBlank(message = "Program policy is required")
         String policy,

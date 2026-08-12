@@ -119,6 +119,62 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void createProgramHonoursRequestedActiveStateButStillNeedsReview() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = validProgram(organization.getId());
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(program);
+        when(programRepository.saveAndFlush(program)).thenReturn(program);
+
+        service().createProgram(ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .engagementType(EngagementType.BOUNTY)
+                .visibility(Visibility.PRIVATE)
+                .state(ProgramState.ACTIVE)
+                .build());
+
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        // Launching early settles what happens after approval; it never
+        // stands in for the approval itself.
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+    }
+
+    @Test
+    void createProgramRejectsAStartingStateThatIsNotDraftOrActive() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(validProgram(organization.getId()));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().createProgram(ProgramRequestDto.builder()
+                        .handle("acme-security")
+                        .name("Acme Security Program")
+                        .engagementType(EngagementType.BOUNTY)
+                        .visibility(Visibility.PRIVATE)
+                        .state(ProgramState.CLOSED)
+                        .build())
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(programRepository, never()).saveAndFlush(any(Program.class));
+    }
+
+    @Test
     void ownerGetsCompleteSavedDraftForEditing() {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
