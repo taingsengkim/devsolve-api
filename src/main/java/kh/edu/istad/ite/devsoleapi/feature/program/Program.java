@@ -104,8 +104,12 @@ public class Program extends BasedEntity {
     @Column(name = "policy", columnDefinition = "TEXT")
     private String policy;
 
-    @Column(name = "proof_of_concept_requirements", columnDefinition = "TEXT")
-    private String proofOfConceptRequirements;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(
+            name = "proof_of_concept_requirements",
+            columnDefinition = "jsonb"
+    )
+    private ProgramGuidelinesDto proofOfConceptRequirements;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(

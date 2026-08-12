@@ -25,7 +25,7 @@ public record PublicProgramResponseDto(
         SubmissionState submissionState,
         Visibility visibility,
         String policy,
-        String proofOfConceptRequirements,
+        ProgramGuidelinesDto proofOfConceptRequirements,
         ProgramGuidelinesDto rulesOfEngagement,
         ProgramGuidelinesDto exclusions,
         Boolean offersBounties,

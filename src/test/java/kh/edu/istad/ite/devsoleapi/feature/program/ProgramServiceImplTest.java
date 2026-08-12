@@ -351,7 +351,10 @@ class ProgramServiceImplTest {
                         null,
                         null,
                         null,
-                        "Provide a working exploit and an HTTP request trace.",
+                        new ProgramGuidelinesDto(
+                                "Provide a working exploit.",
+                                List.of("Attach an HTTP request trace")
+                        ),
                         null,
                         null,
                         null,
@@ -848,9 +851,10 @@ class ProgramServiceImplTest {
         program.setHandle("acme-security");
         program.setName("Acme Security Program");
         program.setPolicy("Test only the assets listed as in scope.");
-        program.setProofOfConceptRequirements(
-                "Include reproducible steps and supporting evidence."
-        );
+        program.setProofOfConceptRequirements(new ProgramGuidelinesDto(
+                "Include reproducible steps and supporting evidence.",
+                List.of("Attach an HTTP request trace")
+        ));
         program.setRulesOfEngagement(new ProgramGuidelinesDto(
                 "Follow these rules during testing.",
                 List.of("Test only assets listed as in scope")
