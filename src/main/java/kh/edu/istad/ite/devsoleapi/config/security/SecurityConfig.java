@@ -53,7 +53,21 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/auth/register").permitAll()
                 .requestMatchers(
                         HttpMethod.GET,
-                        "/api/v1/hacktivity"
+                        "/api/v1/hacktivity",
+                        "/api/v1/user-profiles/*/hacktivity"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/hacktivity/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/organizations/me/hacktivity"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/organizations/*/hacktivity"
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.POST,
