@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramOrganizationDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
@@ -139,13 +140,14 @@ public class ProgramMapper {
 
     public ProgramSummaryResponseDto toSummaryDto(
             Program program,
-            String organizationName,
+            Organization organization,
             List<ProgramAsset> inScopeAssets
     ) {
         return new ProgramSummaryResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
-                organizationName,
+                organization == null ? null : organization.getName(),
+                toOrganizationDto(organization),
                 program.getHandle(),
                 program.getName(),
                 descriptionPreview(program.getDescription()),
@@ -160,7 +162,7 @@ public class ProgramMapper {
 
     public PublicProgramResponseDto toPublicResponseDto(
             Program program,
-            String organizationName,
+            Organization organization,
             List<ProgramAsset> assets,
             long totalResearchers,
             long totalSubmissions
@@ -168,7 +170,8 @@ public class ProgramMapper {
         return new PublicProgramResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
-                organizationName,
+                organization == null ? null : organization.getName(),
+                toOrganizationDto(organization),
                 program.getHandle(),
                 program.getName(),
                 program.getDescription(),
@@ -219,6 +222,30 @@ public class ProgramMapper {
                 toAssetResponses(assets),
                 program.getCreatedAt(),
                 program.getUpdatedAt()
+        );
+    }
+
+    /**
+     * Null when the program's organization row could not be loaded. Callers on
+     * the public path already fail loudly when that happens; a listing prefers
+     * to render the rest of the program over dropping the row entirely.
+     */
+    private ProgramOrganizationDto toOrganizationDto(
+            Organization organization
+    ) {
+        if (organization == null) {
+            return null;
+        }
+        return new ProgramOrganizationDto(
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug(),
+                organization.getLogoUrl(),
+                organization.getWebsiteUrl(),
+                organization.getDescription(),
+                organization.getIndustry(),
+                organization.getCountry(),
+                organization.getVerifiedAt()
         );
     }
 
