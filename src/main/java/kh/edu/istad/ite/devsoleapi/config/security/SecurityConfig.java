@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.config.security;
 
+import kh.edu.istad.ite.devsoleapi.feature.auth.UserProvisioningService;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.action.AccountStatusService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,6 +34,7 @@ public class SecurityConfig {
             JwtAuthenticationConverter jwtAuthenticationConverter,
             CorsConfigurationSource corsConfigurationSource,
             AccountStatusService accountStatusService,
+            UserProvisioningService userProvisioningService,
             ObjectMapper objectMapper
     ) throws Exception {
         http.cors(cors -> cors.configurationSource(corsConfigurationSource));
@@ -40,13 +42,23 @@ public class SecurityConfig {
                 jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)
         ));
 
+        // Social logins are created by Keycloak's broker flow and so never hit
+        // /api/v1/auth/register: this gives them the local profile row that
+        // registration would have written. Placed first of the two so the
+        // status gate below sees a real row instead of its "no profile,
+        // nothing to enforce" default.
+        http.addFilterAfter(
+                new UserProvisioningFilter(userProvisioningService),
+                BearerTokenAuthenticationFilter.class
+        );
+
         // Runs once the bearer token has been turned into an Authentication, so
         // a suspended or removed account is stopped before it reaches any
         // controller. Constructed here rather than injected as a bean to keep
         // the servlet container from registering it a second time.
         http.addFilterAfter(
                 new AccountStatusFilter(accountStatusService, objectMapper),
-                BearerTokenAuthenticationFilter.class
+                UserProvisioningFilter.class
         );
 //        http.cors(Customizer.withDefaults());
         http.authorizeHttpRequests(auth -> auth
