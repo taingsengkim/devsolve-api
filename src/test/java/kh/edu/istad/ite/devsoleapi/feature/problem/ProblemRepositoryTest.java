@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
@@ -16,7 +17,15 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * {@code replace = NONE} keeps the datasource this profile configures. Without
+ * it {@code @DataJpaTest} swaps in its own embedded H2 with a generated URL,
+ * which silently drops both {@code MODE=PostgreSQL} and the enum-type setup —
+ * so the tests run against a different dialect than production and any table
+ * using a named enum never gets created.
+ */
 @DataJpaTest
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test")
 class ProblemRepositoryTest {
 

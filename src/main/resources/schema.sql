@@ -1037,15 +1037,7 @@ $$^^^
 -- that can serve a leading wildcard. The indexes are on LOWER(col) because
 -- that is what the queries compare; an index on the bare column would be
 -- ignored.
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'
-    ) THEN
-        CREATE EXTENSION IF NOT EXISTS pg_trgm;
-    END IF;
-END
-$$^^^
+CREATE EXTENSION IF NOT EXISTS pg_trgm^^^
 
 
 DO $$
