@@ -4,9 +4,11 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
 
@@ -58,6 +60,7 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             UUID id,
             UserStatus status
     );
+
 
     @Query("""
             select count(profile) as totalUsers,

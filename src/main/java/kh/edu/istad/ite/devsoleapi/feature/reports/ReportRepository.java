@@ -1,6 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
+
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -8,6 +10,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -40,6 +43,16 @@ public interface ReportRepository
             Specification<Report> specification,
             Pageable pageable
     );
+
+
+    Page<Report> findByReporterIdAndStateAndDisclosureStatus(
+            UUID reporterId,
+            ReportState state,
+            DisclosureStatus disclosureStatus,
+            Pageable pageable
+    );
+
+
 
     @Query("""
             select count(report) as totalReports,

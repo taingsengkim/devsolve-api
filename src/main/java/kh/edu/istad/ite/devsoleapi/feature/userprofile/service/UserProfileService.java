@@ -36,4 +36,7 @@ public interface UserProfileService {
     );
 
     PublicUserProfileResponse getPublicProfile(UUID userId);
+
+
+    Integer getReputation(UUID userId);
 }

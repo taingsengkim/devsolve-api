@@ -4,23 +4,28 @@ import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.CreateRecognitionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.RecognitionResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/recognitions")
+@RequestMapping("/api/v1")
 @RequiredArgsConstructor
 public class RecognitionController {
 
     private final RecognitionService recognitionService;
 
-    @PostMapping
+    @PostMapping("/recognitions")
     @PreAuthorize("hasAnyRole('MEMBER','ADMIN')")
     public ResponseEntity<RecognitionResponse> awardRecognition(
             @Valid @RequestBody CreateRecognitionRequest request,
@@ -31,5 +36,13 @@ public class RecognitionController {
         RecognitionResponse response = recognitionService.awardRecognition(request, awardedBy);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+
+    @GetMapping("/users/{id}/recognitions")
+    public List<RecognitionResponse> getRecognitionsByUser(
+            @PathVariable UUID id) {
+
+        return recognitionService.getRecognitionsByUser(id);
     }
 }
