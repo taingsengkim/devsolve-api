@@ -34,4 +34,23 @@ class ProgramControllerTest {
 
         assertTrue(endpointExists);
     }
+
+    @Test
+    void mapsPublicProgramViewEndpoint() {
+        boolean endpointExists = handlerMapping.getHandlerMethods()
+                .entrySet()
+                .stream()
+                .anyMatch(entry -> entry.getKey()
+                        .getPatternValues()
+                        .contains("/api/v1/programs/{id}/views")
+                        && entry.getKey()
+                        .getMethodsCondition()
+                        .getMethods()
+                        .contains(RequestMethod.POST)
+                        && entry.getValue()
+                        .getBeanType()
+                        .equals(ProgramController.class));
+
+        assertTrue(endpointExists);
+    }
 }

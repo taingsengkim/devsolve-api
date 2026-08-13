@@ -33,8 +33,11 @@ public record PublicProgramResponseDto(
         BigDecimal maximumBounty,
         List<ProgramAssetResponseDto> assets,
         List<ProgramRewardResponseDto> rewards,
+        long viewCount,
+        long followerCount,
         long totalResearchers,
         long totalSubmissions,
+        LocalDateTime publishedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

@@ -136,7 +136,10 @@ class ShowCasesServiceImplTest {
 
         // Every view counts unless a test says otherwise; the dedup window is
         // covered by ViewCountGuard's own test.
-        lenient().when(viewCountGuard.shouldCount(any(UUID.class)))
+        lenient().when(viewCountGuard.shouldCount(
+                eq("showcase"),
+                any(UUID.class)
+        ))
                 .thenReturn(true);
 
         // Comment counts are filled in after mapping and are covered by their

@@ -2,8 +2,11 @@ package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
+import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import org.springframework.context.ApplicationEventPublisher;
@@ -14,6 +17,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizatio
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
@@ -21,8 +25,11 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramViewCountResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
@@ -31,9 +38,13 @@ import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.ProgramReward;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +66,19 @@ import java.util.stream.Collectors;
 public class ProgramServiceImpl implements ProgramService {
 
     private static final String ADMIN_ROLE = "ADMIN";
+    private static final Set<String> PUBLIC_PROGRAM_SORT_PROPERTIES = Set.of(
+            "id",
+            "publishedAt",
+            "createdAt",
+            "updatedAt",
+            "name",
+            "handle",
+            "minimumBounty",
+            "maximumBounty",
+            "viewCount",
+            "followerCount",
+            "totalSubmissions"
+    );
     private static final Set<String> PROGRAM_SORT_PROPERTIES = Set.of(
             "id",
             "createdAt",
@@ -82,6 +106,9 @@ public class ProgramServiceImpl implements ProgramService {
     private final OrganizationRepository organizationRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
     private final FollowNotificationService followNotificationService;
+    private final FollowRepository followRepository;
+    private final ReportRepository reportRepository;
+    private final ViewCountGuard viewCountGuard;
     private final CompanyIdentityService companyIdentityService;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -91,31 +118,67 @@ public class ProgramServiceImpl implements ProgramService {
             UUID organizationId,
             EngagementType engagementType,
             Boolean offersBounties,
+            String query,
+            BigDecimal minimumBounty,
+            BigDecimal maximumBounty,
+            AssetType assetType,
+            Severity maxSeverity,
+            Industry industry,
+            String country,
             Pageable pageable
     ) {
         Pageable validatedPageable = PageableValidator.requireAllowedSort(
                 pageable,
-                PROGRAM_SORT_PROPERTIES
+                PUBLIC_PROGRAM_SORT_PROPERTIES
         );
-        Page<Program> programs = programRepository.findAll(
-                ProgramSpecification.publicPrograms(
-                        organizationId,
-                        engagementType,
-                        offersBounties
-                ),
+        validatePublicListingFilters(minimumBounty, maximumBounty);
+        PublicProgramOrdering ordering = resolvePublicOrdering(
                 validatedPageable
+        );
+        Pageable databasePageable = validatedPageable.isPaged()
+                ? PageRequest.of(
+                        validatedPageable.getPageNumber(),
+                        validatedPageable.getPageSize()
+                )
+                : Pageable.unpaged();
+
+        Page<Program> programs = programRepository.searchPublicPrograms(
+                organizationId,
+                databaseValue(engagementType),
+                offersBounties,
+                containsPattern(query, 100, "q"),
+                minimumBounty,
+                maximumBounty,
+                databaseValue(assetType),
+                databaseValue(maxSeverity),
+                databaseValue(industry),
+                normalizeExactFilter(country, 100, "country"),
+                ordering.property(),
+                ordering.direction(),
+                databasePageable
         );
         PublicProgramContext context = loadPublicProgramContext(
                 programs.getContent()
         );
-        return programs.map(program -> mapper.toSummaryDto(
+        List<ProgramSummaryResponseDto> content = programs.stream()
+                .map(program -> mapper.toSummaryDto(
                 program,
                 context.organizations().get(program.getOrganizationId()),
                 context.assetsByProgram().getOrDefault(
                         program.getId(),
                         List.of()
-                )
-        ));
+                ),
+                context.followerCounts().getOrDefault(program.getId(), 0L),
+                context.submissionCounts().getOrDefault(program.getId(), 0L)
+        )).toList();
+        if (validatedPageable.isUnpaged()) {
+            return new PageImpl<>(content);
+        }
+        return new PageImpl<>(
+                content,
+                validatedPageable,
+                programs.getTotalElements()
+        );
     }
 
     @Override
@@ -132,6 +195,33 @@ public class ProgramServiceImpl implements ProgramService {
                 .filter(this::isPubliclyAccessible)
                 .orElseThrow(this::programNotFound);
         return toPublicResponse(program);
+    }
+
+    @Override
+    @Transactional
+    public ProgramViewCountResponseDto incrementViewCount(UUID id) {
+        if (viewCountGuard.shouldCount("program", id)) {
+            int updated = programRepository.incrementPublicViewCount(
+                    id,
+                    ProgramState.ACTIVE,
+                    SubmissionState.APPROVED,
+                    Visibility.PUBLIC
+            );
+            if (updated == 0) {
+                throw programNotFound();
+            }
+        }
+
+        Long viewCount = programRepository.findPublicViewCountById(
+                id,
+                ProgramState.ACTIVE,
+                SubmissionState.APPROVED,
+                Visibility.PUBLIC
+        );
+        if (viewCount == null) {
+            throw programNotFound();
+        }
+        return new ProgramViewCountResponseDto(id, viewCount);
     }
 
     @Override
@@ -276,6 +366,7 @@ public class ProgramServiceImpl implements ProgramService {
         } else {
             logUpdate(program, "Program details updated");
         }
+        markPublishedIfPublic(program);
         if (becomingPublic && isPubliclyAccessible(program)) {
             notifyOrganizationFollowersOfPublishedProgram(program);
         }
@@ -328,6 +419,7 @@ public class ProgramServiceImpl implements ProgramService {
         }
 
         program.setState(ProgramState.ACTIVE);
+        markPublishedIfPublic(program);
         logUpdate(program, "Program launched");
         if (program.getVisibility() == Visibility.PUBLIC) {
             notifyOrganizationFollowersOfPublishedProgram(program);
@@ -368,6 +460,7 @@ public class ProgramServiceImpl implements ProgramService {
         }
 
         program.setState(ProgramState.ACTIVE);
+        markPublishedIfPublic(program);
         logUpdate(program, "Program resumed");
         return mapper.toResponseDto(program);
     }
@@ -501,6 +594,7 @@ public class ProgramServiceImpl implements ProgramService {
         validateProgramConfiguration(program);
 
         program.setSubmissionState(SubmissionState.APPROVED);
+        markPublishedIfPublic(program);
         ProgramUpdate update =
                 logUpdate(program, "Program approved by admin");
 
@@ -876,7 +970,11 @@ public class ProgramServiceImpl implements ProgramService {
                 organization,
                 assets,
                 statistics.getTotalResearchers(),
-                statistics.getTotalSubmissions()
+                statistics.getTotalSubmissions(),
+                followRepository.countByFollowableTypeAndFollowableId(
+                        FollowType.PROGRAM,
+                        program.getId()
+                )
         );
     }
 
@@ -884,7 +982,12 @@ public class ProgramServiceImpl implements ProgramService {
             Collection<Program> programs
     ) {
         if (programs.isEmpty()) {
-            return new PublicProgramContext(Map.of(), Map.of());
+            return new PublicProgramContext(
+                    Map.of(),
+                    Map.of(),
+                    Map.of(),
+                    Map.of()
+            );
         }
 
         // The whole row, not just the name: the public listing now carries the
@@ -901,10 +1004,21 @@ public class ProgramServiceImpl implements ProgramService {
                         .collect(Collectors.groupingBy(
                                 asset -> asset.getProgram().getId()
                         ));
+        Map<UUID, Long> followerCounts = toCountMap(
+                followRepository.countByFollowableIds(
+                        FollowType.PROGRAM,
+                        programIds
+                )
+        );
+        Map<UUID, Long> submissionCounts = toCountMap(
+                reportRepository.countByProgramIds(programIds)
+        );
 
         return new PublicProgramContext(
                 organizations,
-                assetsByProgram
+                assetsByProgram,
+                followerCounts,
+                submissionCounts
         );
     }
 
@@ -943,7 +1057,9 @@ public class ProgramServiceImpl implements ProgramService {
 
     private record PublicProgramContext(
             Map<UUID, Organization> organizations,
-            Map<UUID, List<ProgramAsset>> assetsByProgram
+            Map<UUID, List<ProgramAsset>> assetsByProgram,
+            Map<UUID, Long> followerCounts,
+            Map<UUID, Long> submissionCounts
     ) {
     }
 
@@ -983,6 +1099,99 @@ public class ProgramServiceImpl implements ProgramService {
         }
     }
 
+    private void validatePublicListingFilters(
+            BigDecimal minimumBounty,
+            BigDecimal maximumBounty
+    ) {
+        if (minimumBounty != null && minimumBounty.signum() < 0) {
+            throw badRequest("minimumBounty must be greater than or equal to 0");
+        }
+        if (maximumBounty != null && maximumBounty.signum() < 0) {
+            throw badRequest("maximumBounty must be greater than or equal to 0");
+        }
+        validateRange(minimumBounty, maximumBounty, "Bounty filter");
+    }
+
+    private PublicProgramOrdering resolvePublicOrdering(Pageable pageable) {
+        List<Sort.Order> orders = pageable.getSort().toList();
+        if (orders.size() > 1) {
+            throw badRequest(
+                    "Only one public program sort property may be requested"
+            );
+        }
+        Sort.Order order = orders.isEmpty()
+                ? Sort.Order.desc("publishedAt")
+                : orders.getFirst();
+        return new PublicProgramOrdering(
+                order.getProperty(),
+                order.getDirection().name()
+        );
+    }
+
+    private String containsPattern(
+            String value,
+            int maximumLength,
+            String fieldName
+    ) {
+        String normalized = normalizeFilter(value, maximumLength, fieldName);
+        if (normalized == null) {
+            return null;
+        }
+        String escaped = normalized
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        return "%" + escaped + "%";
+    }
+
+    private String normalizeExactFilter(
+            String value,
+            int maximumLength,
+            String fieldName
+    ) {
+        return normalizeFilter(value, maximumLength, fieldName);
+    }
+
+    private String normalizeFilter(
+            String value,
+            int maximumLength,
+            String fieldName
+    ) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.length() > maximumLength) {
+            throw badRequest(
+                    fieldName + " cannot exceed " + maximumLength
+                            + " characters"
+            );
+        }
+        return normalized;
+    }
+
+    private String databaseValue(Enum<?> value) {
+        return value == null
+                ? null
+                : value.name().toLowerCase(Locale.ROOT);
+    }
+
+    private Map<UUID, Long> toCountMap(
+            Collection<IdCountProjection> counts
+    ) {
+        return counts.stream().collect(Collectors.toUnmodifiableMap(
+                IdCountProjection::getId,
+                IdCountProjection::getTotal
+        ));
+    }
+
+    private void markPublishedIfPublic(Program program) {
+        if (program.getPublishedAt() == null
+                && isPubliclyAccessible(program)) {
+            program.setPublishedAt(LocalDateTime.now());
+        }
+    }
+
     private String normalizeHandle(String handle) {
         return handle.trim().toLowerCase(Locale.ROOT);
     }
@@ -997,5 +1206,11 @@ public class ProgramServiceImpl implements ProgramService {
 
     private ResourceNotFoundException programNotFound() {
         return new ResourceNotFoundException("Program not found");
+    }
+
+    private record PublicProgramOrdering(
+            String property,
+            String direction
+    ) {
     }
 }

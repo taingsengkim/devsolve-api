@@ -120,7 +120,9 @@ class ProgramMapperTest {
         ProgramSummaryResponseDto result = mapper.toSummaryDto(
                 program,
                 organization(program),
-                List.of(inScope, outOfScope)
+                List.of(inScope, outOfScope),
+                8,
+                13
         );
 
         assertEquals(program.getId(), result.id());
@@ -138,6 +140,8 @@ class ProgramMapperTest {
         assertEquals(Industry.TECHNOLOGY, result.organization().industry());
         assertEquals("Cambodia", result.organization().country());
         assertEquals(1, result.inScopeAssets().size());
+        assertEquals(8, result.followerCount());
+        assertEquals(13, result.totalSubmissions());
         assertEquals(
                 "https://app.acme.test",
                 result.inScopeAssets().getFirst().identifier()
@@ -231,10 +235,12 @@ class ProgramMapperTest {
                 organization(program),
                 List.of(inScope, outOfScope),
                 7,
-                12
+                12,
+                8
         );
 
         assertEquals("Acme Corporation", result.organizationName());
+        assertEquals(8, result.followerCount());
         assertEquals("acme-corporation", result.organization().slug());
         assertEquals(
                 "Security-first payments company",

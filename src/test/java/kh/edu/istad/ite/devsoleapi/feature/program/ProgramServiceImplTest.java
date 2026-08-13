@@ -1,14 +1,18 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.follow.FollowRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -16,12 +20,14 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAssetRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -29,6 +35,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Sort;
@@ -40,6 +47,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -83,6 +91,15 @@ class ProgramServiceImplTest {
     private OrganizationMemberRepository organizationMemberRepository;
     @Mock
     private FollowNotificationService followNotificationService;
+
+    @Mock
+    private FollowRepository followRepository;
+
+    @Mock
+    private ReportRepository reportRepository;
+
+    @Mock
+    private ViewCountGuard viewCountGuard;
 
     @Mock
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
@@ -478,6 +495,7 @@ class ProgramServiceImplTest {
         assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
         assertEquals(ProgramState.ACTIVE, program.getState());
         assertEquals(Visibility.PUBLIC, program.getVisibility());
+        assertNotNull(program.getPublishedAt());
         verify(followNotificationService).notifyFollowers(
                 FollowType.ORGANIZATION,
                 organization.getId(),
@@ -866,6 +884,8 @@ class ProgramServiceImplTest {
         program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.APPROVED);
         program.setVisibility(Visibility.PUBLIC);
+        program.setViewCount(21);
+        program.setPublishedAt(LocalDateTime.now());
         ProgramAsset inScope = program.getAssets().getFirst();
         ProgramAsset outOfScope = ProgramAsset.builder()
                 .id(UUID.randomUUID())
@@ -876,9 +896,19 @@ class ProgramServiceImplTest {
                 .build();
         PageRequest pageable = PageRequest.of(0, 20);
 
-        when(programRepository.findAll(
-                org.mockito.ArgumentMatchers
-                        .<Specification<Program>>any(),
+        when(programRepository.searchPublicPrograms(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                eq("publishedAt"),
+                eq("DESC"),
                 eq(pageable)
         ))
                 .thenReturn(new PageImpl<>(List.of(program), pageable, 1));
@@ -887,18 +917,133 @@ class ProgramServiceImplTest {
         when(programAssetRepository.findInScopeByProgramIds(
                 Set.of(program.getId())
         )).thenReturn(List.of(inScope, outOfScope));
+        IdCountProjection followerCount = org.mockito.Mockito.mock(
+                IdCountProjection.class
+        );
+        IdCountProjection submissionCount = org.mockito.Mockito.mock(
+                IdCountProjection.class
+        );
+        when(followerCount.getId()).thenReturn(program.getId());
+        when(followerCount.getTotal()).thenReturn(8L);
+        when(submissionCount.getId()).thenReturn(program.getId());
+        when(submissionCount.getTotal()).thenReturn(13L);
+        when(followRepository.countByFollowableIds(
+                FollowType.PROGRAM,
+                Set.of(program.getId())
+        )).thenReturn(List.of(followerCount));
+        when(reportRepository.countByProgramIds(Set.of(program.getId())))
+                .thenReturn(List.of(submissionCount));
 
         ProgramSummaryResponseDto response = service(new ProgramMapper())
-                .getPublicPrograms(null, null, null, pageable)
+                .getPublicPrograms(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        pageable
+                )
                 .getContent()
                 .getFirst();
 
         assertEquals("Acme Corporation", response.organizationName());
         assertEquals(1, response.inScopeAssets().size());
+        assertEquals(21, response.viewCount());
+        assertEquals(8, response.followerCount());
+        assertEquals(13, response.totalSubmissions());
         assertEquals(
                 "https://app.acme.test",
                 response.inScopeAssets().getFirst().identifier()
         );
+    }
+
+    @Test
+    void publicListNormalizesFiltersAndSupportsAggregateSorting() {
+        UUID organizationId = UUID.randomUUID();
+        BigDecimal minimumBounty = new BigDecimal("100.00");
+        BigDecimal maximumBounty = new BigDecimal("1000.00");
+        PageRequest requestedPage = PageRequest.of(
+                1,
+                25,
+                Sort.by(Sort.Order.desc("followerCount"))
+        );
+        PageRequest databasePage = PageRequest.of(1, 25);
+        when(programRepository.searchPublicPrograms(
+                organizationId,
+                "bounty",
+                true,
+                "%acme\\_100\\%%",
+                minimumBounty,
+                maximumBounty,
+                "api",
+                "critical",
+                "technology",
+                "cambodia",
+                "followerCount",
+                "DESC",
+                databasePage
+        )).thenReturn(Page.empty(databasePage));
+
+        Page<ProgramSummaryResponseDto> response = service(
+                new ProgramMapper()
+        ).getPublicPrograms(
+                organizationId,
+                EngagementType.BOUNTY,
+                true,
+                " Acme_100% ",
+                minimumBounty,
+                maximumBounty,
+                AssetType.API,
+                Severity.CRITICAL,
+                Industry.TECHNOLOGY,
+                " Cambodia ",
+                requestedPage
+        );
+
+        assertEquals(requestedPage, response.getPageable());
+        verify(programRepository).searchPublicPrograms(
+                organizationId,
+                "bounty",
+                true,
+                "%acme\\_100\\%%",
+                minimumBounty,
+                maximumBounty,
+                "api",
+                "critical",
+                "technology",
+                "cambodia",
+                "followerCount",
+                "DESC",
+                databasePage
+        );
+    }
+
+    @Test
+    void publicListRejectsAnInvertedBountyRange() {
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service(new ProgramMapper()).getPublicPrograms(
+                        null,
+                        null,
+                        null,
+                        null,
+                        new BigDecimal("500.00"),
+                        new BigDecimal("100.00"),
+                        null,
+                        null,
+                        null,
+                        null,
+                        PageRequest.of(0, 20)
+                )
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verifyNoInteractions(programRepository);
     }
 
     @Test
@@ -933,16 +1078,68 @@ class ProgramServiceImplTest {
         )).thenReturn(statistics);
         when(statistics.getTotalResearchers()).thenReturn(7L);
         when(statistics.getTotalSubmissions()).thenReturn(12L);
+        when(followRepository.countByFollowableTypeAndFollowableId(
+                FollowType.PROGRAM,
+                program.getId()
+        )).thenReturn(8L);
 
         var response = service(new ProgramMapper())
                 .getPublicProgramById(program.getId());
 
         assertEquals(7, response.totalResearchers());
         assertEquals(12, response.totalSubmissions());
+        assertEquals(8, response.followerCount());
         assertEquals(2, response.assets().size());
         assertTrue(response.assets().stream().anyMatch(asset ->
                 Boolean.FALSE.equals(asset.isInScope())
         ));
+    }
+
+    @Test
+    void incrementViewCountUsesGuardAndAtomicPublicUpdate() {
+        UUID programId = UUID.randomUUID();
+        when(viewCountGuard.shouldCount("program", programId))
+                .thenReturn(true);
+        when(programRepository.incrementPublicViewCount(
+                programId,
+                ProgramState.ACTIVE,
+                SubmissionState.APPROVED,
+                Visibility.PUBLIC
+        )).thenReturn(1);
+        when(programRepository.findPublicViewCountById(
+                programId,
+                ProgramState.ACTIVE,
+                SubmissionState.APPROVED,
+                Visibility.PUBLIC
+        )).thenReturn(42L);
+
+        var response = service().incrementViewCount(programId);
+
+        assertEquals(programId, response.programId());
+        assertEquals(42, response.viewCount());
+    }
+
+    @Test
+    void repeatedProgramViewReturnsCountWithoutIncrementing() {
+        UUID programId = UUID.randomUUID();
+        when(viewCountGuard.shouldCount("program", programId))
+                .thenReturn(false);
+        when(programRepository.findPublicViewCountById(
+                programId,
+                ProgramState.ACTIVE,
+                SubmissionState.APPROVED,
+                Visibility.PUBLIC
+        )).thenReturn(42L);
+
+        var response = service().incrementViewCount(programId);
+
+        assertEquals(42, response.viewCount());
+        verify(programRepository, never()).incrementPublicViewCount(
+                any(),
+                any(),
+                any(),
+                any()
+        );
     }
 
     @Test
@@ -1033,6 +1230,9 @@ class ProgramServiceImplTest {
                         organizationMemberRepository
                 ),
                 followNotificationService,
+                followRepository,
+                reportRepository,
+                viewCountGuard,
                 companyIdentityService,
                 eventPublisher
         );

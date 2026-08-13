@@ -50,7 +50,7 @@ public class ViewCountGuard {
      * @return true the first time this viewer looks at this thing within the
      *         window, false every time after
      */
-    public boolean shouldCount(UUID targetId) {
+    public boolean shouldCount(String targetType, UUID targetId) {
         Instant now = Instant.now();
         Instant cutoff = now.minus(WINDOW);
 
@@ -58,7 +58,11 @@ public class ViewCountGuard {
             seen.values().removeIf(at -> at.isBefore(cutoff));
         }
 
-        String key = viewerKey() + ":" + targetId;
+        String key = viewerKey()
+                + ":"
+                + targetType.toLowerCase(java.util.Locale.ROOT)
+                + ":"
+                + targetId;
         Instant previous = seen.merge(
                 key,
                 now,

@@ -225,6 +225,10 @@ public class SecurityConfig {
                         "/api/v1/programs/*/updates"
                 ).permitAll()
                 .requestMatchers(
+                        HttpMethod.POST,
+                        "/api/v1/programs/*/views"
+                ).permitAll()
+                .requestMatchers(
                         "/api/v1/admin/programs",
                         "/api/v1/admin/programs/**"
                 ).hasRole("ADMIN")
