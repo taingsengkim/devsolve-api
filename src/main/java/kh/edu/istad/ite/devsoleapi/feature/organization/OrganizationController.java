@@ -12,10 +12,13 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerifica
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -28,6 +31,7 @@ import java.util.UUID;
 public class OrganizationController {
 
     private final OrganizationService organizationService;
+
 
     @PostMapping("/register")
     @ResponseStatus(HttpStatus.CREATED)
@@ -134,6 +138,13 @@ public class OrganizationController {
     @PostMapping("/invitations/{token}/accept")
     public MemberResponse acceptInvitation(@PathVariable String token) {
         return organizationService.acceptInvitation(token);
+    }
+
+
+    @GetMapping("/{id}/programs")
+    public List<ProgramSummaryResponseDto> getOrganizationPrograms(@PathVariable UUID id) {
+         List<ProgramSummaryResponseDto> programs = organizationService.getOrganizationPrograms(id);
+        return programs ;
     }
 
 }

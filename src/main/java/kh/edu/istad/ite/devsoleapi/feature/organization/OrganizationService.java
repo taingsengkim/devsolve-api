@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.organization;
 
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.*;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import org.springframework.data.domain.Page;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -73,4 +74,6 @@ public interface OrganizationService {
             int pageNumber,
             int pageSize
     );
+
+    List<ProgramSummaryResponseDto> getOrganizationPrograms(UUID id);
 }
