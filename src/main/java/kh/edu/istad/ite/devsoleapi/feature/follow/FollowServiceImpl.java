@@ -33,6 +33,7 @@ public class FollowServiceImpl implements FollowService {
     private final FollowRepository followRepository;
     private final UserProfileRepository userProfileRepository;
     private final FollowTargetAccessService targetAccessService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -46,7 +47,7 @@ public class FollowServiceImpl implements FollowService {
             );
         }
 
-        userProfileRepository.findById(followerId)
+        UserProfile follower = userProfileRepository.findById(followerId)
                 .filter(user -> user.getStatus() == UserStatus.ACTIVE)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
