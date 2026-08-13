@@ -912,3 +912,48 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- problems.category_id is mapped as a plain UUID column rather than an
+-- association, so Hibernate never generated a foreign key for it. Without one
+-- a category delete succeeded and left every problem filed under it pointing
+-- at a row that no longer exists: no category on the listing, and no way to
+-- re-submit the draft. The service refuses such a delete now, but a count
+-- followed by a delete is still a race, and nothing outside the service is
+-- bound by that check at all.
+--
+-- Added only when the column is already clean. If orphans exist they have to
+-- be repointed by hand first; failing every deploy until someone notices would
+-- help nobody.
+--
+-- The orphan check sits in a nested IF rather than beside the to_regclass
+-- guards. PL/pgSQL prepares a condition as one query before evaluating any of
+-- it, so a guard cannot protect a table reference standing next to it: on a
+-- fresh database, where problems does not exist yet, naming it in the same
+-- condition fails to parse and takes the whole script down. Every other block
+-- in this file keeps table references in the body for the same reason.
+DO $$
+BEGIN
+    IF to_regclass('public.problems') IS NOT NULL
+       AND to_regclass('public.categories') IS NOT NULL THEN
+
+        IF NOT EXISTS (
+               SELECT 1
+               FROM pg_constraint
+               WHERE conname = 'fk_problems_category'
+           )
+           AND NOT EXISTS (
+               SELECT 1
+               FROM public.problems problem
+               LEFT JOIN public.categories category
+                   ON category.id = problem.category_id
+               WHERE category.id IS NULL
+           ) THEN
+            ALTER TABLE public.problems
+                ADD CONSTRAINT fk_problems_category
+                FOREIGN KEY (category_id)
+                REFERENCES public.categories (id);
+        END IF;
+    END IF;
+END
+$$^^^

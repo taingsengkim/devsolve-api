@@ -10,7 +10,9 @@ import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import org.springframework.context.ApplicationEventPublisher;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
@@ -118,6 +120,7 @@ public class ProblemServiceImpl implements ProblemService {
     private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
     private final FollowNotificationService followNotificationService;
+    private final ApplicationEventPublisher eventPublisher;
     private final TagResolver tagResolver;
     private final SolutionRepository solutionRepository;
 
@@ -365,6 +368,31 @@ public class ProblemServiceImpl implements ProblemService {
                     "problem-published:" + saved.getId()
             );
         }
+
+        // The broadcast above reaches the author's followers, not the author.
+        // They are the one waiting on the decision, and a rejection they are
+        // never told about looks identical to a problem still in the queue.
+        //
+        // Keyed on updatedAt, which the flush above has just set: a rejected
+        // problem can be corrected and resubmitted, and each verdict is its
+        // own news. There is no revision counter on a problem to key on
+        // instead.
+        eventPublisher.publishEvent(NotificationEvent.to(
+                saved.getAuthorId(),
+                saved.getStatus() == ProblemStatus.PUBLISHED
+                        ? "Your problem was published"
+                        : "Your problem needs changes",
+                saved.getStatus() == ProblemStatus.PUBLISHED
+                        ? "\"" + saved.getTitle() + "\" is now live."
+                        : "\"" + saved.getTitle()
+                                + "\" was not approved. Edit it and submit it "
+                                + "again.",
+                NotificationType.PROBLEM,
+                saved.getId(),
+                "problem:" + saved.getId() + ":moderated:"
+                        + saved.getUpdatedAt()
+        ));
+
         return toResponse(saved);
     }
 

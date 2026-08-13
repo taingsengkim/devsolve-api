@@ -6,7 +6,9 @@ import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import org.springframework.context.ApplicationEventPublisher;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
@@ -60,6 +62,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ShowcaseReviewHistoryRepository
             showcaseReviewHistoryRepository;
     private final FollowNotificationService followNotificationService;
+    private final ApplicationEventPublisher eventPublisher;
     private final ImageStorageService imageStorageService;
     private final ShowcaseTagService showcaseTagService;
 
@@ -929,6 +932,24 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
+        // The author is not among their own followers, and a rejection has no
+        // broadcast at all — without this the person who submitted it is the
+        // one person the decision never reaches. Keyed on the review time,
+        // since a rejected showcase can be corrected and resubmitted.
+        eventPublisher.publishEvent(NotificationEvent.to(
+                saved.getAuthor() == null ? null : saved.getAuthor().getId(),
+                saved.getReviewStatus() == ReviewStatus.APPROVED
+                        ? "Your showcase was published"
+                        : "Your showcase needs changes",
+                saved.getReviewStatus() == ReviewStatus.APPROVED
+                        ? "\"" + saved.getTitle() + "\" is now live."
+                        : "\"" + saved.getTitle() + "\" was not approved: "
+                                + saved.getRejectionReason(),
+                NotificationType.SHOWCASE,
+                saved.getId(),
+                "showcase:" + saved.getId() + ":reviewed:" + reviewedAt
+        ));
+
         return showCasesMapper.mapShowCaseToShowCaseResponse(
                 saved,
                 showcaseTagService.tagsOfShowcase(saved.getId())
@@ -965,6 +986,20 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                             submittedAt
                     )
             );
+
+            eventPublisher.publishEvent(NotificationEvent.to(
+                    showcase.getAuthor() == null
+                            ? null
+                            : showcase.getAuthor().getId(),
+                    "Your showcase edit needs changes",
+                    "Your changes to \"" + showcase.getTitle()
+                            + "\" were not approved: "
+                            + rejected.getRejectionReason()
+                            + " The published version is unaffected.",
+                    NotificationType.SHOWCASE,
+                    showcase.getId(),
+                    "showcase-revision:" + rejected.getId() + ":rejected"
+            ));
 
             return showCasesMapper.mapRevisionToShowCaseResponse(
                     rejected,
@@ -1012,6 +1047,16 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 saved.getId(),
                 "showcase-revision-approved:" + revision.getId()
         );
+
+        eventPublisher.publishEvent(NotificationEvent.to(
+                saved.getAuthor() == null ? null : saved.getAuthor().getId(),
+                "Your showcase edit was published",
+                "Your changes to \"" + saved.getTitle() + "\" are now live.",
+                NotificationType.SHOWCASE,
+                saved.getId(),
+                "showcase-revision:" + revision.getId() + ":approved"
+        ));
+
         showcaseRevisionWorkflow.discard(revision);
         deleteUnreferencedImages(supersededImages, promotedImages);
 

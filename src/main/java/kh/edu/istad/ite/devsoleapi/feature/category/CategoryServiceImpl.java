@@ -6,7 +6,11 @@ import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryPatchRequest;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryRequest;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowcaseRevisionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +27,9 @@ public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final ImageStorageService imageStorageService;
+    private final ProblemRepository problemRepository;
+    private final ShowCasesRepository showCasesRepository;
+    private final ShowcaseRevisionRepository showcaseRevisionRepository;
 
     @Override
     @Transactional
@@ -112,6 +119,19 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
 
+    /**
+     * Hard delete, but only for a category nothing has ever used — one created
+     * by mistake, or renamed into existence and abandoned.
+     *
+     * <p>A category that content points at is not deleted, it is retired:
+     * {@code PATCH /api/v1/categories/{id}} with {@code isActive: false} hides
+     * it from every "choose a category" list while the problems and showcases
+     * already filed under it keep reading correctly. Deleting instead used to
+     * do one of two things depending on which table happened to carry a
+     * foreign key — refuse for showcases, and for problems succeed while
+     * leaving every one of them pointing at a category that no longer exists,
+     * unable to be re-submitted and rendering with no category at all.
+     */
     @Override
     @Transactional
     public void deleteCategory(UUID id) {
@@ -123,7 +143,60 @@ public class CategoryServiceImpl implements CategoryService {
         if (!categoryRepository.existsById(id)) {
             throw new ResourceNotFoundException("Category not found with this uuid");
         }
-        categoryRepository.deleteById(id);
+
+        requireUnused(id);
+
+        try {
+            categoryRepository.deleteById(id);
+            // Forced now so that a foreign key raised by content created
+            // between the count above and this line is still catchable here.
+            // The count is a courtesy that explains the refusal; this is what
+            // actually guarantees it.
+            categoryRepository.flush();
+        } catch (DataIntegrityViolationException stillInUse) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Category is now in use and can no longer be deleted. "
+                            + "Deactivate it instead."
+            );
+        }
+    }
+
+    /**
+     * Counts every reference, soft-deleted rows included — those still hold
+     * the category id, so the database would refuse the delete regardless of
+     * what a friendlier count claimed.
+     */
+    private void requireUnused(UUID id) {
+
+        long problems = problemRepository.countByCategoryId(id);
+        long showcases = showCasesRepository.countByCategory_Id(id);
+        long revisions = showcaseRevisionRepository.countByCategory_Id(id);
+
+        long total = problems + showcases + revisions;
+        if (total == 0) {
+            return;
+        }
+
+        List<String> usage = new java.util.ArrayList<>();
+        if (problems > 0) {
+            usage.add(problems + " problem" + (problems == 1 ? "" : "s"));
+        }
+        if (showcases > 0) {
+            usage.add(showcases + " showcase" + (showcases == 1 ? "" : "s"));
+        }
+        if (revisions > 0) {
+            usage.add(revisions
+                    + " showcase revision" + (revisions == 1 ? "" : "s"));
+        }
+
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Category is used by " + String.join(", ", usage)
+                        + " and cannot be deleted. Deactivate it instead by "
+                        + "patching isActive to false, which hides it from new "
+                        + "content and leaves existing content intact."
+        );
     }
 
 

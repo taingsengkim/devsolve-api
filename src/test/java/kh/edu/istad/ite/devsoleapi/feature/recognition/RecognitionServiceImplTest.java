@@ -70,6 +70,9 @@ class RecognitionServiceImplTest {
     @Mock
     private OrganizationMemberRepository organizationMemberRepository;
 
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
     @InjectMocks
     private RecognitionServiceImpl recognitionService;
 

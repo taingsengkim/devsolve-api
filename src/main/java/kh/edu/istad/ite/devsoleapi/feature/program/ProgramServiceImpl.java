@@ -6,6 +6,9 @@ import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import org.springframework.context.ApplicationEventPublisher;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
+import kh.edu.istad.ite.devsoleapi.feature.organization.CompanyIdentityService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
@@ -79,6 +82,8 @@ public class ProgramServiceImpl implements ProgramService {
     private final OrganizationRepository organizationRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
     private final FollowNotificationService followNotificationService;
+    private final CompanyIdentityService companyIdentityService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional(readOnly = true)
@@ -208,10 +213,18 @@ public class ProgramServiceImpl implements ProgramService {
         validateProgramConfiguration(program);
 
         Program saved = programRepository.saveAndFlush(program);
-        logUpdate(saved, saved.getState() == ProgramState.ACTIVE
-                ? "Program created and submitted for admin review; "
-                        + "launches on approval"
-                : "Program created and submitted for admin review");
+        ProgramUpdate update = logUpdate(saved,
+                saved.getState() == ProgramState.ACTIVE
+                        ? "Program created and submitted for admin review; "
+                                + "launches on approval"
+                        : "Program created and submitted for admin review");
+
+        notifyAdministratorsOfReview(
+                saved,
+                update,
+                "New program awaiting review"
+        );
+
         return mapper.toResponseDto(saved);
     }
 
@@ -286,7 +299,15 @@ public class ProgramServiceImpl implements ProgramService {
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         program.setState(ProgramState.DRAFT);
         program.setVisibility(Visibility.PRIVATE);
-        logUpdate(program, "Program resubmitted for admin review");
+        ProgramUpdate update =
+                logUpdate(program, "Program resubmitted for admin review");
+
+        notifyAdministratorsOfReview(
+                program,
+                update,
+                "Program resubmitted for review"
+        );
+
         return mapper.toResponseDto(program);
     }
 
@@ -480,7 +501,18 @@ public class ProgramServiceImpl implements ProgramService {
         validateProgramConfiguration(program);
 
         program.setSubmissionState(SubmissionState.APPROVED);
-        logUpdate(program, "Program approved by admin");
+        ProgramUpdate update =
+                logUpdate(program, "Program approved by admin");
+
+        notifyOrganizationOwner(
+                organization,
+                program,
+                update,
+                "Program approved",
+                "\"" + program.getName()
+                        + "\" has been approved and can now be published."
+        );
+
         return mapper.toResponseDto(program);
     }
 
@@ -493,11 +525,65 @@ public class ProgramServiceImpl implements ProgramService {
         program.setSubmissionState(SubmissionState.REJECTED);
         program.setState(ProgramState.DRAFT);
         program.setVisibility(Visibility.PRIVATE);
-        logUpdate(
+        ProgramUpdate update = logUpdate(
                 program,
                 "Program rejected by admin: " + reason.trim()
         );
+
+        organizationRepository.findById(program.getOrganizationId())
+                .ifPresent(organization -> notifyOrganizationOwner(
+                        organization,
+                        program,
+                        update,
+                        "Program needs changes",
+                        "\"" + program.getName()
+                                + "\" was not approved: " + reason.trim()
+                ));
+
         return mapper.toResponseDto(program);
+    }
+
+    /**
+     * Keyed on the logged change rather than on the program, so a program
+     * rejected, fixed, resubmitted and rejected again tells the owner every
+     * round. Keying on the program alone would announce only the first.
+     */
+    private void notifyOrganizationOwner(
+            Organization organization,
+            Program program,
+            ProgramUpdate update,
+            String title,
+            String content
+    ) {
+        eventPublisher.publishEvent(NotificationEvent.to(
+                organization.getOwner() == null
+                        ? null
+                        : organization.getOwner().getId(),
+                title,
+                content,
+                NotificationType.PROGRAM,
+                program.getId(),
+                "program-review:" + update.getId() + ":owner"
+        ));
+    }
+
+    /**
+     * Nothing reaches a researcher until an administrator has looked at the
+     * program, so a submission nobody is told about simply sits in the queue.
+     */
+    private void notifyAdministratorsOfReview(
+            Program program,
+            ProgramUpdate update,
+            String title
+    ) {
+        eventPublisher.publishEvent(new NotificationEvent(
+                companyIdentityService.findUserIdsByRealmRole(ADMIN_ROLE),
+                title,
+                "\"" + program.getName() + "\" is waiting for review.",
+                NotificationType.PROGRAM,
+                program.getId(),
+                "program-review:" + update.getId() + ":admins"
+        ));
     }
 
     private Program findPublicProgramById(UUID id) {
@@ -711,7 +797,12 @@ public class ProgramServiceImpl implements ProgramService {
         }
     }
 
-    private void logUpdate(Program program, String summary) {
+    /**
+     * @return the logged change, whose id identifies this particular edit —
+     * the natural key for anything announcing it, since a program can be
+     * rejected, fixed and rejected again and each round is its own news
+     */
+    private ProgramUpdate logUpdate(Program program, String summary) {
         UUID actorId = extractCurrentUserId();
         ProgramUpdate update = programUpdateRepository.save(
                 ProgramUpdate.builder()
@@ -733,6 +824,7 @@ public class ProgramServiceImpl implements ProgramService {
                     "program-update:" + update.getId()
             );
         }
+        return update;
     }
 
     private void validateGuidelines(

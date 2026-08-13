@@ -8,7 +8,9 @@ import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import org.springframework.context.ApplicationEventPublisher;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemAcceptedSolution;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
@@ -86,6 +88,7 @@ public class SolutionServiceImpl implements SolutionService {
     private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
     private final FollowNotificationService followNotificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -378,6 +381,51 @@ public class SolutionServiceImpl implements SolutionService {
                     "solution-approved:" + solution.getId()
                             + ":revision:" + revision.getRevisionNumber()
             );
+
+            // The followers broadcast above deliberately excludes the author,
+            // who needs to hear something different: not that a solution
+            // appeared, but that theirs got through.
+            eventPublisher.publishEvent(NotificationEvent.to(
+                    solution.getAuthorId(),
+                    "Your solution was approved",
+                    "Your solution to \"" + solution.getProblem().getTitle()
+                            + "\" is now published.",
+                    NotificationType.SOLUTION,
+                    solution.getId(),
+                    "solution:" + solution.getId() + ":revision:"
+                            + revision.getRevisionNumber() + ":approved"
+            ));
+
+            // The person who asked the question hears about it here rather
+            // than at submission: until this moment the solution is pending
+            // moderation and they cannot read it, so telling them earlier
+            // would point at something invisible. Skipped when they answered
+            // their own problem, and harmless if they also follow it — the
+            // event key is per recipient.
+            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                    List.of(solution.getProblem().getAuthorId()),
+                    solution.getAuthorId(),
+                    "New solution to your problem",
+                    "A solution to \"" + solution.getProblem().getTitle()
+                            + "\" was published.",
+                    NotificationType.SOLUTION,
+                    solution.getId(),
+                    "solution:" + solution.getId() + ":problem-author"
+            ));
+        } else if (request.reviewStatus() == ReviewStatus.REJECTED) {
+            // The reason is the whole point of this one — an author told only
+            // "rejected" cannot fix anything.
+            eventPublisher.publishEvent(NotificationEvent.to(
+                    solution.getAuthorId(),
+                    "Your solution needs changes",
+                    "Your solution to \"" + solution.getProblem().getTitle()
+                            + "\" was not approved: "
+                            + revision.getRejectionReason(),
+                    NotificationType.SOLUTION,
+                    solution.getId(),
+                    "solution:" + solution.getId() + ":revision:"
+                            + revision.getRevisionNumber() + ":rejected"
+            ));
         }
         return toResponse(solution, revision, true);
     }
