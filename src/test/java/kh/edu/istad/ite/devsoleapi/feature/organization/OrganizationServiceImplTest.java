@@ -15,6 +15,8 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationReviewDecision;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramMapper;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -75,6 +77,12 @@ class OrganizationServiceImplTest {
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private ProgramRepository programRepository;
+
+    @Mock
+    private ProgramMapper programMapper;
 
     @AfterEach
     void clearSecurityContext() {
@@ -693,7 +701,9 @@ class OrganizationServiceImplTest {
                 imageStorageService,
                 companyIdentityService,
                 reviewHistoryRepository,
-                eventPublisher
+                eventPublisher,
+                programRepository,
+                programMapper
         );
     }
 

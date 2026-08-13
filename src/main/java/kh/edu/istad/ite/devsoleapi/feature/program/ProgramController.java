@@ -103,6 +103,7 @@ public class ProgramController {
      * literal segment wins over the variable, so "deleted" never reaches the
      * UUID converter.
      */
+
     @GetMapping("/organizations/me/programs/deleted")
     public Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
             @PageableDefault(

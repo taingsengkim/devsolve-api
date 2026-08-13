@@ -19,6 +19,11 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationReviewDecision;
+import kh.edu.istad.ite.devsoleapi.feature.program.Program;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramMapper;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import lombok.RequiredArgsConstructor;
@@ -39,12 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
-import java.util.Collection;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
@@ -64,6 +64,8 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final CompanyIdentityService companyIdentityService;
     private final OrganizationReviewHistoryRepository reviewHistoryRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final ProgramRepository programRepository;
+    private final ProgramMapper programMapper;
 
     @Override
     @Transactional
@@ -936,5 +938,28 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (identityDeleted.compareAndSet(false, true)) {
             companyIdentityService.delete(company);
         }
+    }
+
+
+    @Override
+    @Transactional(readOnly = true) // Crucial for loading lazy collections like assets
+    public List<ProgramSummaryResponseDto> getOrganizationPrograms(UUID id) {
+        //Fetch the programs by organization ID
+        List<Program> programs = programRepository.findByOrganizationId(id);
+
+        // DEBUG: Check your console/terminal. If this prints 0, the UUID in Postman is wrong!
+        System.out.println("DEBUG -> Programs found in DB: " + programs.size());
+
+        //Fetch the organization
+        Organization organization = organizationRepository.findById(id).orElse(null);
+
+        //Map to DTOs
+        return programs.stream()
+                .map(program -> programMapper.toSummaryDto(
+                        program,
+                        organization,
+                        program.getAssets()
+                ))
+                .toList();
     }
 }
