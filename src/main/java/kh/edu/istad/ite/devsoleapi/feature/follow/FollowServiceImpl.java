@@ -53,7 +53,7 @@ public class FollowServiceImpl implements FollowService {
                         HttpStatus.FORBIDDEN,
                         "An active user profile is required"
                 ));
-        followRepository.insertIfAbsent(
+        int inserted = followRepository.insertIfAbsent(
                 UUID.randomUUID(),
                 followerId,
                 type.databaseValue(),
@@ -69,11 +69,9 @@ public class FollowServiceImpl implements FollowService {
                         "Follow upsert completed without a stored follow"
                 ));
 
-        if (type == FollowType.USER) {
-            // Keyed on the pair rather than on this call, so following,
-            // unfollowing and following again does not notify twice. Only
-            // people are told they gained a follower — a program or a problem
-            // has no one to tell.
+        if (type == FollowType.USER && inserted > 0) {
+            // Only publish for a newly-created follow. A repeated PUT is
+            // idempotent and must not create another notification event.
             eventPublisher.publishEvent(NotificationEvent.to(
                     targetId,
                     "New follower",
