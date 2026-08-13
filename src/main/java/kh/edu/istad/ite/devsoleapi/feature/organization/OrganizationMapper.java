@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationStatsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
@@ -58,6 +59,13 @@ public class OrganizationMapper {
     }
 
     public OrganizationResponse toOrganizationResponse(Organization organization) {
+        return toOrganizationResponse(organization, null);
+    }
+
+    public OrganizationResponse toOrganizationResponse(
+            Organization organization,
+            OrganizationStatsResponse stats
+    ) {
         return new OrganizationResponse(
                 organization.getId(),
                 organization.getOwner().getId(),
@@ -76,7 +84,8 @@ public class OrganizationMapper {
                 organization.getReviewedAt(),
                 organization.getVerifiedAt(),
                 organization.getCreatedAt(),
-                organization.getUpdatedAt()
+                organization.getUpdatedAt(),
+                stats
         );
     }
 

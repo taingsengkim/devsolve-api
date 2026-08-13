@@ -17,6 +17,12 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAc
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationReviewDecision;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramMapper;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationStatsResponse;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRewardRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +43,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +59,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -83,6 +91,12 @@ class OrganizationServiceImplTest {
 
     @Mock
     private ProgramMapper programMapper;
+
+    @Mock
+    private ReportRepository reportRepository;
+
+    @Mock
+    private ReportRewardRepository reportRewardRepository;
 
     @AfterEach
     void clearSecurityContext() {
@@ -703,7 +717,9 @@ class OrganizationServiceImplTest {
                 reviewHistoryRepository,
                 eventPublisher,
                 programRepository,
-                programMapper
+                programMapper,
+                reportRepository,
+                reportRewardRepository
         );
     }
 
@@ -763,6 +779,162 @@ class OrganizationServiceImplTest {
                         List.of(new SimpleGrantedAuthority("ROLE_" + role))
                 )
         );
+    }
+
+    // ------------------------------------------------------ profile statistics
+
+    private ReportRewardRepository.OrganizationPayouts payouts(
+            String total,
+            String top
+    ) {
+        return new ReportRewardRepository.OrganizationPayouts() {
+            @Override
+            public BigDecimal getTotalDisbursed() {
+                return new BigDecimal(total);
+            }
+
+            @Override
+            public BigDecimal getTopAward() {
+                return new BigDecimal(top);
+            }
+        };
+    }
+
+    @Test
+    void publicProfileCarriesTheHeadlineNumbers() {
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        UUID organizationId = organization.getId();
+
+        when(organizationRepository.findByIdAndStatusAndDeletedAtIsNull(
+                organizationId,
+                OrganizationStatus.ACTIVE
+        )).thenReturn(Optional.of(organization));
+        when(programRepository
+                .countByOrganizationIdAndStateAndVisibilityAndDeletedAtIsNull(
+                        organizationId,
+                        ProgramState.ACTIVE,
+                        Visibility.PUBLIC
+                )).thenReturn(3L);
+        when(reportRepository.countByOrganizationAndState(
+                organizationId,
+                ReportState.RESOLVED
+        )).thenReturn(42L);
+        when(reportRewardRepository.findOrganizationPayouts(organizationId))
+                .thenReturn(payouts("12500.00", "4000.00"));
+
+        OrganizationStatsResponse stats = createService(
+                new WebsiteUrlServiceImpl()
+        ).getById(organizationId).stats();
+
+        assertEquals(3L, stats.activePrograms());
+        assertEquals(42L, stats.resolvedReports());
+        assertEquals(new BigDecimal("12500.00"), stats.totalDisbursed());
+        assertEquals(new BigDecimal("4000.00"), stats.topBountyAward());
+    }
+
+    @Test
+    void publicProfileDoesNotCountPrivatePrograms() {
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        UUID organizationId = organization.getId();
+
+        when(organizationRepository.findByIdAndStatusAndDeletedAtIsNull(
+                organizationId,
+                OrganizationStatus.ACTIVE
+        )).thenReturn(Optional.of(organization));
+        when(reportRewardRepository.findOrganizationPayouts(organizationId))
+                .thenReturn(payouts("0", "0"));
+
+        createService(new WebsiteUrlServiceImpl()).getById(organizationId);
+
+        // The count beside a program list that hides private programs has to
+        // agree with it.
+        verify(programRepository)
+                .countByOrganizationIdAndStateAndVisibilityAndDeletedAtIsNull(
+                        organizationId,
+                        ProgramState.ACTIVE,
+                        Visibility.PUBLIC
+                );
+        verify(programRepository, never())
+                .countByOrganizationIdAndStateAndDeletedAtIsNull(any(), any());
+    }
+
+    @Test
+    void ownProfileCountsPrivateProgramsToo() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        UUID organizationId = organization.getId();
+
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(programRepository
+                .countByOrganizationIdAndStateAndDeletedAtIsNull(
+                        organizationId,
+                        ProgramState.ACTIVE
+                )).thenReturn(7L);
+        when(reportRewardRepository.findOrganizationPayouts(organizationId))
+                .thenReturn(payouts("0", "0"));
+
+        OrganizationStatsResponse stats = createService(
+                new WebsiteUrlServiceImpl()
+        ).me().stats();
+
+        assertEquals(7L, stats.activePrograms());
+        verify(programRepository, never())
+                .countByOrganizationIdAndStateAndVisibilityAndDeletedAtIsNull(
+                        any(), any(), any()
+                );
+    }
+
+    @Test
+    void organizationThatHasPaidNothingReadsZeroNotNull() {
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        UUID organizationId = organization.getId();
+
+        when(organizationRepository.findByIdAndStatusAndDeletedAtIsNull(
+                organizationId,
+                OrganizationStatus.ACTIVE
+        )).thenReturn(Optional.of(organization));
+        when(reportRewardRepository.findOrganizationPayouts(organizationId))
+                .thenReturn(payouts("0", "0"));
+
+        OrganizationStatsResponse stats = createService(
+                new WebsiteUrlServiceImpl()
+        ).getById(organizationId).stats();
+
+        assertEquals(0, stats.totalDisbursed().signum());
+        assertEquals(0, stats.topBountyAward().signum());
+        assertEquals(0L, stats.activePrograms());
+        assertEquals(0L, stats.resolvedReports());
+    }
+
+    @Test
+    void mutationResponsesDoNotPayForStatistics() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        OrganizationResponse response = createService(
+                new WebsiteUrlServiceImpl()
+        ).removeLogo();
+
+        assertNull(response.stats());
+        verifyNoInteractions(reportRewardRepository);
     }
 
     private void authenticateCompany(UUID userId, String email) {
