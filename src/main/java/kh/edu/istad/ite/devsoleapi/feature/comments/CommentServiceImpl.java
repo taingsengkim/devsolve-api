@@ -30,6 +30,12 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import org.springframework.context.ApplicationEventPublisher;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -52,6 +58,8 @@ public class CommentServiceImpl implements CommentService {
     private final ProgramRepository programRepository;
     private final ShowCasesRepository showCasesRepository;
     private final UserProfileRepository userProfileRepository;
+    private final OrganizationAuthorizationService organizationAuthorization;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -85,10 +93,82 @@ public class CommentServiceImpl implements CommentService {
             comment.setParentComment(parent);
         }
 
-        return toResponse(
-                commentRepository.saveAndFlush(comment),
-                access.canViewInternal()
-        );
+        Comment saved = commentRepository.saveAndFlush(comment);
+        notifyAboutComment(saved, access);
+
+        return toResponse(saved, access.canViewInternal());
+    }
+
+    /**
+     * Tells the author of the thing being discussed, and the author of the
+     * comment being replied to. Both are filtered against the commenter, so
+     * replying to yourself or commenting on your own work is silent.
+     *
+     * <p>Internal comments never reach the target's author. On a report the
+     * author is the researcher, and internal comments are the organization
+     * talking among themselves about their work — a notification would leak
+     * both the fact and often the substance of it. Replies are exempt: a reply
+     * to an internal comment can only reach someone who wrote one, and who
+     * therefore already has internal access.
+     */
+    private void notifyAboutComment(Comment comment, TargetAccess access) {
+        UUID authorId = currentUserId();
+        String target = comment.getCommentableType().name().toLowerCase();
+
+        if (!comment.isInternal() && access.authorId() != null) {
+            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                    List.of(access.authorId()),
+                    authorId,
+                    "New comment on your " + target,
+                    excerpt(comment.getContent()),
+                    NotificationType.COMMENT,
+                    comment.getId(),
+                    "comment:" + comment.getId() + ":target-author"
+            ));
+        }
+
+        // A report is a conversation between a researcher and an
+        // organization, so the organization side is told about every comment
+        // on one — including internal comments, which are theirs. The
+        // researcher is reached by the target-author branch above, and only
+        // when the comment is public: that branch is what keeps internal
+        // discussion internal, so this one is free to run either way.
+        if (access.organizationId() != null) {
+            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                    organizationAuthorization.findUserIdsWithPermission(
+                            access.organizationId(),
+                            OrganizationPermission.VIEW_REPORTS
+                    ),
+                    authorId,
+                    comment.isInternal()
+                            ? "New internal note on a report"
+                            : "New comment on a report",
+                    excerpt(comment.getContent()),
+                    NotificationType.COMMENT,
+                    comment.getId(),
+                    "comment:" + comment.getId() + ":organization"
+            ));
+        }
+
+        Comment parent = comment.getParentComment();
+        if (parent != null) {
+            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                    List.of(parent.getAuthorId()),
+                    authorId,
+                    "New reply to your comment",
+                    excerpt(comment.getContent()),
+                    NotificationType.COMMENT,
+                    comment.getId(),
+                    "comment:" + comment.getId() + ":parent-author"
+            ));
+        }
+    }
+
+    private String excerpt(String content) {
+        String collapsed = content.strip().replaceAll("\\s+", " ");
+        return collapsed.length() <= 140
+                ? collapsed
+                : collapsed.substring(0, 139) + "…";
     }
 
     @Override
@@ -327,22 +407,24 @@ public class CommentServiceImpl implements CommentService {
                 yield new TargetAccess(
                         reportAccess.canViewInternal(),
                         reportAccess.canComment(),
-                        reportAccess.canCreateInternal()
+                        reportAccess.canCreateInternal(),
+                        reportAccess.reporterId(),
+                        reportAccess.organizationId()
                 );
             }
             case PROBLEM -> {
-                problemRepository.findPublicById(commentableId)
+                var problem = problemRepository.findPublicById(commentableId)
                         .orElseThrow(this::targetNotFound);
-                yield TargetAccess.PUBLIC;
+                yield TargetAccess.PUBLIC.withAuthor(problem.getAuthorId());
             }
             case SOLUTION -> {
-                solutionRepository
+                var solution = solutionRepository
                     .findByIdAndReviewStatusInAndDeletedAtIsNull(
                             commentableId,
                             PUBLIC_SOLUTION_STATUSES
                     )
                     .orElseThrow(this::targetNotFound);
-                yield TargetAccess.PUBLIC;
+                yield TargetAccess.PUBLIC.withAuthor(solution.getAuthorId());
             }
             case PROGRAM -> {
                 programRepository
@@ -356,13 +438,17 @@ public class CommentServiceImpl implements CommentService {
                 yield TargetAccess.PUBLIC;
             }
             case SHOWCASE -> {
-                showCasesRepository
+                var showcase = showCasesRepository
                         .findByIdAndReviewStatusAndDeletedAtIsNull(
                                 commentableId,
                                 kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus.APPROVED
                         )
                         .orElseThrow(this::targetNotFound);
-                yield TargetAccess.PUBLIC;
+                yield TargetAccess.PUBLIC.withAuthor(
+                        showcase.getAuthor() == null
+                                ? null
+                                : showcase.getAuthor().getId()
+                );
             }
         };
     }
@@ -474,12 +560,33 @@ public class CommentServiceImpl implements CommentService {
         return new ResourceNotFoundException("Comment not found");
     }
 
+    /**
+     * @param authorId whoever wrote the thing being commented on, so they can
+     *                 be told. Taken from the entity the access check already
+     *                 loaded rather than fetched again. Null where the target
+     *                 has no single author to notify — a program belongs to an
+     *                 organization, not a person — or where working out who
+     *                 may hear about the comment needs more than an author,
+     *                 as on a report.
+     */
     private record TargetAccess(
             boolean canViewInternal,
             boolean canComment,
-            boolean canCreateInternal
+            boolean canCreateInternal,
+            UUID authorId,
+            UUID organizationId
     ) {
         private static final TargetAccess PUBLIC =
-                new TargetAccess(false, true, false);
+                new TargetAccess(false, true, false, null, null);
+
+        private TargetAccess withAuthor(UUID authorId) {
+            return new TargetAccess(
+                    canViewInternal,
+                    canComment,
+                    canCreateInternal,
+                    authorId,
+                    organizationId
+            );
+        }
     }
 }

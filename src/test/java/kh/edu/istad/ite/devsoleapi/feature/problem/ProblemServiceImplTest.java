@@ -84,6 +84,9 @@ class ProblemServiceImplTest {
     private ObjectStorageService objectStorageService;
     @Mock
     private FollowNotificationService followNotificationService;
+
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
     @Mock
     private SolutionRepository solutionRepository;
 
@@ -105,6 +108,7 @@ class ProblemServiceImplTest {
                 attachmentValidator,
                 objectStorageService,
                 followNotificationService,
+                eventPublisher,
                 new TagResolver(tagRepository),
                 solutionRepository
         );

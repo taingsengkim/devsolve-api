@@ -10,6 +10,8 @@ import java.util.UUID;
 public interface ShowcaseRevisionRepository
         extends JpaRepository<ShowcaseRevision, UUID> {
 
+    long countByCategory_Id(UUID categoryId);
+
     Optional<ShowcaseRevision> findByShowcase_Id(UUID showcaseId);
 
     List<ShowcaseRevision> findByShowcase_IdIn(

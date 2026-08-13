@@ -84,6 +84,13 @@ class ProgramServiceImplTest {
     @Mock
     private FollowNotificationService followNotificationService;
 
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private kh.edu.istad.ite.devsoleapi.feature.organization
+            .CompanyIdentityService companyIdentityService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
@@ -1025,7 +1032,9 @@ class ProgramServiceImplTest {
                         organizationRepository,
                         organizationMemberRepository
                 ),
-                followNotificationService
+                followNotificationService,
+                companyIdentityService,
+                eventPublisher
         );
     }
 

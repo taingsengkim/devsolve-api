@@ -20,8 +20,26 @@ public class NotificationDispatcher {
     private final NotificationRepository notificationRepository;
     private final SseEmitterService sseEmitterService;
 
+    /**
+     * Delivering the same event twice is a no-op, not a failure. The
+     * (user_id, event_key) unique constraint is what guarantees a user is
+     * never told the same thing twice, but on its own it turns the second
+     * attempt into an exception that rolls back whatever transaction the
+     * caller was in — so a retried listener, or an admin re-approving
+     * something already approved, would take the business operation down with
+     * it. The event key is the caller's promise that two dispatches describe
+     * the same event; this honours it quietly.
+     *
+     * @return the notification, or null if this event was already delivered
+     */
     @Transactional
     public Notification dispatch(UUID userId, String title, String content, NotificationType notifiableType, UUID notifiableId, String eventKey) {
+        if (eventKey != null
+                && notificationRepository.existsByUserIdAndEventKey(userId, eventKey)) {
+            log.debug("Skipping already delivered notification {}", eventKey);
+            return null;
+        }
+
         Notification notification = Notification.builder()
                 .userId(userId)
                 .title(title)
@@ -43,16 +61,27 @@ public class NotificationDispatcher {
     public void dispatchToMany(Collection<UUID> userIds, String title, String content, NotificationType notifiableType, UUID notifiableId, String eventKeyPrefix) {
         List<Notification> notificationsToSave = new ArrayList<>();
         for (UUID userId : userIds) {
+            String eventKey = eventKeyPrefix + ":" + userId;
+            // Filtered per recipient rather than for the batch: a previous
+            // delivery may have reached some of these users and not others,
+            // and one already-notified user must not cost the rest theirs.
+            if (notificationRepository.existsByUserIdAndEventKey(userId, eventKey)) {
+                continue;
+            }
             Notification notification = Notification.builder()
                     .userId(userId)
                     .title(title)
                     .content(content)
                     .notifiableType(notifiableType)
                     .notifiableId(notifiableId)
-                    .eventKey(eventKeyPrefix + ":" + userId)
+                    .eventKey(eventKey)
                     .read(false)
                     .build();
             notificationsToSave.add(notification);
+        }
+
+        if (notificationsToSave.isEmpty()) {
+            return;
         }
 
         List<Notification> savedNotifications = notificationRepository.saveAll(notificationsToSave);

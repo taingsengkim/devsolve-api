@@ -28,6 +28,15 @@ public interface NotificationRepository
 
     Optional<Notification> findByIdAndUserId(UUID id, UUID userId);
 
+    /**
+     * The (user_id, event_key) unique constraint makes a repeat delivery a
+     * constraint violation rather than a no-op. Callers retry — a listener
+     * runs again, an admin re-approves something already approved — so the
+     * dispatcher checks here first and treats an already-delivered
+     * notification as done.
+     */
+    boolean existsByUserIdAndEventKey(UUID userId, String eventKey);
+
     long countByUserIdAndReadFalse(UUID userId);
 
     @Modifying(flushAutomatically = true)

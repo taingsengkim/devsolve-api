@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -66,6 +67,7 @@ class SolutionServiceImplTest {
     @Mock private AttachmentValidator attachmentValidator;
     @Mock private ObjectStorageService objectStorageService;
     @Mock private FollowNotificationService followNotificationService;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
     private SolutionServiceImpl service;
 
@@ -82,7 +84,8 @@ class SolutionServiceImplTest {
                 commentRepository,
                 attachmentValidator,
                 objectStorageService,
-                followNotificationService
+                followNotificationService,
+                eventPublisher
         );
         lenient().when(solutionRepository.saveAndFlush(any(Solution.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));

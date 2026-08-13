@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -104,6 +105,9 @@ class ReportServiceImplTest {
 
     @Mock
     private ObjectStorageService objectStorageService;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @AfterEach
     void clearSecurityContext() {
@@ -642,7 +646,8 @@ class ReportServiceImplTest {
                 reportMapper,
                 followNotificationService,
                 attachmentValidator,
-                objectStorageService
+                objectStorageService,
+                eventPublisher
         );
     }
 

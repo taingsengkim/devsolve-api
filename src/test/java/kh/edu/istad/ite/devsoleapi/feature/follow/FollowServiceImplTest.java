@@ -8,6 +8,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,6 +38,8 @@ class FollowServiceImplTest {
     private UserProfileRepository userProfileRepository;
     @Mock
     private FollowTargetAccessService targetAccessService;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @AfterEach
     void clearSecurityContext() {
@@ -140,7 +143,8 @@ class FollowServiceImplTest {
         return new FollowServiceImpl(
                 followRepository,
                 userProfileRepository,
-                targetAccessService
+                targetAccessService,
+                eventPublisher
         );
     }
 
