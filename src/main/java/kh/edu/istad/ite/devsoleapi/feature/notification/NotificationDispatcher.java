@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.feature.notification.sse.SseEmitterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -32,7 +33,7 @@ public class NotificationDispatcher {
      *
      * @return the notification, or null if this event was already delivered
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Notification dispatch(UUID userId, String title, String content, NotificationType notifiableType, UUID notifiableId, String eventKey) {
         if (eventKey != null
                 && notificationRepository.existsByUserIdAndEventKey(userId, eventKey)) {
@@ -57,7 +58,16 @@ public class NotificationDispatcher {
         return notification;
     }
 
-    @Transactional
+    /**
+     * Always its own transaction. Every caller now reaches this from an
+     * after-commit callback, where the publishing transaction has finished but
+     * its resources are still bound: a REQUIRED method joins that completed
+     * transaction instead of starting one, and everything written inside it is
+     * discarded without an error. Notifications simply never appeared. Only
+     * the organization lifecycle path escaped, because it already declared
+     * REQUIRES_NEW of its own.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void dispatchToMany(Collection<UUID> userIds, String title, String content, NotificationType notifiableType, UUID notifiableId, String eventKeyPrefix) {
         List<Notification> notificationsToSave = new ArrayList<>();
         for (UUID userId : userIds) {
