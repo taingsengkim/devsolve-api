@@ -92,6 +92,29 @@ public interface VoteRepository extends JpaRepository<Vote, UUID> {
             @Param("votableIds") Collection<UUID> votableIds
     );
 
+    /**
+     * Like {@link #summarizeAll}, but carrying the up and down halves rather
+     * than only the net score, for callers that render both.
+     */
+    @Query("""
+            select vote.votableId as id,
+                   coalesce(sum(vote.voteValue), 0) as score,
+                   coalesce(sum(
+                       case when vote.voteValue = 1 then 1 else 0 end
+                   ), 0) as upvotes,
+                   coalesce(sum(
+                       case when vote.voteValue = -1 then 1 else 0 end
+                   ), 0) as downvotes
+            from Vote vote
+            where vote.votableType = :votableType
+              and vote.votableId in :votableIds
+            group by vote.votableId
+            """)
+    List<VoteBreakdownProjection> summarizeAllDetailed(
+            @Param("votableType") VoteType votableType,
+            @Param("votableIds") Collection<UUID> votableIds
+    );
+
     List<Vote> findAllByUserIdAndVotableTypeAndVotableIdIn(
             UUID userId,
             VoteType votableType,

@@ -12,6 +12,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.ReportService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -66,7 +67,11 @@ class ReportCommentNotificationTest {
     @Mock
     private UserProfileRepository userProfileRepository;
     @Mock
+    private VoteRepository voteRepository;
+    @Mock
     private OrganizationAuthorizationService organizationAuthorization;
+    @Mock
+    private CommentRateLimiter rateLimiter;
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
@@ -88,7 +93,9 @@ class ReportCommentNotificationTest {
                 programRepository,
                 showCasesRepository,
                 userProfileRepository,
+                voteRepository,
                 organizationAuthorization,
+                rateLimiter,
                 eventPublisher
         );
 
@@ -140,7 +147,8 @@ class ReportCommentNotificationTest {
                 reportId,
                 "Looks like a duplicate of the one we fixed last week.",
                 null,
-                true
+                true,
+                List.of()
         ));
 
         for (NotificationEvent event : publishedEvents()) {
@@ -161,7 +169,8 @@ class ReportCommentNotificationTest {
                 reportId,
                 "Internal note",
                 null,
-                true
+                true,
+                List.of()
         ));
 
         List<UUID> notified = publishedEvents().stream()
@@ -183,7 +192,8 @@ class ReportCommentNotificationTest {
                 reportId,
                 "Could you share the request headers?",
                 null,
-                false
+                false,
+                List.of()
         ));
 
         List<UUID> notified = publishedEvents().stream()
@@ -207,7 +217,8 @@ class ReportCommentNotificationTest {
                 reportId,
                 "Here are the headers.",
                 null,
-                false
+                false,
+                List.of()
         ));
 
         List<UUID> notified = publishedEvents().stream()

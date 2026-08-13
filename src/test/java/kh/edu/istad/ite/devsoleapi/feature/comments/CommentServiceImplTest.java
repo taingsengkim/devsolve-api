@@ -4,7 +4,10 @@ import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.UpdateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentRemovalReason;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentSort;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
@@ -16,6 +19,8 @@ import kh.edu.istad.ite.devsoleapi.feature.solution.Solution;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,10 +47,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -76,8 +85,14 @@ class CommentServiceImplTest {
     private UserProfileRepository userProfileRepository;
 
     @Mock
+    private VoteRepository voteRepository;
+
+    @Mock
     private kh.edu.istad.ite.devsoleapi.feature.organization
             .OrganizationAuthorizationService organizationAuthorization;
+
+    @Mock
+    private CommentRateLimiter rateLimiter;
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -94,7 +109,9 @@ class CommentServiceImplTest {
                 programRepository,
                 showCasesRepository,
                 userProfileRepository,
+                voteRepository,
                 organizationAuthorization,
+                rateLimiter,
                 eventPublisher
         );
     }
@@ -113,23 +130,9 @@ class CommentServiceImplTest {
 
         when(problemRepository.findPublicById(problemId))
                 .thenReturn(Optional.of(mock(Problem.class)));
-        when(commentRepository.saveAndFlush(any(Comment.class)))
-                .thenAnswer(invocation -> {
-                    Comment saved = invocation.getArgument(0);
-                    saved.setId(commentId);
-                    saved.setCreatedAt(LocalDateTime.now());
-                    saved.setUpdatedAt(LocalDateTime.now());
-                    return saved;
-                });
-        when(userProfileRepository.findById(userId))
-                .thenReturn(Optional.empty());
-        when(commentRepository.countActiveReplies(
-                List.of(commentId),
-                false
-        ))
-                .thenReturn(List.of());
+        stubSavedComment(commentId);
 
-        CommentResponse result = service.create(new CreateCommentRequest(
+        CommentResponse result = service.create(request(
                 CommentableType.PROBLEM,
                 problemId,
                 "  This fixed the issue.  ",
@@ -147,6 +150,61 @@ class CommentServiceImplTest {
         );
         assertEquals(userId, result.getAuthorId());
         assertEquals(problemId, result.getCommentableId());
+    }
+
+    @Test
+    void createRejectsUnsafeHtml() {
+        UUID userId = UUID.randomUUID();
+        UUID problemId = UUID.randomUUID();
+        authenticate(userId, false);
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.create(request(
+                        CommentableType.PROBLEM,
+                        problemId,
+                        "<script>alert('xss')</script>",
+                        null,
+                        false
+                ))
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(commentRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void createRejectsAnImmediateRepostOfTheSameText() {
+        UUID userId = UUID.randomUUID();
+        UUID problemId = UUID.randomUUID();
+        authenticate(userId, false);
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.existsRecentDuplicate(
+                eq(userId),
+                eq(CommentableType.PROBLEM),
+                eq(problemId),
+                eq("Same thing twice"),
+                any(LocalDateTime.class)
+        )).thenReturn(true);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.create(request(
+                        CommentableType.PROBLEM,
+                        problemId,
+                        "Same thing twice",
+                        null,
+                        false
+                ))
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verify(commentRepository, never()).saveAndFlush(any());
+        // The duplicate must not spend the author's burst allowance.
+        verify(rateLimiter, never()).checkBurst(any());
     }
 
     @Test
@@ -169,7 +227,7 @@ class CommentServiceImplTest {
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> service.create(new CreateCommentRequest(
+                () -> service.create(request(
                         CommentableType.PROBLEM,
                         problemId,
                         "Reply",
@@ -180,6 +238,89 @@ class CommentServiceImplTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         verify(commentRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void replyToAReplyIsFlattenedOntoTheThreadRoot() {
+        UUID userId = UUID.randomUUID();
+        UUID problemId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        authenticate(userId, false);
+
+        Comment root = comment(
+                rootId,
+                problemId,
+                UUID.randomUUID(),
+                CommentableType.PROBLEM
+        );
+        Comment reply = comment(
+                replyId,
+                problemId,
+                UUID.randomUUID(),
+                CommentableType.PROBLEM
+        );
+        reply.setParentComment(root);
+
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.findByIdAndDeletedAtIsNull(replyId))
+                .thenReturn(Optional.of(reply));
+        stubSavedComment(commentId);
+
+        service.create(request(
+                CommentableType.PROBLEM,
+                problemId,
+                "Answering the reply",
+                replyId,
+                false
+        ));
+
+        ArgumentCaptor<Comment> commentCaptor =
+                ArgumentCaptor.forClass(Comment.class);
+        verify(commentRepository).saveAndFlush(commentCaptor.capture());
+        assertSame(
+                root,
+                commentCaptor.getValue().getParentComment(),
+                "a third-level reply must be re-pointed at the thread root, "
+                        + "or nothing ever reads it back"
+        );
+    }
+
+    @Test
+    void replyingToARemovedCommentIsRejected() {
+        UUID userId = UUID.randomUUID();
+        UUID problemId = UUID.randomUUID();
+        UUID parentId = UUID.randomUUID();
+        authenticate(userId, false);
+
+        Comment parent = comment(
+                parentId,
+                problemId,
+                UUID.randomUUID(),
+                CommentableType.PROBLEM
+        );
+        parent.setRemovedAt(LocalDateTime.now());
+        parent.setRemovalReason(CommentRemovalReason.AUTHOR);
+
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.findByIdAndDeletedAtIsNull(parentId))
+                .thenReturn(Optional.of(parent));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.create(request(
+                        CommentableType.PROBLEM,
+                        problemId,
+                        "Reply to nothing",
+                        parentId,
+                        false
+                ))
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
     }
 
     @Test
@@ -204,8 +345,6 @@ class CommentServiceImplTest {
                         any(Pageable.class)
                 ))
                 .thenReturn(new PageImpl<>(List.of(root)));
-        when(userProfileRepository.findAllById(List.of(userId)))
-                .thenReturn(List.of());
         when(commentRepository.countActiveReplies(
                 List.of(root.getId()),
                 false
@@ -217,6 +356,7 @@ class CommentServiceImplTest {
         Page<CommentResponse> result = service.findByTarget(
                 CommentableType.PROBLEM,
                 problemId,
+                null,
                 null,
                 0,
                 20
@@ -233,6 +373,83 @@ class CommentServiceImplTest {
                 .getOrderFor("createdAt")
                 .isDescending());
         assertEquals(2L, result.getContent().getFirst().getReplyCount());
+    }
+
+    @Test
+    void listingBreaksTimestampTiesOnIdSoPagesCannotRepeat() {
+        UUID problemId = UUID.randomUUID();
+        ArgumentCaptor<Pageable> pageableCaptor =
+                ArgumentCaptor.forClass(Pageable.class);
+
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.findRootComments(
+                any(CommentableType.class),
+                any(UUID.class),
+                eq(false),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        service.findByTarget(
+                CommentableType.PROBLEM,
+                problemId,
+                null,
+                CommentSort.OLDEST,
+                0,
+                20
+        );
+
+        verify(commentRepository).findRootComments(
+                any(CommentableType.class),
+                any(UUID.class),
+                eq(false),
+                pageableCaptor.capture()
+        );
+        assertTrue(pageableCaptor.getValue()
+                .getSort()
+                .getOrderFor("createdAt")
+                .isAscending());
+        assertTrue(pageableCaptor.getValue()
+                .getSort()
+                .getOrderFor("id")
+                .isAscending());
+    }
+
+    @Test
+    void topSortGoesThroughTheScoredQuery() {
+        UUID problemId = UUID.randomUUID();
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.findRootCommentsByScore(
+                eq(CommentableType.PROBLEM),
+                eq(problemId),
+                eq(false),
+                eq(VoteType.COMMENT),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        service.findByTarget(
+                CommentableType.PROBLEM,
+                problemId,
+                null,
+                CommentSort.TOP,
+                0,
+                20
+        );
+
+        verify(commentRepository).findRootCommentsByScore(
+                eq(CommentableType.PROBLEM),
+                eq(problemId),
+                eq(false),
+                eq(VoteType.COMMENT),
+                any(Pageable.class)
+        );
+        verify(commentRepository, never()).findRootComments(
+                any(CommentableType.class),
+                any(UUID.class),
+                eq(false),
+                any(Pageable.class)
+        );
     }
 
     @Test
@@ -255,6 +472,7 @@ class CommentServiceImplTest {
         service.findByTarget(
                 CommentableType.SOLUTION,
                 solutionId,
+                null,
                 null,
                 0,
                 20
@@ -287,6 +505,7 @@ class CommentServiceImplTest {
                 CommentableType.SHOWCASE,
                 showcaseId,
                 null,
+                null,
                 0,
                 20
         );
@@ -308,7 +527,7 @@ class CommentServiceImplTest {
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> service.create(new CreateCommentRequest(
+                () -> service.create(request(
                         CommentableType.PROBLEM,
                         problemId,
                         "Private note",
@@ -331,7 +550,7 @@ class CommentServiceImplTest {
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> service.create(new CreateCommentRequest(
+                () -> service.create(request(
                         CommentableType.REPORT,
                         reportId,
                         "Should remain hidden",
@@ -355,7 +574,7 @@ class CommentServiceImplTest {
         stubSavedComment(commentId, true);
 
         CommentResponse result = service.create(
-                new CreateCommentRequest(
+                request(
                         CommentableType.REPORT,
                         reportId,
                         "Likely duplicate; verify internally.",
@@ -387,6 +606,7 @@ class CommentServiceImplTest {
         service.findByTarget(
                 CommentableType.REPORT,
                 reportId,
+                null,
                 null,
                 0,
                 20
@@ -420,7 +640,7 @@ class CommentServiceImplTest {
                 ResourceNotFoundException.class,
                 () -> service.findById(commentId)
         );
-        verify(userProfileRepository, never()).findById(any());
+        verify(userProfileRepository, never()).findAllById(any());
     }
 
     @Test
@@ -443,7 +663,7 @@ class CommentServiceImplTest {
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> service.create(new CreateCommentRequest(
+                () -> service.create(request(
                         CommentableType.REPORT,
                         reportId,
                         "Make this public",
@@ -484,7 +704,82 @@ class CommentServiceImplTest {
     }
 
     @Test
-    void adminCanSoftDeleteEntireReplyThread() {
+    void editWithinTheGracePeriodIsNotMarkedAsEdited() {
+        UUID authorId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        authenticate(authorId, false);
+        Comment comment = comment(
+                commentId,
+                UUID.randomUUID(),
+                authorId,
+                CommentableType.PROBLEM
+        );
+        stubEditableComment(comment);
+
+        CommentResponse result = service.update(
+                commentId,
+                new UpdateCommentRequest("Fixed my typo")
+        );
+
+        assertFalse(result.isEdited());
+        assertNull(comment.getEditedAt());
+        assertEquals("Fixed my typo", comment.getContent());
+    }
+
+    @Test
+    void editAfterTheGracePeriodIsMarkedAsEdited() {
+        UUID authorId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        authenticate(authorId, false);
+        Comment comment = comment(
+                commentId,
+                UUID.randomUUID(),
+                authorId,
+                CommentableType.PROBLEM
+        );
+        comment.setCreatedAt(LocalDateTime.now().minusHours(2));
+        stubEditableComment(comment);
+
+        CommentResponse result = service.update(
+                commentId,
+                new UpdateCommentRequest("Rewritten after people replied")
+        );
+
+        assertTrue(result.isEdited());
+        assertEquals(comment.getEditedAt(), result.getEditedAt());
+    }
+
+    @Test
+    void deletingACommentWithRepliesLeavesATombstone() {
+        UUID authorId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        authenticate(authorId, false);
+        Comment comment = comment(
+                commentId,
+                UUID.randomUUID(),
+                authorId,
+                CommentableType.PROGRAM
+        );
+        when(commentRepository.findByIdAndDeletedAtIsNull(commentId))
+                .thenReturn(Optional.of(comment));
+        when(commentRepository.countLiveChildren(commentId)).thenReturn(3L);
+
+        service.delete(commentId);
+
+        verify(commentRepository, never())
+                .softDelete(any(), any(LocalDateTime.class));
+        verify(commentRepository).saveAndFlush(comment);
+        assertTrue(comment.isRemoved());
+        assertEquals(CommentRemovalReason.AUTHOR, comment.getRemovalReason());
+        assertEquals(
+                "",
+                comment.getContent(),
+                "a delete that leaves the words in the database is not a delete"
+        );
+    }
+
+    @Test
+    void deletingACommentWithNoRepliesRemovesTheRow() {
         UUID adminId = UUID.randomUUID();
         UUID commentId = UUID.randomUUID();
         authenticate(adminId, true);
@@ -496,12 +791,226 @@ class CommentServiceImplTest {
         );
         when(commentRepository.findByIdAndDeletedAtIsNull(commentId))
                 .thenReturn(Optional.of(comment));
+        when(commentRepository.countLiveChildren(commentId)).thenReturn(0L);
 
         service.delete(commentId);
 
-        verify(commentRepository).softDeleteThread(
+        verify(commentRepository).softDelete(
                 eq(commentId),
                 any(LocalDateTime.class)
+        );
+        verify(commentRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void deletingTheLastReplyTakesAnEmptyTombstoneWithIt() {
+        UUID authorId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        authenticate(authorId, false);
+
+        Comment root = comment(
+                rootId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CommentableType.PROGRAM
+        );
+        root.setRemovedAt(LocalDateTime.now());
+        root.setRemovalReason(CommentRemovalReason.AUTHOR);
+        Comment reply = comment(
+                replyId,
+                root.getCommentableId(),
+                authorId,
+                CommentableType.PROGRAM
+        );
+        reply.setParentComment(root);
+
+        when(commentRepository.findByIdAndDeletedAtIsNull(replyId))
+                .thenReturn(Optional.of(reply));
+        when(commentRepository.findByIdAndDeletedAtIsNull(rootId))
+                .thenReturn(Optional.of(root));
+        when(commentRepository.countLiveChildren(replyId)).thenReturn(0L);
+        when(commentRepository.countLiveChildren(rootId)).thenReturn(0L);
+
+        service.delete(replyId);
+
+        verify(commentRepository).softDelete(
+                eq(replyId),
+                any(LocalDateTime.class)
+        );
+        verify(commentRepository).softDelete(
+                eq(rootId),
+                any(LocalDateTime.class)
+        );
+    }
+
+    @Test
+    void aModeratorRemovalKeepsTheRowAndNamesItself() {
+        UUID moderatorId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        Comment comment = comment(
+                commentId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CommentableType.SHOWCASE
+        );
+        when(commentRepository.findByIdAndDeletedAtIsNull(commentId))
+                .thenReturn(Optional.of(comment));
+
+        service.removeByModerator(commentId, moderatorId);
+
+        assertTrue(comment.isRemoved());
+        assertEquals(
+                CommentRemovalReason.MODERATOR,
+                comment.getRemovalReason()
+        );
+        assertEquals(moderatorId, comment.getRemovedBy());
+        verify(commentRepository, never())
+                .softDelete(any(), any(LocalDateTime.class));
+    }
+
+    @Test
+    void aTombstoneShowsNeitherItsTextNorItsAuthor() {
+        UUID showcaseId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Comment removed = comment(
+                UUID.randomUUID(),
+                showcaseId,
+                authorId,
+                CommentableType.SHOWCASE
+        );
+        removed.setContent("");
+        removed.setRemovedAt(LocalDateTime.now());
+        removed.setRemovalReason(CommentRemovalReason.MODERATOR);
+
+        when(showCasesRepository
+                .findByIdAndReviewStatusAndDeletedAtIsNull(
+                        showcaseId,
+                        kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus.APPROVED
+                ))
+                .thenReturn(Optional.of(mock(ShowCases.class)));
+        when(commentRepository.findRootComments(
+                eq(CommentableType.SHOWCASE),
+                eq(showcaseId),
+                eq(false),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(removed)));
+
+        CommentResponse result = service.findByTarget(
+                CommentableType.SHOWCASE,
+                showcaseId,
+                null,
+                null,
+                0,
+                20
+        ).getContent().getFirst();
+
+        assertTrue(result.isRemoved());
+        assertNull(result.getContent());
+        assertNull(result.getAuthorName());
+        assertEquals(
+                CommentRemovalReason.MODERATOR,
+                result.getRemovalReason()
+        );
+    }
+
+    @Test
+    void theHourlyCapIsCountedFromStoredComments() {
+        UUID userId = UUID.randomUUID();
+        UUID problemId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        authenticate(userId, false);
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.countByAuthorSince(
+                eq(userId),
+                any(LocalDateTime.class)
+        )).thenReturn(42L);
+        stubSavedComment(commentId);
+
+        service.create(request(
+                CommentableType.PROBLEM,
+                problemId,
+                "Within the cap",
+                null,
+                false
+        ));
+
+        verify(rateLimiter).checkSustained(42L);
+        verify(rateLimiter).checkBurst(userId);
+    }
+
+    @Test
+    void aFlattenedReplyStillNotifiesThePersonBeingAnswered() {
+        UUID userId = UUID.randomUUID();
+        UUID problemId = UUID.randomUUID();
+        UUID rootAuthorId = UUID.randomUUID();
+        UUID answeredAuthorId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        authenticate(userId, false);
+
+        Comment root = comment(
+                rootId,
+                problemId,
+                rootAuthorId,
+                CommentableType.PROBLEM
+        );
+        Comment answered = comment(
+                replyId,
+                problemId,
+                answeredAuthorId,
+                CommentableType.PROBLEM
+        );
+        answered.setParentComment(root);
+
+        when(problemRepository.findPublicById(problemId))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.findByIdAndDeletedAtIsNull(replyId))
+                .thenReturn(Optional.of(answered));
+        stubSavedComment(UUID.randomUUID());
+
+        service.create(request(
+                CommentableType.PROBLEM,
+                problemId,
+                "Answering the reply",
+                replyId,
+                false
+        ));
+
+        ArgumentCaptor<Object> captor =
+                ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher, atLeastOnce()).publishEvent(captor.capture());
+        List<UUID> replyNotified = captor.getAllValues().stream()
+                .filter(NotificationEvent.class::isInstance)
+                .map(NotificationEvent.class::cast)
+                .filter(event -> "New reply to your comment"
+                        .equals(event.title()))
+                .flatMap(event -> event.recipientIds().stream())
+                .toList();
+
+        assertTrue(
+                replyNotified.contains(answeredAuthorId),
+                "the person actually being answered should be told they were "
+                        + "replied to, not folded into the thread digest"
+        );
+        assertTrue(replyNotified.contains(rootAuthorId));
+    }
+
+    private CreateCommentRequest request(
+            CommentableType type,
+            UUID targetId,
+            String content,
+            UUID parentCommentId,
+            boolean internal
+    ) {
+        return new CreateCommentRequest(
+                type,
+                targetId,
+                content,
+                parentCommentId,
+                internal,
+                List.of()
         );
     }
 
@@ -522,6 +1031,22 @@ class CommentServiceImplTest {
         return comment;
     }
 
+    private void stubEditableComment(Comment comment) {
+        when(commentRepository.findByIdAndDeletedAtIsNull(comment.getId()))
+                .thenReturn(Optional.of(comment));
+        when(problemRepository.findPublicById(comment.getCommentableId()))
+                .thenReturn(Optional.of(mock(Problem.class)));
+        when(commentRepository.saveAndFlush(comment)).thenReturn(comment);
+        when(commentRepository.countActiveReplies(
+                List.of(comment.getId()),
+                false
+        )).thenReturn(List.of());
+    }
+
+    private void stubSavedComment(UUID commentId) {
+        stubSavedComment(commentId, false);
+    }
+
     private void stubSavedComment(
             UUID commentId,
             boolean includeInternal
@@ -534,8 +1059,6 @@ class CommentServiceImplTest {
                     saved.setUpdatedAt(LocalDateTime.now());
                     return saved;
                 });
-        when(userProfileRepository.findById(any(UUID.class)))
-                .thenReturn(Optional.empty());
         when(commentRepository.countActiveReplies(
                 List.of(commentId),
                 includeInternal

@@ -808,11 +808,10 @@ public class SolutionServiceImpl implements SolutionService {
                 findAcceptance(solution.getProblem(), solution.getId())
                         .isPresent(),
                 votes == null ? 0 : votes.getScore(),
-                commentRepository
-                        .countByCommentableTypeAndCommentableIdAndDeletedAtIsNullAndInternalFalse(
-                                CommentableType.SOLUTION,
-                                solution.getId()
-                        ),
+                commentRepository.countVisible(
+                        CommentableType.SOLUTION,
+                        solution.getId()
+                ),
                 viewerVote,
                 solution.getVersion(),
                 includeModeration

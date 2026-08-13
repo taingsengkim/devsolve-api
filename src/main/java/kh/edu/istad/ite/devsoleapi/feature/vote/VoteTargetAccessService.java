@@ -49,7 +49,9 @@ public class VoteTargetAccessService {
             }
             case COMMENT -> {
                 CommentResponse comment = commentService.findById(targetId);
-                if (comment.isInternal()) {
+                // A tombstone is a placeholder holding a thread together, not
+                // something anybody can still agree or disagree with.
+                if (comment.isInternal() || comment.isRemoved()) {
                     throw targetNotFound();
                 }
                 yield new VoteTarget(comment.getAuthorId());

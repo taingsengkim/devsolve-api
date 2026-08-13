@@ -51,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -99,6 +100,9 @@ class ShowCasesServiceImplTest {
     @Mock
     private ShowcaseTagService showcaseTagService;
 
+    @Mock
+    private ShowcaseCommentCounts showcaseCommentCounts;
+
     private ShowCasesServiceImpl service;
 
     @BeforeEach
@@ -116,8 +120,19 @@ class ShowCasesServiceImplTest {
                 followNotificationService,
                 eventPublisher,
                 imageStorageService,
-                showcaseTagService
+                showcaseTagService,
+                showcaseCommentCounts
         );
+
+        // Comment counts are filled in after mapping and are covered by their
+        // own test; here the enricher just has to hand back what it was given,
+        // or every assertion about a mapped response sees a null.
+        lenient().when(showcaseCommentCounts.applyToDetail(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(showcaseCommentCounts.applyToDetails(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(showcaseCommentCounts.applyToSummaries(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @AfterEach
