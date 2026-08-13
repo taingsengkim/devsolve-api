@@ -18,6 +18,12 @@ import java.util.Collection;
 
 public interface ProblemRepository extends JpaRepository<Problem, UUID> {
 
+    /**
+     * Soft-deleted problems are counted as well: category_id is NOT NULL and
+     * survives the soft delete, so the row still pins the category down.
+     */
+    long countByCategoryId(UUID categoryId);
+
     @Query("select p from Problem p where p.id = :id")
     Optional<Problem> findActiveById(@Param("id") UUID id);
 

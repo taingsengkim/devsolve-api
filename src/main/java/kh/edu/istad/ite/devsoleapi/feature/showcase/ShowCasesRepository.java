@@ -12,6 +12,12 @@ import java.util.UUID;
 
 public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
 
+    /**
+     * Counts soft-deleted showcases too. They still hold the category id, so
+     * the foreign key still refuses the delete — a count that skipped them
+     * would promise something the database will not honour.
+     */
+    long countByCategory_Id(UUID categoryId);
 
     Page<ShowCases> findByReviewStatusAndDeletedAtIsNull(
             ReviewStatus reviewStatus,
