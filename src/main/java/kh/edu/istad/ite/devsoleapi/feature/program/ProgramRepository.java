@@ -20,6 +20,17 @@ import java.util.UUID;
 public interface ProgramRepository extends JpaRepository<Program, UUID>, JpaSpecificationExecutor<Program> {
     Optional<Program> findByHandle(String handle);
 
+    long countByOrganizationIdAndStateAndDeletedAtIsNull(
+            UUID organizationId,
+            ProgramState state
+    );
+
+    long countByOrganizationIdAndStateAndVisibilityAndDeletedAtIsNull(
+            UUID organizationId,
+            ProgramState state,
+            Visibility visibility
+    );
+
     Optional<Program>
     findByIdAndStateAndSubmissionStateAndVisibilityAndDeletedAtIsNull(
             UUID id,

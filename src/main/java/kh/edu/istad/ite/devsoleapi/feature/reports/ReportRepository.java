@@ -20,6 +20,23 @@ public interface ReportRepository
         extends JpaRepository<Report, UUID>,
         JpaSpecificationExecutor<Report> {
 
+    /**
+     * Counted across every program the organization runs, deleted ones aside.
+     * A resolved finding stays to the organization's credit even after the
+     * program that surfaced it is paused or closed.
+     */
+    @Query("""
+            select count(report)
+            from Report report
+            where report.program.organizationId = :organizationId
+              and report.program.deletedAt is null
+              and report.state = :state
+            """)
+    long countByOrganizationAndState(
+            @Param("organizationId") UUID organizationId,
+            @Param("state") ReportState state
+    );
+
     @EntityGraph(attributePaths = {
             "program",
             "reporter",

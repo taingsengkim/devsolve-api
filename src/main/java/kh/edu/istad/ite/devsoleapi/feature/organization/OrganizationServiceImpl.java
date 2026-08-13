@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationStatsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
@@ -24,6 +25,11 @@ import kh.edu.istad.ite.devsoleapi.feature.program.ProgramMapper;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRewardRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import lombok.RequiredArgsConstructor;
@@ -66,6 +72,8 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final ApplicationEventPublisher eventPublisher;
     private final ProgramRepository programRepository;
     private final ProgramMapper programMapper;
+    private final ReportRepository reportRepository;
+    private final ReportRewardRepository reportRewardRepository;
 
     @Override
     @Transactional
@@ -143,7 +151,11 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional(readOnly = true)
     public OrganizationResponse me() {
-        return organizationMapper.toOrganizationResponse(findMyOrganization());
+        Organization organization = findMyOrganization();
+        return organizationMapper.toOrganizationResponse(
+                organization,
+                statsFor(organization, true)
+        );
     }
 
     @Override
@@ -266,7 +278,10 @@ public class OrganizationServiceImpl implements OrganizationService {
         Organization organization = organizationRepository
                 .findByIdAndStatusAndDeletedAtIsNull(id, OrganizationStatus.ACTIVE)
                 .orElseThrow(() -> organizationNotFound());
-        return organizationMapper.toOrganizationResponse(organization);
+        return organizationMapper.toOrganizationResponse(
+                organization,
+                statsFor(organization, false)
+        );
     }
 
     @Override
@@ -275,7 +290,59 @@ public class OrganizationServiceImpl implements OrganizationService {
         Organization organization = organizationRepository
                 .findBySlugAndStatusAndDeletedAtIsNull(slug, OrganizationStatus.ACTIVE)
                 .orElseThrow(() -> organizationNotFound());
-        return organizationMapper.toOrganizationResponse(organization);
+        return organizationMapper.toOrganizationResponse(
+                organization,
+                statsFor(organization, false)
+        );
+    }
+
+    /**
+     * The four headline numbers on an organization's profile.
+     *
+     * @param includeHiddenPrograms whether private and invite-only programs
+     *                              count towards the program total. They do on
+     *                              the organization's own profile and not on
+     *                              the public one, where the number sits
+     *                              beside a list that omits them and would
+     *                              otherwise disagree with it. Payout and
+     *                              report figures are deliberately not scoped
+     *                              this way: they are what researchers judge
+     *                              an organization by, and an aggregate names
+     *                              no program.
+     */
+    private OrganizationStatsResponse statsFor(
+            Organization organization,
+            boolean includeHiddenPrograms
+    ) {
+        UUID organizationId = organization.getId();
+
+        long activePrograms = includeHiddenPrograms
+                ? programRepository
+                .countByOrganizationIdAndStateAndDeletedAtIsNull(
+                        organizationId,
+                        ProgramState.ACTIVE
+                )
+                : programRepository
+                .countByOrganizationIdAndStateAndVisibilityAndDeletedAtIsNull(
+                        organizationId,
+                        ProgramState.ACTIVE,
+                        Visibility.PUBLIC
+                );
+
+        long resolvedReports = reportRepository.countByOrganizationAndState(
+                organizationId,
+                ReportState.RESOLVED
+        );
+
+        ReportRewardRepository.OrganizationPayouts payouts =
+                reportRewardRepository.findOrganizationPayouts(organizationId);
+
+        return new OrganizationStatsResponse(
+                activePrograms,
+                resolvedReports,
+                payouts.getTotalDisbursed(),
+                payouts.getTopAward()
+        );
     }
 
     @Override
