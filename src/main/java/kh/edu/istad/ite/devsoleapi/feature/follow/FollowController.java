@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowResponse;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowerResponse;
+import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowingUserResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
@@ -102,6 +103,35 @@ public class FollowController {
         return followService.getFollowers(
                 type,
                 targetId,
+                pageNumber,
+                pageSize
+        );
+    }
+
+    @GetMapping("/users/{userId}/following/users")
+    public Page<FollowingUserResponse> getFollowingUsers(
+            @PathVariable UUID userId,
+
+            @RequestParam(defaultValue = "0")
+            @Min(
+                    value = 0,
+                    message = "Page number must be at least 0"
+            )
+            int pageNumber,
+
+            @RequestParam(defaultValue = "20")
+            @Min(
+                    value = 1,
+                    message = "Page size must be at least 1"
+            )
+            @Max(
+                    value = 100,
+                    message = "Page size must not exceed 100"
+            )
+            int pageSize
+    ) {
+        return followService.getFollowingUsers(
+                userId,
                 pageNumber,
                 pageSize
         );

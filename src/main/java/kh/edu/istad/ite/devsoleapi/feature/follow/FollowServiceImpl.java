@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowerResponse;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowingUserResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
@@ -147,6 +148,69 @@ public class FollowServiceImpl implements FollowService {
     ) {
         targetAccessService.requireFollowable(FollowType.USER, userId);
         return findFollowing(userId, type, pageNumber, pageSize);
+    }
+    @Override
+    @Transactional(readOnly = true)
+    public Page<FollowingUserResponse> getFollowingUsers(
+            UUID userId,
+            int pageNumber,
+            int pageSize
+    ) {
+
+        targetAccessService.requireFollowable(
+                FollowType.USER,
+                userId
+        );
+
+        UUID currentUserId = optionalCurrentUserId()
+                .orElse(null);
+
+        return followRepository.findFollowing(
+                userId,
+                FollowType.USER,
+                pageRequest(pageNumber, pageSize)
+        ).map(follow -> {
+
+            UUID followedUserId = follow.getFollowableId();
+
+            UserProfile followedUser = userProfileRepository
+                    .findById(followedUserId)
+                    .filter(user ->
+                            user.getStatus() == UserStatus.ACTIVE
+                    )
+                    .orElseThrow(() ->
+                            new ResponseStatusException(
+                                    HttpStatus.NOT_FOUND,
+                                    "Followed user not found"
+                            )
+                    );
+
+            long followerCount =
+                    followRepository
+                            .countByFollowableTypeAndFollowableId(
+                                    FollowType.USER,
+                                    followedUserId
+                            );
+
+            boolean following =
+                    currentUserId != null
+                            && followRepository
+                            .existsByFollower_IdAndFollowableTypeAndFollowableId(
+                                    currentUserId,
+                                    FollowType.USER,
+                                    followedUserId
+                            );
+
+            return new FollowingUserResponse(
+                    followedUser.getId(),
+                    followedUser.getFullName(),
+                    followedUser.getAvatarUrl(),
+                    followedUser.getBiography(),
+                    followerCount,
+                    following,
+                    follow.getCreatedAt()
+            );
+        });
     }
 
     @Override
