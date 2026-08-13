@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -74,6 +75,13 @@ class CommentServiceImplTest {
     @Mock
     private UserProfileRepository userProfileRepository;
 
+    @Mock
+    private kh.edu.istad.ite.devsoleapi.feature.organization
+            .OrganizationAuthorizationService organizationAuthorization;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private CommentServiceImpl service;
 
     @BeforeEach
@@ -85,7 +93,9 @@ class CommentServiceImplTest {
                 solutionRepository,
                 programRepository,
                 showCasesRepository,
-                userProfileRepository
+                userProfileRepository,
+                organizationAuthorization,
+                eventPublisher
         );
     }
 
@@ -317,11 +327,7 @@ class CommentServiceImplTest {
         UUID reportId = UUID.randomUUID();
         authenticate(userId, false);
         when(reportService.requireDiscussionAccess(reportId))
-                .thenReturn(new ReportDiscussionAccess(
-                        false,
-                        true,
-                        false
-                ));
+                .thenReturn(new ReportDiscussionAccess(false, true, false, null, null));
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
@@ -345,11 +351,7 @@ class CommentServiceImplTest {
         UUID commentId = UUID.randomUUID();
         authenticate(userId, false);
         when(reportService.requireDiscussionAccess(reportId))
-                .thenReturn(new ReportDiscussionAccess(
-                        true,
-                        true,
-                        true
-                ));
+                .thenReturn(new ReportDiscussionAccess(true, true, true, null, null));
         stubSavedComment(commentId, true);
 
         CommentResponse result = service.create(
@@ -374,11 +376,7 @@ class CommentServiceImplTest {
     void reportListingUsesCallerInternalVisibility() {
         UUID reportId = UUID.randomUUID();
         when(reportService.requireDiscussionAccess(reportId))
-                .thenReturn(new ReportDiscussionAccess(
-                        false,
-                        true,
-                        false
-                ));
+                .thenReturn(new ReportDiscussionAccess(false, true, false, null, null));
         when(commentRepository.findRootComments(
                 eq(CommentableType.REPORT),
                 eq(reportId),
@@ -416,11 +414,7 @@ class CommentServiceImplTest {
         when(commentRepository.findByIdAndDeletedAtIsNull(commentId))
                 .thenReturn(Optional.of(internalComment));
         when(reportService.requireDiscussionAccess(reportId))
-                .thenReturn(new ReportDiscussionAccess(
-                        false,
-                        true,
-                        false
-                ));
+                .thenReturn(new ReportDiscussionAccess(false, true, false, null, null));
 
         assertThrows(
                 ResourceNotFoundException.class,
@@ -443,11 +437,7 @@ class CommentServiceImplTest {
         );
         parent.setInternal(true);
         when(reportService.requireDiscussionAccess(reportId))
-                .thenReturn(new ReportDiscussionAccess(
-                        true,
-                        true,
-                        true
-                ));
+                .thenReturn(new ReportDiscussionAccess(true, true, true, null, null));
         when(commentRepository.findByIdAndDeletedAtIsNull(parentId))
                 .thenReturn(Optional.of(parent));
 

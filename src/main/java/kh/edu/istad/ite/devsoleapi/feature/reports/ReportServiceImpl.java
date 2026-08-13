@@ -16,6 +16,8 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
@@ -34,6 +36,7 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -50,6 +53,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -97,6 +101,7 @@ public class ReportServiceImpl implements ReportService {
     private final FollowNotificationService followNotificationService;
     private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -141,9 +146,27 @@ public class ReportServiceImpl implements ReportService {
                 .disclosureStatus(DisclosureStatus.NOT_DISCLOSED)
                 .build();
 
-        return reportMapper.toResponse(
-                reportRepository.saveAndFlush(report)
-        );
+        Report saved = reportRepository.saveAndFlush(report);
+
+        // The triage queue is the one thing an organization must not miss. Sent
+        // to everyone who can act on it rather than to the owner alone, or a
+        // finding sits unread while the person who could triage it never hears.
+        eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                organizationAuthorization.findUserIdsWithPermission(
+                        program.getOrganizationId(),
+                        OrganizationPermission.TRIAGE_REPORTS
+                ),
+                reporterId,
+                "New report submitted",
+                reporter.getFullName() + " submitted a "
+                        + saved.getReportedSeverity() + " severity report to "
+                        + program.getName() + ": " + saved.getTitle(),
+                NotificationType.REPORT,
+                saved.getId(),
+                "report:" + saved.getId() + ":submitted"
+        ));
+
+        return reportMapper.toResponse(saved);
     }
 
     @Override
@@ -251,7 +274,47 @@ public class ReportServiceImpl implements ReportService {
             ensureSeverityDispute(report);
         }
 
+        // Keyed on the state, not on the act of triaging: moving a report to
+        // the same state twice is one outcome to the reporter, but moving it
+        // on to another state later is news again.
+        eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                List.of(report.getReporter().getId()),
+                triager.getId(),
+                "Report " + describe(targetState),
+                "Your report \"" + report.getTitle() + "\" on "
+                        + report.getProgram().getName() + " is now "
+                        + describe(targetState) + ".",
+                NotificationType.REPORT,
+                report.getId(),
+                "report:" + report.getId() + ":state:"
+                        + targetState.name().toLowerCase()
+        ));
+
+        if (!severityMatches) {
+            // The reporter asked for one severity and triage assigned another,
+            // which opens a dispute they are a party to. Telling them the
+            // state changed but not why it is stuck would be worse than
+            // silence.
+            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                    List.of(report.getReporter().getId()),
+                    triager.getId(),
+                    "Severity disputed",
+                    "Triage assessed \"" + report.getTitle() + "\" as "
+                            + request.triageSeverity() + " rather than "
+                            + report.getReportedSeverity()
+                            + ". The report is on hold until this is settled.",
+                    NotificationType.DISPUTE,
+                    report.getId(),
+                    "report:" + report.getId() + ":severity-disputed:"
+                            + request.triageSeverity()
+            ));
+        }
+
         return reportMapper.toResponse(report);
+    }
+
+    private String describe(ReportState state) {
+        return state.name().toLowerCase().replace('_', ' ');
     }
 
     @Override
@@ -327,10 +390,34 @@ public class ReportServiceImpl implements ReportService {
                 .awardedBy(findUserProfile(currentUserId()))
                 .note(trimToNull(request.note()))
                 .build();
-        reportRewardRepository.save(reward);
+        reportRewardRepository.saveAndFlush(reward);
         report.getRewards().add(reward);
 
+        // Keyed on the reward, not the report: a program may pay more than
+        // once for the same finding, and each payment is its own news.
+        eventPublisher.publishEvent(NotificationEvent.to(
+                report.getReporter().getId(),
+                "You have been rewarded",
+                describeReward(reward) + " for your report \""
+                        + report.getTitle() + "\" on "
+                        + report.getProgram().getName() + ".",
+                NotificationType.REWARD,
+                report.getId(),
+                "report:" + report.getId() + ":reward:" + reward.getId()
+        ));
+
         return reportMapper.toResponse(report);
+    }
+
+    private String describeReward(ReportReward reward) {
+        if (reward.getAmount() != null && reward.getPoints() != null) {
+            return "You were awarded " + reward.getAmount()
+                    + " and " + reward.getPoints() + " points";
+        }
+        if (reward.getAmount() != null) {
+            return "You were awarded " + reward.getAmount();
+        }
+        return "You were awarded " + reward.getPoints() + " points";
     }
 
     @Override
@@ -446,9 +533,18 @@ public class ReportServiceImpl implements ReportService {
             Report report,
             UUID userId
     ) {
+        UUID reporterId = report.getReporter().getId();
+        UUID organizationId = report.getProgram().getOrganizationId();
+
         boolean admin = AuthUtils.hasRole(ADMIN_ROLE);
         if (admin) {
-            return new ReportDiscussionAccess(true, true, true);
+            return new ReportDiscussionAccess(
+                    true,
+                    true,
+                    true,
+                    reporterId,
+                    organizationId
+            );
         }
 
         boolean canTriageForOrganization =
@@ -469,11 +565,19 @@ public class ReportServiceImpl implements ReportService {
             return new ReportDiscussionAccess(
                     true,
                     canTriageForOrganization,
-                    canTriageForOrganization
+                    canTriageForOrganization,
+                    reporterId,
+                    organizationId
             );
         }
-        if (report.getReporter().getId().equals(userId)) {
-            return new ReportDiscussionAccess(false, true, false);
+        if (reporterId.equals(userId)) {
+            return new ReportDiscussionAccess(
+                    false,
+                    true,
+                    false,
+                    reporterId,
+                    organizationId
+            );
         }
 
         // Hide private-report existence from unrelated authenticated users.

@@ -4,10 +4,13 @@ import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowResponse;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowerResponse;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -29,6 +32,7 @@ public class FollowServiceImpl implements FollowService {
     private final FollowRepository followRepository;
     private final UserProfileRepository userProfileRepository;
     private final FollowTargetAccessService targetAccessService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -42,7 +46,7 @@ public class FollowServiceImpl implements FollowService {
             );
         }
 
-        userProfileRepository.findById(followerId)
+        UserProfile follower = userProfileRepository.findById(followerId)
                 .filter(user -> user.getStatus() == UserStatus.ACTIVE)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.FORBIDDEN,
@@ -63,6 +67,22 @@ public class FollowServiceImpl implements FollowService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Follow upsert completed without a stored follow"
                 ));
+
+        if (type == FollowType.USER) {
+            // Keyed on the pair rather than on this call, so following,
+            // unfollowing and following again does not notify twice. Only
+            // people are told they gained a follower — a program or a problem
+            // has no one to tell.
+            eventPublisher.publishEvent(NotificationEvent.to(
+                    targetId,
+                    "New follower",
+                    follower.getFullName() + " started following you.",
+                    NotificationType.USER,
+                    followerId,
+                    "follow:" + followerId + ":" + targetId
+            ));
+        }
+
         return toResponse(follow);
     }
 

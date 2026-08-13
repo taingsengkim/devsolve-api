@@ -12,6 +12,8 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.CreateRecognitionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.RecognitionResponse;
@@ -23,6 +25,7 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -56,6 +59,8 @@ public class RecognitionServiceImpl implements RecognitionService {
     private final OrganizationRepository organizationRepository;
 
     private final OrganizationMemberRepository organizationMemberRepository;
+
+    private final ApplicationEventPublisher eventPublisher;
 
 
     /**
@@ -193,6 +198,19 @@ public class RecognitionServiceImpl implements RecognitionService {
         );
 
         awardReputation(user.getId(), severity);
+
+        eventPublisher.publishEvent(NotificationEvent.to(
+                user.getId(),
+                "You have been recognised",
+                organization.getName() + " recognised your work on \""
+                        + report.getTitle() + "\": " + recognition.getTitle()
+                        + ". Worth "
+                        + ReputationPolicy.pointsFor(severity)
+                        + " reputation.",
+                NotificationType.RECOGNITION,
+                recognition.getId(),
+                "recognition:" + recognition.getId()
+        ));
 
         return recognitionMapper.toResponse(recognition);
     }

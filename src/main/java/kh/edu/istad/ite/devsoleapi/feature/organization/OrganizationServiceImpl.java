@@ -7,6 +7,8 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationStatsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
@@ -423,6 +425,23 @@ public class OrganizationServiceImpl implements OrganizationService {
         LocalDateTime invitationDate = savedMember.getUpdatedAt() != null
                 ? savedMember.getUpdatedAt()
                 : LocalDateTime.now();
+
+        // The invitation token goes back to the inviter to pass on out of
+        // band, so without this the invited user has no signal at all that
+        // anything happened. Keyed on the token, which is regenerated every
+        // time an invitation is issued — so re-inviting after one expires
+        // notifies again, while a retry of the same invitation does not.
+        eventPublisher.publishEvent(NotificationEvent.to(
+                invitedUser.getId(),
+                "You have been invited to " + organization.getName(),
+                invitedBy.getFullName() + " invited you to join "
+                        + organization.getName() + " as "
+                        + savedMember.getRole() + ".",
+                NotificationType.INVITATION,
+                organization.getId(),
+                "organization-invitation:"
+                        + savedMember.getInvitationToken()
+        ));
 
         return new InvitationResponse(
                 organizationMapper.toMemberResponse(savedMember),

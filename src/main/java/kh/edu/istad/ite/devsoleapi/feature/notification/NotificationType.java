@@ -13,7 +13,11 @@ public enum NotificationType {
     INVITATION("invitation"),
     DISPUTE("dispute"),
     RECOGNITION("recognition"),
-    SHOWCASE("showcase");
+    SHOWCASE("showcase"),
+    // Notifiable is a person rather than a piece of content — a new follower,
+    // where the id to open is the follower's profile.
+    USER("user"),
+    REWARD("reward");
 
     @EnumeratedValue
     private final String databaseValue;

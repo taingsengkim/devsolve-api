@@ -91,6 +91,9 @@ class ShowCasesServiceImplTest {
     private FollowNotificationService followNotificationService;
 
     @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
+    @Mock
     private ImageStorageService imageStorageService;
 
     @Mock
@@ -111,6 +114,7 @@ class ShowCasesServiceImplTest {
                 showcaseRevisionWorkflow,
                 showcaseReviewHistoryRepository,
                 followNotificationService,
+                eventPublisher,
                 imageStorageService,
                 showcaseTagService
         );
