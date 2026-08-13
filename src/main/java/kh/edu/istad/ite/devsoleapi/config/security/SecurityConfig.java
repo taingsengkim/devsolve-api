@@ -64,6 +64,24 @@ public class SecurityConfig {
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/register").permitAll()
                 .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/hacktivity",
+                        "/api/v1/user-profiles/*/hacktivity"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/hacktivity/mine"
+                ).authenticated()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/organizations/me/hacktivity"
+                ).authenticated()
+
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/organizations/*/hacktivity"
+                ).permitAll()
+                .requestMatchers(
                         HttpMethod.POST,
                         "/api/v1/organizations/register"
                 ).permitAll()
@@ -72,6 +90,11 @@ public class SecurityConfig {
                         "/swagger-ui/**",
                         "/swagger-ui.html",
                         "/scalar/**"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/user-profiles/*/reputation",
+                        "/api/v1/user-profiles/*/reports"
                 ).permitAll()
 
                 .requestMatchers(
@@ -254,6 +277,13 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.POST,
                         "/api/v1/showcases/*/views"
+                ).permitAll()
+                .requestMatchers(
+                        "/api/v1/reputation/leaderboard"
+                ).permitAll()
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/users/*/recognitions"
                 ).permitAll()
 
                 .anyRequest().authenticated()

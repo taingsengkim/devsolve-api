@@ -1,8 +1,15 @@
 package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 
+import jakarta.ws.rs.NotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionService;
@@ -13,9 +20,11 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserPortfolioServ
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 
 import java.util.UUID;
 
@@ -27,6 +36,8 @@ public class UserPortfolioServiceImpl implements UserPortfolioService {
     private final ProblemService problemService;
     private final SolutionService solutionService;
     private final ShowCasesService showCasesService;
+    private final ReportRepository reportRepository;
+    private final ReportMapper reportMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -85,4 +96,37 @@ public class UserPortfolioServiceImpl implements UserPortfolioService {
                         "Public user profile not found"
                 ));
     }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Page<ReportResponse> getReports(
+            UUID userId,
+            int pageNumber,
+            int pageSize
+    ) {
+
+        userProfileRepository.findById(userId)
+                .orElseThrow(() ->
+                        new NotFoundException(
+                                "User profile not found: " + userId
+                        )
+                );
+
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by("resolvedAt").descending()
+        );
+
+
+        return reportRepository
+                .findByReporterIdAndStateAndDisclosureStatus(
+                        userId,
+                        ReportState.RESOLVED,
+                        DisclosureStatus.DISCLOSED,
+                        pageable
+                )
+                .map(reportMapper::toResponse);
+    }
+
 }

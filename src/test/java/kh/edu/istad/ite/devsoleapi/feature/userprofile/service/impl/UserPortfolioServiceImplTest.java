@@ -3,6 +3,8 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionService;
@@ -40,6 +42,12 @@ class UserPortfolioServiceImplTest {
     private SolutionService solutionService;
     @Mock
     private ShowCasesService showCasesService;
+
+    @Mock
+    private ReportRepository reportRepository;
+
+    @Mock
+    private ReportMapper reportMapper;
 
     @Test
     void problemsRequireActiveProfileAndUseNewestPublishedFirst() {
@@ -135,7 +143,10 @@ class UserPortfolioServiceImplTest {
                 userProfileRepository,
                 problemService,
                 solutionService,
-                showCasesService
+                showCasesService,
+                reportRepository,
+                reportMapper
+
         );
     }
 
