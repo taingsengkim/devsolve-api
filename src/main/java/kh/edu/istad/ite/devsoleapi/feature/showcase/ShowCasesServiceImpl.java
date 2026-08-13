@@ -65,6 +65,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ApplicationEventPublisher eventPublisher;
     private final ImageStorageService imageStorageService;
     private final ShowcaseTagService showcaseTagService;
+    private final ShowcaseCommentCounts showcaseCommentCounts;
 
     @Override
     public Page<ShowCasesResponse> getAllPublished(
@@ -112,14 +113,14 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
                 showcaseTagService.tagsOfShowcases(idsOf(showcases));
 
-        return showcases.map(showcase ->
+        return showcaseCommentCounts.applyToDetails(showcases.map(showcase ->
                 showCasesMapper.mapShowCaseToShowCaseResponse(
                         showcase,
                         tagsByShowcaseId.getOrDefault(
                                 showcase.getId(),
                                 List.of()
                         )
-                ));
+                )));
     }
 
     private List<UUID> idsOf(Page<ShowCases> showcases) {
@@ -180,7 +181,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                                 .toList()
                 );
 
-        return showcases.map(showcase -> {
+        return showcaseCommentCounts.applyToSummaries(showcases.map(showcase -> {
             ShowcaseRevision revision =
                     revisionsByShowcaseId.get(showcase.getId());
 
@@ -201,7 +202,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                                             List.of()
                                     )
                             );
-        });
+        }));
     }
 
     @Override
@@ -229,14 +230,14 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
                 showcaseTagService.tagsOfShowcases(idsOf(showcases));
 
-        return showcases.map(showcase ->
+        return showcaseCommentCounts.applyToSummaries(showcases.map(showcase ->
                 showCasesMapper.mapShowCaseToSummaryResponse(
                         showcase,
                         tagsByShowcaseId.getOrDefault(
                                 showcase.getId(),
                                 List.of()
                         )
-                ));
+                )));
     }
 
     @Override
@@ -422,10 +423,12 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 .map(showcaseStepMapper::mapShowcaseStepToShowcaseStepResponse)
                 .toList();
 
-        return showCasesMapper.mapShowCaseToDetailResponse(
-                showcase,
-                showcaseTagService.tagsOfShowcase(id),
-                steps
+        return showcaseCommentCounts.applyToDetail(
+                showCasesMapper.mapShowCaseToDetailResponse(
+                        showcase,
+                        showcaseTagService.tagsOfShowcase(id),
+                        steps
+                )
         );
     }
 

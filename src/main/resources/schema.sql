@@ -957,3 +957,72 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Comments gained two more ways of being gone and a record of being edited.
+--
+-- removed_at is not deleted_at. A comment with replies underneath it cannot be
+-- taken away without taking somebody else's writing with it, so deleting one
+-- clears the text and leaves the row holding its place in the thread;
+-- deleted_at stays for comments nothing hangs off, which really do disappear.
+-- removal_reason separates "the author took this back" from "a moderator took
+-- this down", which read very differently to anyone following the thread.
+--
+-- edited_at exists because updated_at cannot answer the question. Hibernate
+-- bumps updated_at whenever the row changes, including on removal, and it
+-- already equals created_at on a comment nobody has touched.
+DO $$
+BEGIN
+    IF to_regclass('public.comments') IS NOT NULL THEN
+        ALTER TABLE public.comments
+            ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP WITHOUT TIME ZONE;
+
+        ALTER TABLE public.comments
+            ADD COLUMN IF NOT EXISTS removed_at TIMESTAMP WITHOUT TIME ZONE;
+
+        ALTER TABLE public.comments
+            ADD COLUMN IF NOT EXISTS removed_by UUID;
+
+        ALTER TABLE public.comments
+            ADD COLUMN IF NOT EXISTS removal_reason VARCHAR(20);
+    END IF;
+END
+$$^^^
+
+
+-- Indexes for the paths the comment feature actually takes.
+--
+-- Reading a discussion filters on the target and the parent every time, and
+-- the rate limiter counts an author's recent comments on every post. Without
+-- these all three are sequential scans that get slower as the table grows,
+-- which is exactly the point at which somebody notices.
+DO $$
+BEGIN
+    IF to_regclass('public.comments') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_comments_target
+            ON public.comments (commentable_type, commentable_id)
+            WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_comments_parent
+            ON public.comments (parent_comment_id)
+            WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_comments_author_created
+            ON public.comments (author_id, created_at);
+    END IF;
+END
+$$^^^
+
+
+-- Vote tallies are read per target now that comment listings carry their
+-- scores. The unique constraint on (user_id, votable_type, votable_id) cannot
+-- serve that lookup: it leads with the user, and the aggregate does not know
+-- one.
+DO $$
+BEGIN
+    IF to_regclass('public.votes') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_votes_votable
+            ON public.votes (votable_type, votable_id);
+    END IF;
+END
+$$^^^

@@ -7,7 +7,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-@Builder
+/**
+ * @param commentCount visible comments on this showcase, so a card can show
+ *                     the discussion without fetching a page of it per card.
+ */
+@Builder(toBuilder = true)
 public record ShowCasesSummaryResponse(
         UUID id,
         String authorId,
@@ -24,6 +28,7 @@ public record ShowCasesSummaryResponse(
         boolean hasUnpublishedRevision,
         String rejectionReason,
         Integer viewCount,
+        long commentCount,
         List<ShowcaseTagResponse> tags,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

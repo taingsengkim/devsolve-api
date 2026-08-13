@@ -4,8 +4,10 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentThreadResponse;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.UpdateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentSort;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -40,11 +42,17 @@ public class CommentController {
         return commentService.create(request);
     }
 
+    /**
+     * @param sort defaults to newest-first for root comments and oldest-first
+     *             for replies: threads read newest-first, but a conversation
+     *             inside one reads top-down.
+     */
     @GetMapping
     public Page<CommentResponse> findByTarget(
             @RequestParam CommentableType commentableType,
             @RequestParam UUID commentableId,
             @RequestParam(required = false) UUID parentCommentId,
+            @RequestParam(required = false) CommentSort sort,
             @RequestParam(defaultValue = "0")
             @Min(value = 0, message = "Page number must be at least 0")
             int pageNumber,
@@ -57,6 +65,40 @@ public class CommentController {
                 commentableType,
                 commentableId,
                 parentCommentId,
+                sort,
+                pageNumber,
+                pageSize
+        );
+    }
+
+    /**
+     * The whole first screen of a discussion in one request: root comments
+     * with the opening of each reply thread already attached. Use
+     * {@link #findByTarget} with a {@code parentCommentId} for "show more
+     * replies".
+     */
+    @GetMapping("/thread")
+    public Page<CommentThreadResponse> findThread(
+            @RequestParam CommentableType commentableType,
+            @RequestParam UUID commentableId,
+            @RequestParam(required = false) CommentSort sort,
+            @RequestParam(defaultValue = "3")
+            @Min(value = 0, message = "Reply limit must be at least 0")
+            @Max(value = 10, message = "Reply limit must not exceed 10")
+            int replyLimit,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "Page number must be at least 0")
+            int pageNumber,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "Page size must be at least 1")
+            @Max(value = 50, message = "Page size must not exceed 50")
+            int pageSize
+    ) {
+        return commentService.findThread(
+                commentableType,
+                commentableId,
+                sort,
+                replyLimit,
                 pageNumber,
                 pageSize
         );
@@ -100,5 +142,3 @@ public class CommentController {
         commentService.delete(id);
     }
 }
-
-

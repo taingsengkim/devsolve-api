@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 
 import org.springframework.transaction.annotation.Transactional;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.comments.CommentService;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
@@ -25,6 +26,7 @@ public class ContentFlagServiceImpl implements ContentFlagService{
     private final UserProfileRepository userProfileRepository;
     private final ContentFlagRepository contentFlagRepository;
     private final ContentFlagMapper contentFlagMapper;
+    private final CommentService commentService;
 
     @Override
     @Transactional
@@ -185,11 +187,38 @@ public class ContentFlagServiceImpl implements ContentFlagService{
                 request.resolutionNote().trim()
         );
 
+        if (request.removeContent()) {
+            removeFlaggedContent(flag, adminId);
+        }
+
         ContentFlag savedFlag =
                 contentFlagRepository.save(flag);
 
         return contentFlagMapper
                 .mapContentFlagToFlagResponse(savedFlag);
+    }
+
+    /**
+     * Acts on the content the flag points at.
+     *
+     * <p>Only comments are wired up so far. The other flaggable types have
+     * their own review workflows — a showcase goes back through the review
+     * queue, a problem through its moderation status — and reaching around
+     * those from here would leave two paths that disagree about what
+     * "removed" means. Resolving a flag on one of those still records the
+     * decision, which is what it did before.
+     */
+    private void removeFlaggedContent(ContentFlag flag, UUID adminId) {
+        if (flag.getFlaggableType() != FlaggableType.COMMENT) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Content removal on resolve is only supported for "
+                            + "comments; use the "
+                            + flag.getFlaggableType().name().toLowerCase()
+                            + " moderation endpoints instead"
+            );
+        }
+        commentService.removeByModerator(flag.getFlaggableId(), adminId);
     }
 
     private ContentFlag findFlag(UUID id) {

@@ -1,11 +1,19 @@
 package kh.edu.istad.ite.devsoleapi.feature.comments;
 
+import kh.edu.istad.ite.devsoleapi.common.content.ContentSafetyRules;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentResponse;
+import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CommentThreadResponse;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.UpdateCommentRequest;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentRemovalReason;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentSort;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
@@ -18,30 +26,37 @@ import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.Vote;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteBreakdownProjection;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collection;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
-import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
-import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
-import org.springframework.context.ApplicationEventPublisher;
-
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -51,6 +66,23 @@ public class CommentServiceImpl implements CommentService {
     private static final List<ReviewStatus> PUBLIC_SOLUTION_STATUSES =
             List.of(ReviewStatus.APPROVED);
 
+    /**
+     * Fixing a typo seconds after posting is not an edit anybody needs to be
+     * told about. After this, changes are marked, because by then somebody may
+     * have read the comment or replied to it and the record matters more than
+     * the author's embarrassment.
+     */
+    private static final Duration EDIT_GRACE = Duration.ofMinutes(5);
+
+    /**
+     * How far back a repost still counts as the same post. Long enough to
+     * cover a double-submitted form or a client retry, short enough that
+     * genuinely saying the same thing twice in a long argument is allowed.
+     */
+    private static final Duration DUPLICATE_WINDOW = Duration.ofMinutes(5);
+
+    private static final int MAX_REPLY_PREVIEW = 10;
+
     private final CommentRepository commentRepository;
     private final ReportService reportService;
     private final ProblemRepository problemRepository;
@@ -58,7 +90,9 @@ public class CommentServiceImpl implements CommentService {
     private final ProgramRepository programRepository;
     private final ShowCasesRepository showCasesRepository;
     private final UserProfileRepository userProfileRepository;
+    private final VoteRepository voteRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final CommentRateLimiter rateLimiter;
     private final ApplicationEventPublisher eventPublisher;
 
     @Override
@@ -71,60 +105,159 @@ public class CommentServiceImpl implements CommentService {
         requireCanComment(access);
         validateInternalComment(request, access);
 
+        UUID authorId = currentUserId();
+        String content = ContentSafetyRules.normalizeText(
+                request.content(),
+                "Comment"
+        );
+        if (content.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Content is required"
+            );
+        }
+
+        ParentResolution parentResolution = resolveParent(request, access);
+
+        // Ordered so nothing can fail after the burst window has been
+        // consumed: a rejected comment must not spend the author's allowance.
+        requireNotDuplicate(request, content, authorId);
+        rateLimiter.checkSustained(commentRepository.countByAuthorSince(
+                authorId,
+                LocalDateTime.now().minus(CommentRateLimiter.SUSTAINED_WINDOW)
+        ));
+        rateLimiter.checkBurst(authorId);
+
         Comment comment = new Comment();
         comment.setCommentableType(request.commentableType());
         comment.setCommentableId(request.commentableId());
-        comment.setAuthorId(currentUserId());
-        comment.setContent(request.content().trim());
+        comment.setAuthorId(authorId);
+        comment.setContent(content);
         comment.setInternal(request.internal());
-
-        if (request.parentCommentId() != null) {
-            Comment parent = findVisibleComment(
-                    request.parentCommentId(),
-                    access.canViewInternal()
-            );
-            requireSameTarget(parent, request);
-            if (parent.isInternal() != request.internal()) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "A reply must use the same visibility as its parent comment"
-                );
-            }
-            comment.setParentComment(parent);
-        }
+        comment.setParentComment(parentResolution.parent());
 
         Comment saved = commentRepository.saveAndFlush(comment);
-        notifyAboutComment(saved, access);
+        notifyAboutComment(
+                saved,
+                access,
+                parentResolution.addressedAuthorId(),
+                request.mentionedUserIds()
+        );
 
         return toResponse(saved, access.canViewInternal());
     }
 
     /**
-     * Tells the author of the thing being discussed, and the author of the
-     * comment being replied to. Both are filtered against the commenter, so
-     * replying to yourself or commenting on your own work is silent.
+     * Finds the comment a reply belongs under, and flattens anything deeper
+     * than one level of nesting onto the thread's root.
+     *
+     * <p>Nothing stopped a reply-to-a-reply-to-a-reply before, but the read
+     * side only ever returns the direct children of one comment, and a reply
+     * count only counts direct children. A comment written at depth three was
+     * therefore stored, counted nowhere, and shown to nobody. Re-pointing it
+     * at the root is the version of this the author would have chosen: the
+     * comment lands in the thread they were reading, where the person they
+     * were answering will see it.
+     *
+     * <p>Who was being answered is carried out separately from where the reply
+     * is stored, because after flattening those are different people: the row
+     * hangs off the root, but the notification belongs to whoever wrote the
+     * comment the author actually clicked reply on.
+     */
+    private ParentResolution resolveParent(
+            CreateCommentRequest request,
+            TargetAccess access
+    ) {
+        if (request.parentCommentId() == null) {
+            return ParentResolution.NONE;
+        }
+
+        Comment addressed = findVisibleComment(
+                request.parentCommentId(),
+                access.canViewInternal()
+        );
+        requireSameTarget(addressed, request);
+        if (addressed.isRemoved()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "You cannot reply to a comment that has been removed"
+            );
+        }
+
+        Comment parent = addressed.getParentComment() == null
+                ? addressed
+                : addressed.getParentComment();
+
+        if (parent.isInternal() != request.internal()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "A reply must use the same visibility as its parent comment"
+            );
+        }
+        return new ParentResolution(parent, addressed.getAuthorId());
+    }
+
+    private record ParentResolution(Comment parent, UUID addressedAuthorId) {
+
+        private static final ParentResolution NONE =
+                new ParentResolution(null, null);
+    }
+
+    private void requireNotDuplicate(
+            CreateCommentRequest request,
+            String content,
+            UUID authorId
+    ) {
+        boolean duplicate = commentRepository.existsRecentDuplicate(
+                authorId,
+                request.commentableType(),
+                request.commentableId(),
+                content,
+                LocalDateTime.now().minus(DUPLICATE_WINDOW)
+        );
+        if (duplicate) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "You have already posted this comment"
+            );
+        }
+    }
+
+    /**
+     * Tells the author of the thing being discussed, the author of the comment
+     * being replied to, anyone named in the comment, and anyone else already
+     * talking in the thread. Everyone is filtered against the commenter, so
+     * replying to yourself or commenting on your own work is silent, and
+     * against each other, so being both the target's author and a participant
+     * earns one notification rather than two.
      *
      * <p>Internal comments never reach the target's author. On a report the
      * author is the researcher, and internal comments are the organization
      * talking among themselves about their work — a notification would leak
-     * both the fact and often the substance of it. Replies are exempt: a reply
-     * to an internal comment can only reach someone who wrote one, and who
-     * therefore already has internal access.
+     * both the fact and often the substance of it. Replies, mentions and
+     * participants are exempt in the same way and for the same reason: each of
+     * those can only reach somebody who already wrote in the internal thread,
+     * or who has been checked against the organization's permissions.
      */
-    private void notifyAboutComment(Comment comment, TargetAccess access) {
-        UUID authorId = currentUserId();
+    private void notifyAboutComment(
+            Comment comment,
+            TargetAccess access,
+            UUID addressedAuthorId,
+            List<UUID> mentionedUserIds
+    ) {
+        UUID authorId = comment.getAuthorId();
         String target = comment.getCommentableType().name().toLowerCase();
+        Set<UUID> alreadyTold = new LinkedHashSet<>();
+        alreadyTold.add(authorId);
 
         if (!comment.isInternal() && access.authorId() != null) {
-            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+            publish(
                     List.of(access.authorId()),
-                    authorId,
+                    alreadyTold,
                     "New comment on your " + target,
-                    excerpt(comment.getContent()),
-                    NotificationType.COMMENT,
-                    comment.getId(),
-                    "comment:" + comment.getId() + ":target-author"
-            ));
+                    comment,
+                    "target-author"
+            );
         }
 
         // A report is a conversation between a researcher and an
@@ -134,34 +267,123 @@ public class CommentServiceImpl implements CommentService {
         // when the comment is public: that branch is what keeps internal
         // discussion internal, so this one is free to run either way.
         if (access.organizationId() != null) {
-            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+            publish(
                     organizationAuthorization.findUserIdsWithPermission(
                             access.organizationId(),
                             OrganizationPermission.VIEW_REPORTS
                     ),
-                    authorId,
+                    alreadyTold,
                     comment.isInternal()
                             ? "New internal note on a report"
                             : "New comment on a report",
-                    excerpt(comment.getContent()),
-                    NotificationType.COMMENT,
-                    comment.getId(),
-                    "comment:" + comment.getId() + ":organization"
-            ));
+                    comment,
+                    "organization"
+            );
         }
 
         Comment parent = comment.getParentComment();
         if (parent != null) {
-            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
-                    List.of(parent.getAuthorId()),
-                    authorId,
+            // The person answered first, then the thread's opener. On a direct
+            // reply these are the same person and the second call is a no-op;
+            // on a flattened one they are not, and the person actually being
+            // answered is the one who should hear "reply to your comment".
+            publish(
+                    List.of(addressedAuthorId, parent.getAuthorId()),
+                    alreadyTold,
                     "New reply to your comment",
-                    excerpt(comment.getContent()),
-                    NotificationType.COMMENT,
-                    comment.getId(),
-                    "comment:" + comment.getId() + ":parent-author"
-            ));
+                    comment,
+                    "parent-author"
+            );
         }
+
+        publish(
+                mentionRecipients(comment, access, mentionedUserIds),
+                alreadyTold,
+                "You were mentioned in a comment",
+                comment,
+                "mention"
+        );
+
+        if (parent != null) {
+            publish(
+                    commentRepository.findThreadParticipants(parent.getId()),
+                    alreadyTold,
+                    "New reply in a thread you commented on",
+                    comment,
+                    "participant"
+            );
+        }
+    }
+
+    /**
+     * Publishes to whoever in {@code recipients} has not already been told
+     * about this comment, and records them so a later, less specific
+     * notification does not repeat it. Order of the calls therefore matters:
+     * the most specific reason to be notified has to be published first.
+     */
+    private void publish(
+            Collection<UUID> recipients,
+            Set<UUID> alreadyTold,
+            String title,
+            Comment comment,
+            String reason
+    ) {
+        List<UUID> fresh = recipients.stream()
+                .filter(Objects::nonNull)
+                .filter(recipient -> !alreadyTold.contains(recipient))
+                .distinct()
+                .toList();
+        if (fresh.isEmpty()) {
+            return;
+        }
+        alreadyTold.addAll(fresh);
+
+        eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                fresh,
+                comment.getAuthorId(),
+                title,
+                excerpt(comment.getContent()),
+                NotificationType.COMMENT,
+                comment.getId(),
+                "comment:" + comment.getId() + ":" + reason
+        ));
+    }
+
+    /**
+     * Mentioned users who actually exist and are actually allowed to read the
+     * comment. An internal note can only summon somebody who could already
+     * open the report it sits on; without an organization to check against
+     * there is nobody it is safe to notify, so nobody is.
+     */
+    private List<UUID> mentionRecipients(
+            Comment comment,
+            TargetAccess access,
+            List<UUID> mentionedUserIds
+    ) {
+        if (mentionedUserIds.isEmpty()) {
+            return List.of();
+        }
+        if (comment.isInternal() && access.organizationId() == null) {
+            return List.of();
+        }
+
+        List<UUID> candidates = mentionedUserIds;
+        if (comment.isInternal()) {
+            Set<UUID> permitted = Set.copyOf(
+                    organizationAuthorization.findUserIdsWithPermission(
+                            access.organizationId(),
+                            OrganizationPermission.VIEW_REPORTS
+                    )
+            );
+            candidates = candidates.stream()
+                    .filter(permitted::contains)
+                    .toList();
+        }
+
+        return userProfileRepository.findAllById(candidates)
+                .stream()
+                .map(UserProfile::getId)
+                .toList();
     }
 
     private String excerpt(String content) {
@@ -177,6 +399,7 @@ public class CommentServiceImpl implements CommentService {
             CommentableType commentableType,
             UUID commentableId,
             UUID parentCommentId,
+            CommentSort sort,
             int pageNumber,
             int pageSize
     ) {
@@ -184,18 +407,12 @@ public class CommentServiceImpl implements CommentService {
                 commentableType,
                 commentableId
         );
-
         boolean findingReplies = parentCommentId != null;
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(
-                        findingReplies
-                                ? Sort.Direction.ASC
-                                : Sort.Direction.DESC,
-                        "createdAt"
-                )
-        );
+        CommentSort effectiveSort = sort != null
+                ? sort
+                : findingReplies
+                        ? CommentSort.OLDEST
+                        : CommentSort.NEWEST;
 
         Page<Comment> comments;
         if (findingReplies) {
@@ -204,23 +421,106 @@ public class CommentServiceImpl implements CommentService {
                     access.canViewInternal()
             );
             requireSameTarget(parent, commentableType, commentableId);
-            comments = commentRepository.findReplies(
+            comments = loadReplies(
                     commentableType,
                     commentableId,
                     parentCommentId,
+                    effectiveSort,
                     access.canViewInternal(),
-                    pageable
+                    pageNumber,
+                    pageSize
             );
         } else {
-            comments = commentRepository.findRootComments(
+            comments = loadRoots(
                     commentableType,
                     commentableId,
+                    effectiveSort,
                     access.canViewInternal(),
-                    pageable
+                    pageNumber,
+                    pageSize
             );
         }
 
         return enrich(comments, access.canViewInternal());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<CommentThreadResponse> findThread(
+            CommentableType commentableType,
+            UUID commentableId,
+            CommentSort sort,
+            int replyLimit,
+            int pageNumber,
+            int pageSize
+    ) {
+        TargetAccess access = requireTargetAccess(
+                commentableType,
+                commentableId
+        );
+        boolean includeInternal = access.canViewInternal();
+        int boundedReplyLimit = Math.clamp(replyLimit, 0, MAX_REPLY_PREVIEW);
+
+        Page<Comment> roots = loadRoots(
+                commentableType,
+                commentableId,
+                sort == null ? CommentSort.NEWEST : sort,
+                includeInternal,
+                pageNumber,
+                pageSize
+        );
+        if (roots.isEmpty()) {
+            return new PageImpl<>(
+                    List.of(),
+                    roots.getPageable(),
+                    roots.getTotalElements()
+            );
+        }
+
+        List<UUID> rootIds = roots.getContent().stream()
+                .map(Comment::getId)
+                .toList();
+        List<Comment> replies = boundedReplyLimit == 0
+                ? List.of()
+                : commentRepository.findLeadingReplies(
+                        rootIds,
+                        includeInternal,
+                        boundedReplyLimit
+                );
+
+        // One enrichment pass over roots and replies together, so the profile,
+        // vote and reply-count lookups stay at three queries for the page
+        // rather than three per thread.
+        Map<UUID, CommentResponse> byId = enrichAll(
+                concat(roots.getContent(), replies),
+                includeInternal
+        ).stream().collect(Collectors.toMap(
+                CommentResponse::getId,
+                Function.identity()
+        ));
+
+        Map<UUID, List<CommentResponse>> repliesByRoot = replies.stream()
+                .collect(Collectors.groupingBy(
+                        reply -> reply.getParentComment().getId(),
+                        Collectors.mapping(
+                                reply -> byId.get(reply.getId()),
+                                Collectors.toList()
+                        )
+                ));
+
+        return roots.map(root -> {
+            CommentResponse response = byId.get(root.getId());
+            List<CommentResponse> preview = repliesByRoot.getOrDefault(
+                    root.getId(),
+                    List.of()
+            );
+            return new CommentThreadResponse(
+                    response,
+                    preview,
+                    response.getReplyCount(),
+                    response.getReplyCount() > preview.size()
+            );
+        });
     }
 
     @Override
@@ -246,6 +546,7 @@ public class CommentServiceImpl implements CommentService {
                 pageNumber,
                 pageSize,
                 Sort.by(Sort.Direction.DESC, "updatedAt")
+                        .and(Sort.by(Sort.Direction.DESC, "id"))
         );
         return enrich(
                 commentRepository.findMine(
@@ -270,13 +571,51 @@ public class CommentServiceImpl implements CommentService {
         );
         requireVisible(comment, access.canViewInternal());
         requireAuthor(comment);
-        comment.setContent(request.content().trim());
+        if (comment.isRemoved()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "A removed comment cannot be edited"
+            );
+        }
+
+        String content = ContentSafetyRules.normalizeText(
+                request.content(),
+                "Comment"
+        );
+        if (content.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Content is required"
+            );
+        }
+
+        if (!content.equals(comment.getContent())) {
+            comment.setContent(content);
+            if (comment.getEditedAt() == null
+                    && LocalDateTime.now().isAfter(
+                            comment.getCreatedAt().plus(EDIT_GRACE)
+                    )) {
+                comment.setEditedAt(LocalDateTime.now());
+            }
+        }
+
         return toResponse(
                 commentRepository.saveAndFlush(comment),
                 access.canViewInternal()
         );
     }
 
+    /**
+     * Takes down the author's own words without taking down anybody else's.
+     *
+     * <p>A comment with live replies keeps its row and loses its text, because
+     * the replies underneath belong to other people and deleting the parent
+     * out from under them would erase writing its author never consented to
+     * losing. A comment with nothing hanging off it is simply gone — and once
+     * it goes, any tombstone above it that was only being held open for its
+     * sake goes too, so a thread that empties out does not leave a column of
+     * "[deleted]" behind.
+     */
     @Override
     @Transactional
     public void delete(UUID id) {
@@ -296,21 +635,178 @@ public class CommentServiceImpl implements CommentService {
                     "Only the comment author or an admin can delete it"
             );
         }
+        if (comment.isRemoved()) {
+            return;
+        }
 
-        commentRepository.softDeleteThread(id, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        if (commentRepository.countLiveChildren(id) > 0) {
+            tombstone(comment, userId, CommentRemovalReason.AUTHOR, now);
+            return;
+        }
+
+        UUID parentId = comment.getParentComment() == null
+                ? null
+                : comment.getParentComment().getId();
+        commentRepository.softDelete(id, now);
+        pruneEmptyTombstones(parentId, now);
+    }
+
+    @Override
+    @Transactional
+    public void removeByModerator(UUID commentId, UUID moderatorId) {
+        Comment comment = findActiveComment(commentId);
+        if (comment.isRemoved()) {
+            return;
+        }
+        // Always a tombstone, even with no replies underneath: a comment that
+        // simply vanished after somebody reported it tells the thread nothing,
+        // and tells the author's defenders even less.
+        tombstone(
+                comment,
+                moderatorId,
+                CommentRemovalReason.MODERATOR,
+                LocalDateTime.now()
+        );
+    }
+
+    private void tombstone(
+            Comment comment,
+            UUID actorId,
+            CommentRemovalReason reason,
+            LocalDateTime at
+    ) {
+        // The text is cleared rather than hidden behind a flag. A delete that
+        // leaves the words in the database is not a delete.
+        comment.setContent("");
+        comment.setRemovedAt(at);
+        comment.setRemovedBy(actorId);
+        comment.setRemovalReason(reason);
+        commentRepository.saveAndFlush(comment);
+    }
+
+    private void pruneEmptyTombstones(UUID parentId, LocalDateTime at) {
+        UUID current = parentId;
+        while (current != null) {
+            Comment parent = commentRepository
+                    .findByIdAndDeletedAtIsNull(current)
+                    .orElse(null);
+            if (parent == null
+                    || !parent.isRemoved()
+                    || commentRepository.countLiveChildren(current) > 0) {
+                return;
+            }
+            // Read before the update: softDelete clears the persistence
+            // context, so the association is not safe to touch afterwards.
+            UUID grandParentId = parent.getParentComment() == null
+                    ? null
+                    : parent.getParentComment().getId();
+            commentRepository.softDelete(current, at);
+            current = grandParentId;
+        }
+    }
+
+    private Page<Comment> loadRoots(
+            CommentableType commentableType,
+            UUID commentableId,
+            CommentSort sort,
+            boolean includeInternal,
+            int pageNumber,
+            int pageSize
+    ) {
+        if (sort == CommentSort.TOP) {
+            return commentRepository.findRootCommentsByScore(
+                    commentableType,
+                    commentableId,
+                    includeInternal,
+                    VoteType.COMMENT,
+                    PageRequest.of(pageNumber, pageSize)
+            );
+        }
+        return commentRepository.findRootComments(
+                commentableType,
+                commentableId,
+                includeInternal,
+                PageRequest.of(pageNumber, pageSize, stableSort(sort))
+        );
+    }
+
+    private Page<Comment> loadReplies(
+            CommentableType commentableType,
+            UUID commentableId,
+            UUID parentCommentId,
+            CommentSort sort,
+            boolean includeInternal,
+            int pageNumber,
+            int pageSize
+    ) {
+        if (sort == CommentSort.TOP) {
+            return commentRepository.findRepliesByScore(
+                    commentableType,
+                    commentableId,
+                    parentCommentId,
+                    includeInternal,
+                    VoteType.COMMENT,
+                    PageRequest.of(pageNumber, pageSize)
+            );
+        }
+        return commentRepository.findReplies(
+                commentableType,
+                commentableId,
+                parentCommentId,
+                includeInternal,
+                PageRequest.of(pageNumber, pageSize, stableSort(sort))
+        );
+    }
+
+    /**
+     * Ordering by timestamp alone is not a total order: two comments posted in
+     * the same instant can come back either way round, which on an offset page
+     * boundary shows one of them twice and drops the other. The id breaks the
+     * tie in the same direction, so the sequence is fixed.
+     */
+    private Sort stableSort(CommentSort sort) {
+        Sort.Direction direction = sort == CommentSort.OLDEST
+                ? Sort.Direction.ASC
+                : Sort.Direction.DESC;
+        return Sort.by(direction, "createdAt")
+                .and(Sort.by(direction, "id"));
+    }
+
+    private List<Comment> concat(List<Comment> first, List<Comment> second) {
+        return Stream.concat(first.stream(), second.stream()).toList();
     }
 
     private Page<CommentResponse> enrich(
             Page<Comment> comments,
             boolean includeInternal
     ) {
+        List<CommentResponse> responses = enrichAll(
+                comments.getContent(),
+                includeInternal
+        );
+        return new PageImpl<>(
+                responses,
+                comments.getPageable(),
+                comments.getTotalElements()
+        );
+    }
+
+    /**
+     * Everything hanging off a set of comments, read for the whole set at once:
+     * three queries for a page rather than three per comment. This is the only
+     * place responses are built, so nothing can accidentally take the
+     * per-comment path on a listing.
+     */
+    private List<CommentResponse> enrichAll(
+            List<Comment> comments,
+            boolean includeInternal
+    ) {
         if (comments.isEmpty()) {
-            return comments.map(comment ->
-                    toResponse(comment, includeInternal)
-            );
+            return List.of();
         }
 
-        List<UUID> authorIds = comments.getContent().stream()
+        List<UUID> authorIds = comments.stream()
                 .map(Comment::getAuthorId)
                 .distinct()
                 .toList();
@@ -322,44 +818,51 @@ public class CommentServiceImpl implements CommentService {
                         Function.identity()
                 ));
 
-        List<UUID> commentIds = comments.getContent().stream()
+        List<UUID> commentIds = comments.stream()
                 .map(Comment::getId)
                 .filter(Objects::nonNull)
+                .distinct()
                 .toList();
-        Map<UUID, Long> replyCounts = replyCounts(
-                commentIds,
-                includeInternal
-        );
+        Map<UUID, Long> replyCounts = replyCounts(commentIds, includeInternal);
+        Map<UUID, VoteBreakdownProjection> tallies = voteTallies(commentIds);
+        Map<UUID, Short> viewerVotes = viewerVotes(commentIds);
+        Optional<UUID> viewerId = optionalCurrentUserId();
+        boolean admin = AuthUtils.hasRole(ADMIN_ROLE);
 
-        return comments.map(comment -> toResponse(
-                comment,
-                profiles.get(comment.getAuthorId()),
-                replyCounts.getOrDefault(comment.getId(), 0L)
-        ));
+        return comments.stream()
+                .map(comment -> toResponse(
+                        comment,
+                        profiles.get(comment.getAuthorId()),
+                        replyCounts.getOrDefault(comment.getId(), 0L),
+                        tallies.get(comment.getId()),
+                        viewerVotes.get(comment.getId()),
+                        viewerId,
+                        admin
+                ))
+                .toList();
     }
 
     private CommentResponse toResponse(
             Comment comment,
             boolean includeInternal
     ) {
-        UserProfile profile = userProfileRepository
-                .findById(comment.getAuthorId())
-                .orElse(null);
-        long replyCount = comment.getId() == null
-                ? 0
-                : replyCounts(
-                        List.of(comment.getId()),
-                        includeInternal
-                )
-                        .getOrDefault(comment.getId(), 0L);
-        return toResponse(comment, profile, replyCount);
+        return enrichAll(List.of(comment), includeInternal).getFirst();
     }
 
     private CommentResponse toResponse(
             Comment comment,
             UserProfile profile,
-            long replyCount
+            long replyCount,
+            VoteBreakdownProjection tally,
+            Short viewerVote,
+            Optional<UUID> viewerId,
+            boolean admin
     ) {
+        boolean removed = comment.isRemoved();
+        boolean author = viewerId
+                .map(comment.getAuthorId()::equals)
+                .orElse(false);
+
         return CommentResponse.builder()
                 .id(comment.getId())
                 .commentableType(comment.getCommentableType())
@@ -368,13 +871,28 @@ public class CommentServiceImpl implements CommentService {
                         ? null
                         : comment.getParentComment().getId())
                 .authorId(comment.getAuthorId())
-                .authorName(profile == null ? null : profile.getFullName())
-                .authorAvatarUrl(profile == null
+                // A tombstone keeps its author id so replies can still be
+                // threaded against it, but stops naming them: the point of
+                // deleting is to stop being the person who said it.
+                .authorName(removed || profile == null
+                        ? null
+                        : profile.getFullName())
+                .authorAvatarUrl(removed || profile == null
                         ? null
                         : profile.getAvatarUrl())
-                .content(comment.getContent())
+                .content(removed ? null : comment.getContent())
                 .internal(comment.isInternal())
                 .replyCount(replyCount)
+                .voteScore(tally == null ? 0 : tally.getScore())
+                .upvoteCount(tally == null ? 0 : tally.getUpvotes())
+                .downvoteCount(tally == null ? 0 : tally.getDownvotes())
+                .myVote(viewerVote)
+                .edited(comment.getEditedAt() != null)
+                .editedAt(comment.getEditedAt())
+                .removed(removed)
+                .removalReason(comment.getRemovalReason())
+                .canEdit(!removed && author)
+                .canDelete(!removed && (author || admin))
                 .createdAt(comment.getCreatedAt())
                 .updatedAt(comment.getUpdatedAt())
                 .build();
@@ -394,6 +912,42 @@ public class CommentServiceImpl implements CommentService {
                         row -> (UUID) row[0],
                         row -> ((Number) row[1]).longValue()
                 ));
+    }
+
+    private Map<UUID, VoteBreakdownProjection> voteTallies(
+            Collection<UUID> commentIds
+    ) {
+        if (commentIds.isEmpty()) {
+            return Map.of();
+        }
+        return voteRepository
+                .summarizeAllDetailed(VoteType.COMMENT, commentIds)
+                .stream()
+                .collect(Collectors.toMap(
+                        VoteBreakdownProjection::getId,
+                        Function.identity(),
+                        (first, second) -> first
+                ));
+    }
+
+    private Map<UUID, Short> viewerVotes(Collection<UUID> commentIds) {
+        if (commentIds.isEmpty()) {
+            return Map.of();
+        }
+        return optionalCurrentUserId()
+                .map(userId -> voteRepository
+                        .findAllByUserIdAndVotableTypeAndVotableIdIn(
+                                userId,
+                                VoteType.COMMENT,
+                                commentIds
+                        )
+                        .stream()
+                        .collect(Collectors.toMap(
+                                Vote::getVotableId,
+                                Vote::getVoteValue,
+                                (first, second) -> first
+                        )))
+                .orElseGet(Map::of);
     }
 
     private TargetAccess requireTargetAccess(
@@ -549,6 +1103,24 @@ public class CommentServiceImpl implements CommentService {
                     "Authenticated user ID is not a valid UUID",
                     exception
             );
+        }
+    }
+
+    /**
+     * The signed-in reader, if there is one. Reads on public targets are open
+     * to anonymous callers, so the viewer-specific parts of a response — their
+     * vote, whether they may edit — have to degrade rather than reject.
+     */
+    private Optional<UUID> optionalCurrentUserId() {
+        Authentication authentication = AuthUtils.getAuth();
+        if (!(authentication instanceof JwtAuthenticationToken jwt)
+                || !authentication.isAuthenticated()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(UUID.fromString(jwt.getToken().getSubject()));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
         }
     }
 

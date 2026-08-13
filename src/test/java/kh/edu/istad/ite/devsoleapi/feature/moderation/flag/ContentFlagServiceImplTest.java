@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 
+import kh.edu.istad.ite.devsoleapi.feature.comments.CommentService;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -45,6 +46,9 @@ class ContentFlagServiceImplTest {
     @Mock
     private ContentFlagMapper contentFlagMapper;
 
+    @Mock
+    private CommentService commentService;
+
     private ContentFlagServiceImpl service;
 
     @BeforeEach
@@ -52,7 +56,8 @@ class ContentFlagServiceImplTest {
         service = new ContentFlagServiceImpl(
                 userProfileRepository,
                 contentFlagRepository,
-                contentFlagMapper
+                contentFlagMapper,
+                commentService
         );
     }
 
@@ -145,7 +150,8 @@ class ContentFlagServiceImplTest {
         flag.setId(flagId);
         flag.setStatus(FlagStatus.PENDING);
         ResolveFlagRequest request = new ResolveFlagRequest(
-                "  Content was removed and the author was warned.  "
+                "  Content was removed and the author was warned.  ",
+                false
         );
         FlagResponse expected = response(
                 flagId,

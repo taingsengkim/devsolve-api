@@ -7,7 +7,13 @@ import lombok.Builder;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
-@Builder
+/**
+ * @param commentCount visible comments on this showcase. Filled in on the read
+ *                     paths a reader actually sees; the review and revision
+ *                     paths leave it at zero, because a submission still under
+ *                     review has no discussion on it yet.
+ */
+@Builder(toBuilder = true)
 public record ShowCasesResponse(
         UUID id,
         String authorId,
@@ -22,6 +28,7 @@ public record ShowCasesResponse(
         String videoUrl,
         ReviewStatus reviewStatus,
         Integer viewCount,
+        long commentCount,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         List<ShowcaseTagResponse> tags,
