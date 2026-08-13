@@ -31,7 +31,12 @@ public class HacktivityController {
 
     @GetMapping("/hacktivity")
     public Page<HacktivityResponse> getHacktivity(
-            @PageableDefault(size = 10) Pageable pageable
+            @PageableDefault(
+                    size = 10,
+                    sort = "createdAt",
+                    direction = Sort.Direction.DESC
+            )
+            Pageable pageable
     ) {
         return hacktivityService.findAll(pageable);
     }
@@ -51,7 +56,7 @@ public class HacktivityController {
 
         UUID userId = UUID.fromString(jwt.getSubject());
 
-        return hacktivityService.getMyHacktivity(
+        return hacktivityService.getUserHacktivity(
                 userId,
                 pageable
         );
@@ -122,7 +127,7 @@ public class HacktivityController {
 
         UUID organizationId = membership.getOrganization().getId();
 
-        return hacktivityService.getMyOrganizationHacktivity(
+        return hacktivityService.getOrganizationHacktivity(
                 organizationId,
                 pageable
         );

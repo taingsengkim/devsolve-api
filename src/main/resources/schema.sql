@@ -835,3 +835,80 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Recognition and hacktivity. Hibernate builds both on a fresh database, but
+-- the VPS does not run with ddl-auto "update", so without these a deploy ships
+-- the entities and no tables to put them in. Guarded on the parents so the
+-- block is inert until reports, programs and organizations exist.
+DO $$
+BEGIN
+    IF to_regclass('public.user_profiles') IS NOT NULL
+       AND to_regclass('public.programs') IS NOT NULL
+       AND to_regclass('public.reports') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.recognitions (
+            id UUID PRIMARY KEY,
+            user_id UUID NOT NULL
+                REFERENCES public.user_profiles (id),
+            program_id UUID NOT NULL
+                REFERENCES public.programs (id),
+            report_id UUID NOT NULL
+                REFERENCES public.reports (id),
+            title VARCHAR(255) NOT NULL,
+            description TEXT,
+            awarded_by UUID NOT NULL,
+            awarded_at TIMESTAMP(6) NOT NULL,
+            severity public.severity_enum NOT NULL,
+            created_at TIMESTAMP(6) NOT NULL,
+            updated_at TIMESTAMP(6) NOT NULL
+        );
+
+        -- One recognition per report, or the same finding can be awarded twice
+        -- and paid twice. Created separately from the table so that a database
+        -- where Hibernate already built recognitions without the constraint
+        -- picks it up too. If this fails, the table already holds duplicates
+        -- and they have to be reconciled by hand before the guard can go on.
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_recognitions_report
+            ON public.recognitions (report_id);
+
+        CREATE INDEX IF NOT EXISTS idx_recognitions_user_id
+            ON public.recognitions (user_id);
+
+        CREATE INDEX IF NOT EXISTS idx_recognitions_program_id
+            ON public.recognitions (program_id);
+    END IF;
+
+    IF to_regclass('public.recognitions') IS NOT NULL
+       AND to_regclass('public.organizations') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.hacktivities (
+            id UUID PRIMARY KEY,
+            recognition_id UUID NOT NULL UNIQUE
+                REFERENCES public.recognitions (id),
+            user_id UUID NOT NULL
+                REFERENCES public.user_profiles (id),
+            organization_id UUID NOT NULL
+                REFERENCES public.organizations (id),
+            report_id UUID NOT NULL
+                REFERENCES public.reports (id),
+            program_id UUID NOT NULL
+                REFERENCES public.programs (id),
+            created_at TIMESTAMP(6) NOT NULL
+        );
+
+        -- The feed sorts by created_at and filters by researcher, organization
+        -- or program. Without these every page is a sequential scan over the
+        -- whole feed.
+        CREATE INDEX IF NOT EXISTS idx_hacktivity_created_at
+            ON public.hacktivities (created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_hacktivity_user_id
+            ON public.hacktivities (user_id);
+
+        CREATE INDEX IF NOT EXISTS idx_hacktivity_organization_id
+            ON public.hacktivities (organization_id);
+
+        CREATE INDEX IF NOT EXISTS idx_hacktivity_program_id
+            ON public.hacktivities (program_id);
+    END IF;
+END
+$$^^^

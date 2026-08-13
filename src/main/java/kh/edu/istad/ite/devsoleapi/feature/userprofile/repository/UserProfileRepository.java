@@ -4,11 +4,10 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
 
@@ -88,5 +87,45 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
 
         long getRemovedUsers();
     }
-    Page<UserProfile> findAllByOrderByReputationDesc(Pageable pageable);
+
+    /**
+     * Leaderboard page. Reputation alone is not a unique sort key — everybody
+     * starts tied on zero — and Postgres gives no ordering guarantee between
+     * equal rows, so paging over it duplicated some profiles and skipped
+     * others. The id breaks every tie, which makes the sequence stable across
+     * pages. Suspended and removed accounts are filtered out rather than left
+     * ranking against active researchers.
+     */
+    Page<UserProfile> findAllByStatusOrderByReputationDescIdAsc(
+            UserStatus status,
+            Pageable pageable
+    );
+
+    /**
+     * Applies one recognition to a profile's standing.
+     *
+     * <p>Written as a single UPDATE rather than read-modify-write on a loaded
+     * entity: two triagers awarding recognitions to the same researcher at the
+     * same moment would otherwise both read the old total and the second write
+     * would erase the first. The database does the arithmetic, so concurrent
+     * awards add up.
+     *
+     * @return rows updated — zero means the profile disappeared mid-award
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update UserProfile profile
+               set profile.reputation =
+                       profile.reputation + :points,
+                   profile.recognitionCount =
+                       profile.recognitionCount + 1,
+                   profile.criticalReports =
+                       profile.criticalReports + :criticalDelta
+             where profile.id = :userId
+            """)
+    int applyRecognition(
+            @Param("userId") UUID userId,
+            @Param("points") int points,
+            @Param("criticalDelta") int criticalDelta
+    );
 }

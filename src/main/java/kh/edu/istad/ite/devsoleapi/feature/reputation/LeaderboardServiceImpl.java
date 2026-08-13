@@ -2,15 +2,14 @@ package kh.edu.istad.ite.devsoleapi.feature.reputation;
 
 
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
-import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
@@ -20,30 +19,31 @@ public class LeaderboardServiceImpl implements LeaderboardService {
     private final UserProfileRepository userProfileRepository;
     private final LeaderboardMapper leaderboardMapper;
 
+    /**
+     * Rank is positional — the row's place in the ordering, not a competition
+     * rank that gives tied researchers the same number. Two people on equal
+     * reputation therefore get consecutive ranks, decided by the id tiebreaker
+     * in the query. That keeps rank derivable from the page offset alone
+     * instead of costing a count query per row, and it stays consistent as the
+     * reader pages through.
+     */
     @Override
+    @Transactional(readOnly = true)
     public Page<LeaderboardResponse> getLeaderboard(Pageable pageable) {
-
-        Page<UserProfile> page =
-                userProfileRepository.findAllByOrderByReputationDesc(pageable);
 
         int startRank =
                 pageable.getPageNumber() * pageable.getPageSize() + 1;
 
         AtomicInteger rank = new AtomicInteger(startRank);
 
-        List<LeaderboardResponse> responses =
-                page.getContent()
-                        .stream()
-                        .map(user -> leaderboardMapper.toResponse(
-                                user,
-                                rank.getAndIncrement()
-                        ))
-                        .toList();
-
-        return new PageImpl<>(
-                responses,
-                pageable,
-                page.getTotalElements()
-        );
+        return userProfileRepository
+                .findAllByStatusOrderByReputationDescIdAsc(
+                        UserStatus.ACTIVE,
+                        pageable
+                )
+                .map(user -> leaderboardMapper.toResponse(
+                        user,
+                        rank.getAndIncrement()
+                ));
     }
 }

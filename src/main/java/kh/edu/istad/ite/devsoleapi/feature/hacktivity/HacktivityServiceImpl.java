@@ -26,21 +26,7 @@ public class HacktivityServiceImpl implements HacktivityService {
                 .map(hacktivityMapper::toResponse);
     }
 
-
     @Override
-    @Transactional(readOnly = true)
-    public Page<HacktivityResponse> getMyHacktivity(
-            UUID userId,
-            Pageable pageable
-    ) {
-
-        return hacktivityRepository
-                .findByUserId(userId, pageable)
-                .map(hacktivityMapper::toResponse);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public Page<HacktivityResponse> getUserHacktivity(
             UUID userId,
             Pageable pageable
@@ -51,21 +37,7 @@ public class HacktivityServiceImpl implements HacktivityService {
                 .map(hacktivityMapper::toResponse);
     }
 
-
     @Override
-    @Transactional(readOnly = true)
-    public Page<HacktivityResponse> getMyOrganizationHacktivity(
-            UUID organizationId,
-            Pageable pageable
-    ) {
-
-        return hacktivityRepository
-                .findByOrganizationId(organizationId, pageable)
-                .map(hacktivityMapper::toResponse);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public Page<HacktivityResponse> getOrganizationHacktivity(
             UUID organizationId,
             Pageable pageable
