@@ -55,6 +55,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -119,7 +120,10 @@ class ProblemServiceImplTest {
         );
         // Every view counts unless a test says otherwise; the dedup window is
         // covered by ViewCountGuard's own test.
-        lenient().when(viewCountGuard.shouldCount(any(UUID.class)))
+        lenient().when(viewCountGuard.shouldCount(
+                eq("problem"),
+                any(UUID.class)
+        ))
                 .thenReturn(true);
         lenient().when(contentSafety.normalizeText(any(String.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));

@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
@@ -10,10 +11,11 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
-import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 public interface ReportRepository
@@ -35,6 +37,17 @@ public interface ReportRepository
     long countByOrganizationAndState(
             @Param("organizationId") UUID organizationId,
             @Param("state") ReportState state
+    );
+
+    @Query("""
+            select report.program.id as id,
+                   count(report.id) as total
+            from Report report
+            where report.program.id in :programIds
+            group by report.program.id
+            """)
+    List<IdCountProjection> countByProgramIds(
+            @Param("programIds") Collection<UUID> programIds
     );
 
     @EntityGraph(attributePaths = {

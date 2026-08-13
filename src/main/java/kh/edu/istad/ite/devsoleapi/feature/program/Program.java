@@ -137,6 +137,17 @@ public class Program extends BasedEntity {
     @Column(name = "maximum_bounty", precision = 10, scale = 2)
     private BigDecimal maximumBounty;
 
+    @Column(
+            name = "view_count",
+            nullable = false,
+            columnDefinition = "BIGINT DEFAULT 0"
+    )
+    @Builder.Default
+    private long viewCount = 0L;
+
+    @Column(name = "published_at")
+    private LocalDateTime publishedAt;
+
     @OneToMany(
             mappedBy = "program",
             cascade = CascadeType.ALL,

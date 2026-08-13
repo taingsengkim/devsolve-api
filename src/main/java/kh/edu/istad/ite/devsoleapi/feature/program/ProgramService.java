@@ -6,12 +6,17 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramViewCountResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 public interface ProgramService {
@@ -20,12 +25,21 @@ public interface ProgramService {
             UUID organizationId,
             EngagementType engagementType,
             Boolean offersBounties,
+            String query,
+            BigDecimal minimumBounty,
+            BigDecimal maximumBounty,
+            AssetType assetType,
+            Severity maxSeverity,
+            Industry industry,
+            String country,
             Pageable pageable
     );
 
     PublicProgramResponseDto getPublicProgramById(UUID id);
 
     PublicProgramResponseDto getPublicProgramByHandle(String handle);
+
+    ProgramViewCountResponseDto incrementViewCount(UUID id);
 
     Page<ProgramManagementSummaryResponseDto> getMyPrograms(
             Pageable pageable

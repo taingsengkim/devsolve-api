@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.follow;
 
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -8,6 +9,8 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,6 +37,19 @@ public interface FollowRepository extends JpaRepository<Follow, UUID> {
     long countByFollowableTypeAndFollowableId(
             FollowType followableType,
             UUID followableId
+    );
+
+    @Query("""
+            select follow.followableId as id,
+                   count(follow.id) as total
+            from Follow follow
+            where follow.followableType = :followableType
+              and follow.followableId in :followableIds
+            group by follow.followableId
+            """)
+    List<IdCountProjection> countByFollowableIds(
+            @Param("followableType") FollowType followableType,
+            @Param("followableIds") Collection<UUID> followableIds
     );
 
     @Query("""

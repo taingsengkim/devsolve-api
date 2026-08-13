@@ -22,8 +22,6 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationReviewDecision;
-import kh.edu.istad.ite.devsoleapi.feature.program.Program;
-import kh.edu.istad.ite.devsoleapi.feature.program.ProgramMapper;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -73,7 +71,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationReviewHistoryRepository reviewHistoryRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ProgramRepository programRepository;
-    private final ProgramMapper programMapper;
+    private final ProgramService programService;
     private final ReportRepository reportRepository;
     private final ReportRewardRepository reportRewardRepository;
 
@@ -1028,24 +1026,20 @@ public class OrganizationServiceImpl implements OrganizationService {
 
 
     @Override
-    @Transactional(readOnly = true) // Crucial for loading lazy collections like assets
+    @Transactional(readOnly = true)
     public List<ProgramSummaryResponseDto> getOrganizationPrograms(UUID id) {
-        //Fetch the programs by organization ID
-        List<Program> programs = programRepository.findByOrganizationId(id);
-
-        // DEBUG: Check your console/terminal. If this prints 0, the UUID in Postman is wrong!
-        System.out.println("DEBUG -> Programs found in DB: " + programs.size());
-
-        //Fetch the organization
-        Organization organization = organizationRepository.findById(id).orElse(null);
-
-        //Map to DTOs
-        return programs.stream()
-                .map(program -> programMapper.toSummaryDto(
-                        program,
-                        organization,
-                        program.getAssets()
-                ))
-                .toList();
+        return programService.getPublicPrograms(
+                id,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Pageable.unpaged()
+        ).getContent();
     }
 }

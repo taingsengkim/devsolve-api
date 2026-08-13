@@ -21,6 +21,11 @@ public record ProgramSummaryResponseDto(
         BigDecimal minimumBounty,
         BigDecimal maximumBounty,
         List<ProgramAssetResponseDto> inScopeAssets,
+        long viewCount,
+        long followerCount,
+        long totalSubmissions,
+        LocalDateTime publishedAt,
+        LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
 }

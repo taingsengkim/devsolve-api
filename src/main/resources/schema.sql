@@ -1090,3 +1090,126 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Public program discovery has its own publication timestamp and view count.
+-- Existing public programs are backfilled once so the default newest sort
+-- does not send them to the end of the feed after this feature is deployed.
+DO $$
+BEGIN
+    IF to_regclass('public.programs') IS NOT NULL THEN
+        ALTER TABLE public.programs
+            ADD COLUMN IF NOT EXISTS view_count BIGINT DEFAULT 0;
+
+        UPDATE public.programs
+        SET view_count = 0
+        WHERE view_count IS NULL;
+
+        ALTER TABLE public.programs
+            ALTER COLUMN view_count SET DEFAULT 0;
+
+        ALTER TABLE public.programs
+            ALTER COLUMN view_count SET NOT NULL;
+
+        ALTER TABLE public.programs
+            ADD COLUMN IF NOT EXISTS published_at TIMESTAMP(6);
+
+        UPDATE public.programs
+        SET published_at = COALESCE(updated_at, created_at)
+        WHERE published_at IS NULL
+          AND state::text = 'active'
+          AND submission_state::text = 'approved'
+          AND visibility::text = 'public'
+          AND deleted_at IS NULL;
+    END IF;
+END
+$$^^^
+
+
+-- Program search uses leading-wildcard LOWER(...) matches, while the common
+-- feed and aggregate sorts have predictable filter keys. These indexes keep
+-- those paths from degrading into full scans as programs and reports grow.
+DO $$
+BEGIN
+    IF to_regclass('public.programs') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_programs_name_trgm
+            ON public.programs
+            USING gin (LOWER(name) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_programs_handle_trgm
+            ON public.programs
+            USING gin (LOWER(handle) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_programs_description_trgm
+            ON public.programs
+            USING gin (LOWER(description) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_programs_public_published
+            ON public.programs (
+                state,
+                submission_state,
+                visibility,
+                published_at DESC,
+                id DESC
+            )
+            WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_programs_organization_public
+            ON public.programs (
+                organization_id,
+                state,
+                submission_state,
+                visibility,
+                published_at DESC,
+                id DESC
+            )
+            WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_programs_public_filters
+            ON public.programs (
+                engagement_type,
+                offers_bounties,
+                minimum_bounty,
+                maximum_bounty
+            )
+            WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_programs_views
+            ON public.programs (view_count DESC, id DESC)
+            WHERE deleted_at IS NULL;
+    END IF;
+
+    IF to_regclass('public.organizations') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_organizations_name_trgm
+            ON public.organizations
+            USING gin (LOWER(name) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_organizations_slug_trgm
+            ON public.organizations
+            USING gin (LOWER(slug) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_organizations_program_filters
+            ON public.organizations (industry, LOWER(country));
+    END IF;
+
+    IF to_regclass('public.program_assets') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_program_assets_public_filters
+            ON public.program_assets (
+                program_id,
+                is_in_scope,
+                asset_type,
+                max_severity
+            );
+    END IF;
+
+    IF to_regclass('public.reports') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_reports_program
+            ON public.reports (program_id);
+    END IF;
+
+    IF to_regclass('public.follows') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_follows_followable
+            ON public.follows (followable_type, followable_id);
+    END IF;
+END
+$$^^^

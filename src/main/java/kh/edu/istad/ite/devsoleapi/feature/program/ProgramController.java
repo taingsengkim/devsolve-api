@@ -1,13 +1,20 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Size;
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingCache;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramViewCountResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -16,6 +23,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -27,34 +36,58 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1")
 @RequiredArgsConstructor
+@Validated
 public class ProgramController {
 
     private final ProgramService programService;
 
     @GetMapping("/programs")
-    public Page<ProgramSummaryResponseDto> getPublicPrograms(
+    public ResponseEntity<Page<ProgramSummaryResponseDto>> getPublicPrograms(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) EngagementType engagementType,
             @RequestParam(required = false) Boolean offersBounties,
+            @RequestParam(required = false)
+            @Size(max = 100)
+            String q,
+            @RequestParam(required = false)
+            @DecimalMin("0.0")
+            BigDecimal minimumBounty,
+            @RequestParam(required = false)
+            @DecimalMin("0.0")
+            BigDecimal maximumBounty,
+            @RequestParam(required = false) AssetType assetType,
+            @RequestParam(required = false) Severity maxSeverity,
+            @RequestParam(required = false) Industry industry,
+            @RequestParam(required = false)
+            @Size(max = 100)
+            String country,
             @PageableDefault(
                     size = 20,
-                    sort = "createdAt",
+                    sort = "publishedAt",
                     direction = Sort.Direction.DESC
             )
             @ParameterObject
             Pageable pageable
     ) {
-        return programService.getPublicPrograms(
+        return ListingCache.publicListing(programService.getPublicPrograms(
                 organizationId,
                 engagementType,
                 offersBounties,
+                q,
+                minimumBounty,
+                maximumBounty,
+                assetType,
+                maxSeverity,
+                industry,
+                country,
                 pageable
-        );
+        ));
     }
 
     @GetMapping("/programs/{id}")
@@ -69,6 +102,13 @@ public class ProgramController {
             @PathVariable String handle
     ) {
         return programService.getPublicProgramByHandle(handle);
+    }
+
+    @PostMapping("/programs/{id}/views")
+    public ProgramViewCountResponseDto incrementViewCount(
+            @PathVariable UUID id
+    ) {
+        return programService.incrementViewCount(id);
     }
 
     @GetMapping("/programs/{id}/updates")

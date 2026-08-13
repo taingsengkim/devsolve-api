@@ -15,8 +15,8 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationReviewDecision;
-import kh.edu.istad.ite.devsoleapi.feature.program.ProgramMapper;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationStatsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
@@ -90,7 +90,7 @@ class OrganizationServiceImplTest {
     private ProgramRepository programRepository;
 
     @Mock
-    private ProgramMapper programMapper;
+    private ProgramService programService;
 
     @Mock
     private ReportRepository reportRepository;
@@ -717,7 +717,7 @@ class OrganizationServiceImplTest {
                 reviewHistoryRepository,
                 eventPublisher,
                 programRepository,
-                programMapper,
+                programService,
                 reportRepository,
                 reportRewardRepository
         );

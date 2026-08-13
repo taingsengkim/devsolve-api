@@ -866,7 +866,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         // A repeat view inside the window still answers with the current
         // count, so the client cannot tell the difference and does not need
         // to. Only the increment is skipped.
-        if (!viewCountGuard.shouldCount(showcaseId)) {
+        if (!viewCountGuard.shouldCount("showcase", showcaseId)) {
             Integer current = showCaseRepository
                     .findViewCountById(showcaseId);
             if (current == null) {

@@ -637,7 +637,7 @@ public class ProblemServiceImpl implements ProblemService {
         // Counted once per viewer per window. The endpoint still succeeds on
         // a repeat view — the caller is reporting a page load, not asking for
         // a number, and failing it would only teach clients to retry.
-        if (!viewCountGuard.shouldCount(id)) {
+        if (!viewCountGuard.shouldCount("problem", id)) {
             return;
         }
         if (problemRepository.incrementPublicViewCount(id) == 0) {

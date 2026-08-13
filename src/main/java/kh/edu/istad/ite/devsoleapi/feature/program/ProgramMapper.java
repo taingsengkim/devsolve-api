@@ -133,6 +133,8 @@ public class ProgramMapper {
                 program.getRewards().stream()
                         .map(this::toRewardResponse)
                         .toList(),
+                program.getViewCount(),
+                program.getPublishedAt(),
                 program.getCreatedAt(),
                 program.getUpdatedAt()
         );
@@ -141,7 +143,9 @@ public class ProgramMapper {
     public ProgramSummaryResponseDto toSummaryDto(
             Program program,
             Organization organization,
-            List<ProgramAsset> inScopeAssets
+            List<ProgramAsset> inScopeAssets,
+            long followerCount,
+            long totalSubmissions
     ) {
         return new ProgramSummaryResponseDto(
                 program.getId(),
@@ -156,6 +160,11 @@ public class ProgramMapper {
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
                 toInScopeAssetResponses(inScopeAssets),
+                program.getViewCount(),
+                followerCount,
+                totalSubmissions,
+                program.getPublishedAt(),
+                program.getCreatedAt(),
                 program.getUpdatedAt()
         );
     }
@@ -165,7 +174,8 @@ public class ProgramMapper {
             Organization organization,
             List<ProgramAsset> assets,
             long totalResearchers,
-            long totalSubmissions
+            long totalSubmissions,
+            long followerCount
     ) {
         return new PublicProgramResponseDto(
                 program.getId(),
@@ -190,8 +200,11 @@ public class ProgramMapper {
                 program.getRewards().stream()
                         .map(this::toRewardResponse)
                         .toList(),
+                program.getViewCount(),
+                followerCount,
                 totalResearchers,
                 totalSubmissions,
+                program.getPublishedAt(),
                 program.getCreatedAt(),
                 program.getUpdatedAt()
         );
