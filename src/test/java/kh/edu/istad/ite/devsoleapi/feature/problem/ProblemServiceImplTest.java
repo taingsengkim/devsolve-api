@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -50,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anySet;
@@ -89,6 +91,8 @@ class ProblemServiceImplTest {
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
     @Mock
     private SolutionRepository solutionRepository;
+    @Mock
+    private ViewCountGuard viewCountGuard;
 
     private ProblemServiceImpl service;
 
@@ -110,8 +114,13 @@ class ProblemServiceImplTest {
                 followNotificationService,
                 eventPublisher,
                 new TagResolver(tagRepository),
-                solutionRepository
+                solutionRepository,
+                viewCountGuard
         );
+        // Every view counts unless a test says otherwise; the dedup window is
+        // covered by ViewCountGuard's own test.
+        lenient().when(viewCountGuard.shouldCount(any(UUID.class)))
+                .thenReturn(true);
         lenient().when(contentSafety.normalizeText(any(String.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(problemRepository.saveAndFlush(any(Problem.class)))
@@ -604,6 +613,9 @@ class ProblemServiceImplTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
+                anyBoolean(),
                 any(Pageable.class)
         )).thenReturn(new PageImpl<>(List.of(first, second)));
         stubResponseDependencies(first, authorId);
@@ -612,6 +624,10 @@ class ProblemServiceImplTest {
                 null,
                 null,
                 null,
+                null,
+                null,
+                null,
+                false,
                 null,
                 PageRequest.of(0, 20)
         );

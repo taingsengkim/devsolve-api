@@ -1,6 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
+import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewQueueItemResponse;
@@ -46,11 +49,14 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
@@ -103,6 +109,9 @@ class ShowCasesServiceImplTest {
     @Mock
     private ShowcaseCommentCounts showcaseCommentCounts;
 
+    @Mock
+    private ViewCountGuard viewCountGuard;
+
     private ShowCasesServiceImpl service;
 
     @BeforeEach
@@ -121,8 +130,14 @@ class ShowCasesServiceImplTest {
                 eventPublisher,
                 imageStorageService,
                 showcaseTagService,
-                showcaseCommentCounts
+                showcaseCommentCounts,
+                viewCountGuard
         );
+
+        // Every view counts unless a test says otherwise; the dedup window is
+        // covered by ViewCountGuard's own test.
+        lenient().when(viewCountGuard.shouldCount(any(UUID.class)))
+                .thenReturn(true);
 
         // Comment counts are filled in after mapping and are covered by their
         // own test; here the enricher just has to hand back what it was given,
@@ -209,118 +224,156 @@ class ShowCasesServiceImplTest {
     }
 
     @Test
-    void getAllPublishedAppliesSearchFilterAndWhitelistedSort() {
+    void getAllPublishedSendsEveryFilterToTheOneQuery() {
         UUID categoryId = UUID.randomUUID();
         ShowCases showcase = new ShowCases();
         showcase.setId(UUID.randomUUID());
-        ShowCasesResponse response = ShowCasesResponse.builder()
+        ShowCasesSummaryResponse response = ShowCasesSummaryResponse.builder()
                 .id(showcase.getId())
                 .build();
-        ArgumentCaptor<Pageable> pageableCaptor =
-                ArgumentCaptor.forClass(Pageable.class);
 
         when(showCasesRepository.searchPublished(
                 eq(ReviewStatus.APPROVED),
                 eq("%traffic%"),
                 eq(categoryId),
+                eq("spring-boot"),
                 any(Pageable.class)
         )).thenReturn(new PageImpl<>(List.of(showcase)));
-        when(showCasesMapper.mapShowCaseToShowCaseResponse(
+        when(showCasesMapper.mapShowCaseToSummaryResponse(
                 showcase,
                 List.of()
         )).thenReturn(response);
 
-        Page<ShowCasesResponse> result =
-                service.getAllPublished(
-                        "  traffic  ",
-                        categoryId,
-                        "viewCount",
-                        "asc",
-                        1,
-                        10
-                );
+        Page<ShowCasesSummaryResponse> result = service.getAllPublished(
+                "  TRAFFIC  ",
+                categoryId,
+                "Spring-Boot",
+                ListingSort.NEWEST,
+                1,
+                10
+        );
 
         assertEquals(List.of(response), result.getContent());
+    }
+
+    @Test
+    void anAbsentOrBlankSearchBecomesNoFilterRatherThanAnotherQuery() {
+        UUID categoryId = UUID.randomUUID();
+        when(showCasesRepository.searchPublished(
+                eq(ReviewStatus.APPROVED),
+                isNull(),
+                eq(categoryId),
+                isNull(),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        service.getAllPublished("   ", categoryId, null, null, 0, 20);
+
         verify(showCasesRepository).searchPublished(
                 eq(ReviewStatus.APPROVED),
-                eq("%traffic%"),
+                isNull(),
                 eq(categoryId),
+                isNull(),
+                any(Pageable.class)
+        );
+    }
+
+    @Test
+    void listingSortsAreBrokenTiedOnIdSoPagesCannotRepeat() {
+        ArgumentCaptor<Pageable> pageableCaptor =
+                ArgumentCaptor.forClass(Pageable.class);
+        when(showCasesRepository.searchPublished(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        service.getAllPublished(
+                null,
+                null,
+                null,
+                ListingSort.MOST_VIEWED,
+                0,
+                20
+        );
+
+        verify(showCasesRepository).searchPublished(
+                any(),
+                any(),
+                any(),
+                any(),
                 pageableCaptor.capture()
         );
-        Pageable pageable = pageableCaptor.getValue();
-        assertEquals(1, pageable.getPageNumber());
-        assertEquals(10, pageable.getPageSize());
+        Sort sort = pageableCaptor.getValue().getSort();
         assertEquals(
-                Sort.Direction.ASC,
-                pageable.getSort()
-                        .getOrderFor("viewCount")
-                        .getDirection()
+                Sort.Direction.DESC,
+                sort.getOrderFor("viewCount").getDirection()
+        );
+        assertNotNull(
+                sort.getOrderFor("id"),
+                "without the id, two showcases sharing a view count have no "
+                        + "defined order across a page boundary"
         );
     }
 
     @Test
-    void getAllPublishedWithoutSearchDoesNotUseLikeQuery() {
-        when(showCasesRepository
-                .findByReviewStatusAndDeletedAtIsNull(
-                        eq(ReviewStatus.APPROVED),
-                        any(Pageable.class)
-                )).thenReturn(Page.empty());
+    void topSortGoesThroughTheScoredQueryWithNoWindow() {
+        when(showCasesRepository.searchPublishedByScore(
+                eq(ReviewStatus.APPROVED),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq(VoteType.SHOWCASE),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
 
-        Page<ShowCasesResponse> result = service.getAllPublished(
-                null,
-                null,
-                "createdAt",
-                "DESC",
-                0,
-                20
-        );
+        service.getAllPublished(null, null, null, ListingSort.TOP, 0, 20);
 
-        assertEquals(0, result.getTotalElements());
-        verify(showCasesRepository)
-                .findByReviewStatusAndDeletedAtIsNull(
-                        eq(ReviewStatus.APPROVED),
-                        any(Pageable.class)
-                );
-        verify(showCasesRepository, never()).searchPublished(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()
+        verify(showCasesRepository).searchPublishedByScore(
+                eq(ReviewStatus.APPROVED),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq(VoteType.SHOWCASE),
+                any(Pageable.class)
         );
     }
 
     @Test
-    void getAllPublishedWithBlankSearchStillFiltersByCategory() {
-        UUID categoryId = UUID.randomUUID();
-        when(showCasesRepository
-                .findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
-                        eq(ReviewStatus.APPROVED),
-                        eq(categoryId),
-                        any(Pageable.class)
-                )).thenReturn(Page.empty());
+    void trendingSortRestrictsTheScoredQueryToARecentWindow() {
+        ArgumentCaptor<LocalDateTime> sinceCaptor =
+                ArgumentCaptor.forClass(LocalDateTime.class);
+        when(showCasesRepository.searchPublishedByScore(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
 
-        Page<ShowCasesResponse> result = service.getAllPublished(
-                "   ",
-                categoryId,
-                "createdAt",
-                "DESC",
-                0,
-                20
-        );
+        service.getAllPublished(null, null, null, ListingSort.TRENDING, 0, 20);
 
-        assertEquals(0, result.getTotalElements());
-        verify(showCasesRepository)
-                .findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
-                        eq(ReviewStatus.APPROVED),
-                        eq(categoryId),
-                        any(Pageable.class)
-                );
-        verify(showCasesRepository, never()).searchPublished(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()
+        verify(showCasesRepository).searchPublishedByScore(
+                any(),
+                any(),
+                any(),
+                any(),
+                sinceCaptor.capture(),
+                any(),
+                any(Pageable.class)
         );
+        assertNotNull(
+                sinceCaptor.getValue(),
+                "trending without a window is just top, and freezes around "
+                        + "whatever won first"
+        );
+        assertTrue(sinceCaptor.getValue().isBefore(LocalDateTime.now()));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
+import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.category.Category;
@@ -25,6 +27,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepMapper;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -66,61 +69,76 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ImageStorageService imageStorageService;
     private final ShowcaseTagService showcaseTagService;
     private final ShowcaseCommentCounts showcaseCommentCounts;
+    private final ViewCountGuard viewCountGuard;
 
     @Override
-    public Page<ShowCasesResponse> getAllPublished(
+    @Transactional(readOnly = true)
+    public Page<ShowCasesSummaryResponse> getAllPublished(
             String query,
             UUID categoryId,
-            String sortBy,
-            String sortDirection,
+            String tag,
+            ListingSort sort,
             int pageNumber,
             int pageSize
     ) {
         validatePagination(pageNumber, pageSize);
 
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(
-                        parseSortDirection(sortDirection),
-                        validatePublishedSortProperty(sortBy)
-                )
-        );
+        ListingSort effectiveSort = sort == null ? ListingSort.NEWEST : sort;
+        String queryPattern = containsPattern(normalizeQuery(query));
+        String tagSlug = normalizeQuery(tag);
 
-        String normalizedQuery = normalizeQuery(query);
-        Page<ShowCases> showcases;
-        if (normalizedQuery == null) {
-            showcases = categoryId == null
-                    ? showCaseRepository
-                            .findByReviewStatusAndDeletedAtIsNull(
-                                    ReviewStatus.APPROVED,
-                                    pageable
-                            )
-                    : showCaseRepository
-                            .findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
-                                    ReviewStatus.APPROVED,
-                                    categoryId,
-                                    pageable
-                            );
-        } else {
-            showcases = showCaseRepository.searchPublished(
+        // One query shape for every filter combination. The old code branched
+        // between three repository methods depending on which filters were
+        // present, which is why adding a fourth filter meant adding branches
+        // rather than a parameter.
+        Page<ShowCases> showcases = effectiveSort.isScoreOrdered()
+                ? showCaseRepository.searchPublishedByScore(
                         ReviewStatus.APPROVED,
-                        containsPattern(normalizedQuery),
+                        queryPattern,
                         categoryId,
-                        pageable
+                        tagSlug,
+                        effectiveSort.windowStart(),
+                        VoteType.SHOWCASE,
+                        PageRequest.of(pageNumber, pageSize)
+                )
+                : showCaseRepository.searchPublished(
+                        ReviewStatus.APPROVED,
+                        queryPattern,
+                        categoryId,
+                        tagSlug,
+                        PageRequest.of(pageNumber, pageSize, columnSort(
+                                effectiveSort
+                        ))
                 );
-        }
+
         Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
                 showcaseTagService.tagsOfShowcases(idsOf(showcases));
 
-        return showcaseCommentCounts.applyToDetails(showcases.map(showcase ->
-                showCasesMapper.mapShowCaseToShowCaseResponse(
+        return showcaseCommentCounts.applyToSummaries(showcases.map(showcase ->
+                showCasesMapper.mapShowCaseToSummaryResponse(
                         showcase,
                         tagsByShowcaseId.getOrDefault(
                                 showcase.getId(),
                                 List.of()
                         )
                 )));
+    }
+
+    /**
+     * The orderings a showcase row can express by itself, always with the id
+     * as a final tiebreaker. Without it two showcases created in the same
+     * instant have no defined order, and an offset page boundary landing
+     * between them shows one twice and drops the other.
+     */
+    private Sort columnSort(ListingSort sort) {
+        Sort primary = switch (sort) {
+            case OLDEST -> Sort.by(Sort.Direction.ASC, "createdAt");
+            case MOST_VIEWED -> Sort.by(Sort.Direction.DESC, "viewCount")
+                    .and(Sort.by(Sort.Direction.DESC, "createdAt"));
+            case TITLE -> Sort.by(Sort.Direction.ASC, "title");
+            default -> Sort.by(Sort.Direction.DESC, "createdAt");
+        };
+        return primary.and(Sort.by(Sort.Direction.DESC, "id"));
     }
 
     private List<UUID> idsOf(Page<ShowCases> showcases) {
@@ -142,6 +160,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 pageNumber,
                 pageSize,
                 Sort.by(Sort.Direction.DESC, "createdAt")
+                        .and(Sort.by(Sort.Direction.DESC, "id"))
         );
 
         Page<ShowCases> showcases = showCaseRepository
@@ -220,10 +239,11 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                         PageRequest.of(
                                 pageNumber,
                                 pageSize,
-                                Sort.by(
-                                        Sort.Direction.DESC,
-                                        "createdAt"
-                                )
+                                Sort.by(Sort.Direction.DESC, "createdAt")
+                                        .and(Sort.by(
+                                                Sort.Direction.DESC,
+                                                "id"
+                                        ))
                         )
                 );
 
@@ -843,6 +863,21 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     public ShowcaseViewCountResponse incrementViewCount(
             UUID showcaseId
     ) {
+        // A repeat view inside the window still answers with the current
+        // count, so the client cannot tell the difference and does not need
+        // to. Only the increment is skipped.
+        if (!viewCountGuard.shouldCount(showcaseId)) {
+            Integer current = showCaseRepository
+                    .findViewCountById(showcaseId);
+            if (current == null) {
+                throw new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Showcase not found."
+                );
+            }
+            return new ShowcaseViewCountResponse(showcaseId, current);
+        }
+
         int updated = showCaseRepository.incrementViewCount(
                 showcaseId,
                 ReviewStatus.APPROVED
@@ -1322,47 +1357,12 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         return query.trim().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Null in, null out: the query treats a null pattern as "no text filter"
+     * rather than making the caller pick a different repository method.
+     */
     private String containsPattern(String normalizedQuery) {
-        return "%" + normalizedQuery + "%";
-    }
-
-    private String validatePublishedSortProperty(String sortBy) {
-        String property = sortBy == null || sortBy.isBlank()
-                ? "createdAt"
-                : sortBy.trim();
-        Set<String> allowedProperties = Set.of(
-                "createdAt",
-                "updatedAt",
-                "viewCount",
-                "title"
-        );
-
-        if (!allowedProperties.contains(property)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "sortBy must be createdAt, updatedAt, "
-                            + "viewCount, or title."
-            );
-        }
-        return property;
-    }
-
-    private Sort.Direction parseSortDirection(
-            String sortDirection
-    ) {
-        String direction = sortDirection == null
-                ? "DESC"
-                : sortDirection.trim().toUpperCase(Locale.ROOT);
-
-        try {
-            return Sort.Direction.valueOf(direction);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "sortDirection must be ASC or DESC.",
-                    exception
-            );
-        }
+        return normalizedQuery == null ? null : "%" + normalizedQuery + "%";
     }
 
     private UUID extractCurrentUserId() {
