@@ -240,7 +240,8 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/organizations/slug/**",
-                        "/api/v1/organizations/*"
+                        "/api/v1/organizations/*",
+                        "/api/v1/organizations/{id}/programs"
                 ).permitAll()
                 .requestMatchers("/api/v1/organizations/**").authenticated()
                 // Admin flag moderation endpoints
