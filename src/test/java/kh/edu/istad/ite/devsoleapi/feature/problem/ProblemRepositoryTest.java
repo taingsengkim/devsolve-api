@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import jakarta.persistence.EntityManager;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -33,13 +34,7 @@ class ProblemRepositoryTest {
         Problem published = saveProblem(ProblemStatus.PUBLISHED);
         saveProblem(ProblemStatus.DRAFT);
 
-        Page<Problem> result = problemRepository.findPublished(
-                null,
-                null,
-                null,
-                null,
-                PageRequest.of(0, 20)
-        );
+        Page<Problem> result = listAll();
 
         assertEquals(1, result.getTotalElements());
         assertEquals(published.getId(), result.getContent().getFirst().getId());
@@ -59,10 +54,106 @@ class ProblemRepositoryTest {
                 null,
                 null,
                 "node.js",
+                null,
+                null,
+                false,
                 PageRequest.of(0, 20)
         );
 
         assertEquals(1, result.getTotalElements());
+        assertEquals(published.getId(), result.getContent().getFirst().getId());
+    }
+
+    @Test
+    void searchesTitleAndDescriptionCaseInsensitively() {
+        Problem matching = saveProblem(
+                ProblemStatus.PUBLISHED,
+                "Flyway Migration Keeps Failing",
+                "The Checksum Does Not Match On Redeploy"
+        );
+        saveProblem(
+                ProblemStatus.PUBLISHED,
+                "Unrelated title",
+                "Unrelated description"
+        );
+
+        // The caller lowercases the pattern; the query lowercases the column.
+        // Between them a lowercase search finds text stored in any case,
+        // which is the half of the contract that lives here.
+        assertEquals(
+                matching.getId(),
+                search("%flyway%").getContent().getFirst().getId()
+        );
+        assertEquals(
+                matching.getId(),
+                search("%checksum%").getContent().getFirst().getId(),
+                "description has to be searched too, not just the title"
+        );
+        assertEquals(0, search("%nothing matches this%").getTotalElements());
+    }
+
+    @Test
+    void statusFilterNarrowsWithinThePublicStatuses() {
+        saveProblem(ProblemStatus.PUBLISHED);
+        Problem resolved = saveProblem(ProblemStatus.RESOLVED);
+
+        Page<Problem> result = problemRepository.findPublished(
+                null,
+                null,
+                null,
+                null,
+                null,
+                ProblemStatus.RESOLVED,
+                false,
+                PageRequest.of(0, 20)
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(resolved.getId(), result.getContent().getFirst().getId());
+    }
+
+    @Test
+    void unansweredFilterKeepsProblemsWithNoPublishedSolution() {
+        Problem published = saveProblem(ProblemStatus.PUBLISHED);
+
+        Page<Problem> result = problemRepository.findPublished(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                true,
+                PageRequest.of(0, 20)
+        );
+
+        assertEquals(1, result.getTotalElements());
+        assertEquals(published.getId(), result.getContent().getFirst().getId());
+    }
+
+    @Test
+    void scoreOrderedListingRunsAndKeepsUnvotedProblems() {
+        Problem published = saveProblem(ProblemStatus.PUBLISHED);
+
+        Page<Problem> result = problemRepository.findPublishedByScore(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                VoteType.PROBLEM,
+                PageRequest.of(0, 20)
+        );
+
+        assertEquals(
+                1,
+                result.getTotalElements(),
+                "a problem nobody voted on scores zero rather than dropping "
+                        + "out of the ordering"
+        );
         assertEquals(published.getId(), result.getContent().getFirst().getId());
     }
 
@@ -94,13 +185,52 @@ class ProblemRepositoryTest {
         assertEquals(1L, updated.getViewCount());
     }
 
+    private Page<Problem> listAll() {
+        return problemRepository.findPublished(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                PageRequest.of(0, 20)
+        );
+    }
+
+    private Page<Problem> search(String pattern) {
+        return problemRepository.findPublished(
+                null,
+                null,
+                null,
+                null,
+                pattern,
+                null,
+                false,
+                PageRequest.of(0, 20)
+        );
+    }
+
     private Problem saveProblem(ProblemStatus status) {
+        return saveProblem(
+                status,
+                "A valid repository test title",
+                "A valid repository test description"
+        );
+    }
+
+    private Problem saveProblem(
+            ProblemStatus status,
+            String title,
+            String description
+    ) {
         return problemRepository.saveAndFlush(Problem.builder()
                 .authorId(UUID.randomUUID())
                 .categoryId(UUID.randomUUID())
-                .title("A valid repository test title")
-                .description("A valid repository test description")
+                .title(title)
+                .description(description)
                 .status(status)
+                .publishedAt(Instant.now())
                 .build());
     }
 }

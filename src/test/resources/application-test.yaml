@@ -11,7 +11,8 @@ spring:
 
   sql:
     init:
-      mode: never
+      mode: always
+      schema-locations: classpath:schema-test.sql
 
   security:
     oauth2:

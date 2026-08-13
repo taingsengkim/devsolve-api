@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
@@ -15,11 +16,16 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.UUID;
 
 public interface ShowCasesService {
-    Page<ShowCasesResponse> getAllPublished(
+    /**
+     * The public feed. Returns the summary shape rather than the detail one:
+     * a list never has steps to show, and sending the detail record meant
+     * every card carried a {@code steps} field that was always null.
+     */
+    Page<ShowCasesSummaryResponse> getAllPublished(
             String query,
             UUID categoryId,
-            String sortBy,
-            String sortDirection,
+            String tag,
+            ListingSort sort,
             int pageNumber,
             int pageSize
     );

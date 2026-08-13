@@ -1,9 +1,12 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import jakarta.validation.Valid;
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingCache;
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -40,12 +43,25 @@ public class ProblemController {
 
     private final ProblemService problemService;
 
+    /**
+     * @param q              searches title and description
+     * @param unansweredOnly the queue of problems nobody has published a
+     *                       solution to yet — the view somebody looking to
+     *                       help actually wants
+     * @param sort           {@code TOP} and {@code TRENDING} order by vote
+     *                       score and override the {@code sort} on the
+     *                       pageable
+     */
     @GetMapping
-    public Page<ProblemResponse> findPublished(
+    public ResponseEntity<Page<ProblemResponse>> findPublished(
             @RequestParam(required = false) UUID categoryId,
             @RequestParam(required = false) SdlcPhase sdlcPhase,
             @RequestParam(required = false) String tag,
             @RequestParam(required = false) String technology,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) ProblemStatus status,
+            @RequestParam(defaultValue = "false") boolean unansweredOnly,
+            @RequestParam(required = false) ListingSort sort,
             @PageableDefault(
                     size = 20,
                     sort = "publishedAt",
@@ -54,13 +70,17 @@ public class ProblemController {
             @ParameterObject
             Pageable pageable
     ) {
-        return problemService.findPublished(
+        return ListingCache.publicListing(problemService.findPublished(
                 categoryId,
                 sdlcPhase,
                 tag,
                 technology,
+                q,
+                status,
+                unansweredOnly,
+                sort,
                 pageable
-        );
+        ));
     }
 
     @GetMapping("/mine")

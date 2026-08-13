@@ -13,13 +13,23 @@ import org.springframework.web.multipart.MultipartFile;
 import java.net.URI;
 import java.util.UUID;
 
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
+
 public interface ProblemService {
 
+    /**
+     * @param sort when it orders by score the caller's {@code pageable} sort
+     *             is ignored, because the ordering comes from the query
+     */
     Page<ProblemResponse> findPublished(
             UUID categoryId,
             SdlcPhase sdlcPhase,
             String tag,
             String technology,
+            String query,
+            ProblemStatus status,
+            boolean unansweredOnly,
+            ListingSort sort,
             Pageable pageable
     );
 

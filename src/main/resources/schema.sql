@@ -1026,3 +1026,75 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Search on both public feeds is LOWER(col) LIKE '%term%'. A leading wildcard
+-- makes a B-tree index useless, so every search was a sequential scan over
+-- title, overview and description — the cost of which grows with the platform
+-- while the query looks unchanged.
+--
+-- pg_trgm indexes trigrams rather than prefixes, which is the one index type
+-- that can serve a leading wildcard. The indexes are on LOWER(col) because
+-- that is what the queries compare; an index on the bare column would be
+-- ignored.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'
+    ) THEN
+        CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    END IF;
+END
+$$^^^
+
+
+DO $$
+BEGIN
+    IF to_regclass('public.showcases') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_showcases_title_trgm
+            ON public.showcases
+            USING gin (LOWER(title) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_showcases_overview_trgm
+            ON public.showcases
+            USING gin (LOWER(overview) gin_trgm_ops);
+
+        -- The feed always filters on review status and orders by recency;
+        -- keeping both in one index lets the common listing skip the sort.
+        CREATE INDEX IF NOT EXISTS idx_showcases_status_created
+            ON public.showcases (review_status, created_at DESC, id DESC)
+            WHERE deleted_at IS NULL;
+    END IF;
+END
+$$^^^
+
+
+DO $$
+BEGIN
+    IF to_regclass('public.problems') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_problems_title_trgm
+            ON public.problems
+            USING gin (LOWER(title) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_problems_description_trgm
+            ON public.problems
+            USING gin (LOWER(description) gin_trgm_ops);
+
+        CREATE INDEX IF NOT EXISTS idx_problems_status_published
+            ON public.problems (status, published_at DESC, id DESC);
+    END IF;
+END
+$$^^^
+
+
+-- The user profile name is searched as part of the showcase feed, through the
+-- join to the author.
+DO $$
+BEGIN
+    IF to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_user_profiles_full_name_trgm
+            ON public.user_profiles
+            USING gin (LOWER(full_name) gin_trgm_ops);
+    END IF;
+END
+$$^^^

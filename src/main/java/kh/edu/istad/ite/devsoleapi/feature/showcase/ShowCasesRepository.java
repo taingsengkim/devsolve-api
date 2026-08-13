@@ -1,12 +1,15 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -19,17 +22,21 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
      */
     long countByCategory_Id(UUID categoryId);
 
-    Page<ShowCases> findByReviewStatusAndDeletedAtIsNull(
-            ReviewStatus reviewStatus,
-            Pageable pageable
-    );
-
-    Page<ShowCases> findByReviewStatusAndCategory_IdAndDeletedAtIsNull(
-            ReviewStatus reviewStatus,
-            UUID categoryId,
-            Pageable pageable
-    );
-
+    /**
+     * The public listing: every filter optional, so one query serves the whole
+     * feed instead of a branch per combination.
+     *
+     * <p>{@code author} and {@code category} are eager {@code @ManyToOne}s and
+     * the mapper reads a field from each, so without the entity graph a page
+     * of twenty costs a secondary select per row. The graph turns those into
+     * joins on the query that was already running.
+     *
+     * @param queryPattern already lowercased and wrapped in wildcards, or null
+     *                     for no text filter. The leading wildcard means this
+     *                     only performs because of the trigram indexes in
+     *                     schema.sql; a plain B-tree cannot serve it.
+     */
+    @EntityGraph(attributePaths = {"author", "category"})
     @Query("""
             SELECT showcase
             FROM ShowCases showcase
@@ -40,27 +47,95 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
                     OR showcase.category.id = :categoryId
               )
               AND (
-                    LOWER(showcase.title)
-                        LIKE :queryPattern
-                    OR LOWER(showcase.overview)
-                        LIKE :queryPattern
-                    OR LOWER(showcase.author.fullName)
-                        LIKE :queryPattern
+                    :queryPattern IS NULL
+                    OR LOWER(showcase.title) LIKE :queryPattern
+                    OR LOWER(showcase.overview) LIKE :queryPattern
+                    OR LOWER(showcase.author.fullName) LIKE :queryPattern
+              )
+              AND (
+                    :tagSlug IS NULL
+                    OR EXISTS (
+                        SELECT showcaseTag.id
+                        FROM ShowcaseTag showcaseTag
+                        WHERE showcaseTag.showcase = showcase
+                          AND showcaseTag.tag.slug = :tagSlug
+                    )
               )
             """)
     Page<ShowCases> searchPublished(
             @Param("reviewStatus") ReviewStatus reviewStatus,
             @Param("queryPattern") String queryPattern,
             @Param("categoryId") UUID categoryId,
+            @Param("tagSlug") String tagSlug,
             Pageable pageable
     );
 
+    /**
+     * The same listing ordered by vote score, which the showcase row cannot
+     * express on its own because scores live in the votes table.
+     *
+     * <p>The score is a scalar subquery in the ORDER BY rather than an
+     * aggregate join: an aggregate would need a GROUP BY that fights the
+     * entity graph's fetch joins, and a page of this size does not justify
+     * the fight. It costs one index lookup per candidate row against
+     * idx_votes_votable.
+     *
+     * @param since when set, restricts to showcases published after it —
+     *              "best this month" rather than "best ever", which is what
+     *              keeps a trending feed from freezing solid around whatever
+     *              won in its first week.
+     */
+    @EntityGraph(attributePaths = {"author", "category"})
+    @Query("""
+            SELECT showcase
+            FROM ShowCases showcase
+            WHERE showcase.reviewStatus = :reviewStatus
+              AND showcase.deletedAt IS NULL
+              AND (
+                    :categoryId IS NULL
+                    OR showcase.category.id = :categoryId
+              )
+              AND (
+                    :queryPattern IS NULL
+                    OR LOWER(showcase.title) LIKE :queryPattern
+                    OR LOWER(showcase.overview) LIKE :queryPattern
+                    OR LOWER(showcase.author.fullName) LIKE :queryPattern
+              )
+              AND (
+                    :tagSlug IS NULL
+                    OR EXISTS (
+                        SELECT showcaseTag.id
+                        FROM ShowcaseTag showcaseTag
+                        WHERE showcaseTag.showcase = showcase
+                          AND showcaseTag.tag.slug = :tagSlug
+                    )
+              )
+              AND (:since IS NULL OR showcase.createdAt >= :since)
+            ORDER BY (
+                SELECT COALESCE(SUM(vote.voteValue), 0)
+                FROM Vote vote
+                WHERE vote.votableType = :voteType
+                  AND vote.votableId = showcase.id
+            ) DESC, showcase.createdAt DESC, showcase.id DESC
+            """)
+    Page<ShowCases> searchPublishedByScore(
+            @Param("reviewStatus") ReviewStatus reviewStatus,
+            @Param("queryPattern") String queryPattern,
+            @Param("categoryId") UUID categoryId,
+            @Param("tagSlug") String tagSlug,
+            @Param("since") LocalDateTime since,
+            @Param("voteType") VoteType voteType,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {"author", "category"})
     Page<ShowCases> findByAuthor_IdAndReviewStatusAndDeletedAtIsNull(
             UUID authorId,
             ReviewStatus reviewStatus,
             Pageable pageable
     );
 
+    @EntityGraph(attributePaths = {"author", "category"})
     Page<ShowCases> findByAuthor_IdAndDeletedAtIsNull(
             UUID authorId,
             Pageable pageable
@@ -198,6 +273,7 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
     )
     long countReviewQueue(@Param("reviewStatus") String reviewStatus);
 
+    @EntityGraph(attributePaths = {"author", "category"})
     Optional<ShowCases> findByIdAndDeletedAtIsNull(
             UUID id
     );

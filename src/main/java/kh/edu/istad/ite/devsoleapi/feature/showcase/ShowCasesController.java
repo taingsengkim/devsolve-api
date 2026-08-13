@@ -10,10 +10,13 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseViewCountRespons
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingCache;
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,19 +29,25 @@ public class ShowCasesController {
     private final ShowCasesService service;
 
 
+    /**
+     * The public feed. {@code sortBy}/{@code sortDirection} were replaced by a
+     * single {@code sort}: direction was only ever meaningful for two of the
+     * four properties, and score-ordered listings have no column to point a
+     * direction at.
+     */
     @GetMapping
-    public Page<ShowCasesResponse> getAll(
+    public ResponseEntity<Page<ShowCasesSummaryResponse>> getAll(
             @RequestParam(required = false)
             String query,
 
             @RequestParam(required = false)
             UUID categoryId,
 
-            @RequestParam(defaultValue = "createdAt")
-            String sortBy,
+            @RequestParam(required = false)
+            String tag,
 
-            @RequestParam(defaultValue = "DESC")
-            String sortDirection,
+            @RequestParam(required = false)
+            ListingSort sort,
 
             @RequestParam(defaultValue = "0")
             @Min(value = 0, message = "pageNumber must be >= 0")
@@ -49,14 +58,14 @@ public class ShowCasesController {
             @Max(value = 100, message = "pageSize must be <= 100")
             int pageSize
     ) {
-        return service.getAllPublished(
+        return ListingCache.publicListing(service.getAllPublished(
                 query,
                 categoryId,
-                sortBy,
-                sortDirection,
+                tag,
+                sort,
                 pageNumber,
                 pageSize
-        );
+        ));
     }
 
     @GetMapping("/mine")

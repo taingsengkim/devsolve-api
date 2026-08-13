@@ -2,6 +2,8 @@ package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
+import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
@@ -30,10 +32,13 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagResolver;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -50,6 +55,8 @@ import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -123,6 +130,7 @@ public class ProblemServiceImpl implements ProblemService {
     private final ApplicationEventPublisher eventPublisher;
     private final TagResolver tagResolver;
     private final SolutionRepository solutionRepository;
+    private final ViewCountGuard viewCountGuard;
 
     @Autowired(required = false)
     private ProblemResponseEnricher responseEnricher;
@@ -134,24 +142,99 @@ public class ProblemServiceImpl implements ProblemService {
             SdlcPhase sdlcPhase,
             String tag,
             String technology,
+            String query,
+            ProblemStatus status,
+            boolean unansweredOnly,
+            ListingSort sort,
             Pageable pageable
     ) {
-        Pageable validatedPageable = PageableValidator.requireAllowedSort(
-                pageable,
-                PROBLEM_SORT_PROPERTIES
-        );
         String tagSlug = tag == null ? null : normalizeSlug(tag);
         String technologyName = trimToNull(technology);
         if (technologyName != null) {
             technologyName = technologyName.toLowerCase(Locale.ROOT);
         }
+        String queryPattern = containsPattern(query);
+        ProblemStatus publicStatus = requirePublicStatus(status);
+        ListingSort effectiveSort = sort == null ? ListingSort.NEWEST : sort;
+
+        if (effectiveSort.isScoreOrdered()) {
+            // The ordering is fixed by the query, so the caller's sort is
+            // dropped rather than silently fighting the ORDER BY.
+            LocalDateTime window = effectiveSort.windowStart();
+            return toResponses(problemRepository.findPublishedByScore(
+                    categoryId,
+                    sdlcPhase,
+                    tagSlug,
+                    technologyName,
+                    queryPattern,
+                    publicStatus,
+                    unansweredOnly,
+                    window == null
+                            ? null
+                            : window.atZone(ZoneOffset.UTC).toInstant(),
+                    VoteType.PROBLEM,
+                    PageRequest.of(
+                            pageable.getPageNumber(),
+                            pageable.getPageSize()
+                    )
+            ));
+        }
+
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                PROBLEM_SORT_PROPERTIES
+        );
         return toResponses(problemRepository.findPublished(
                 categoryId,
                 sdlcPhase,
                 tagSlug,
                 technologyName,
-                validatedPageable
+                queryPattern,
+                publicStatus,
+                unansweredOnly,
+                stabilize(validatedPageable)
         ));
+    }
+
+    /**
+     * Appends the id to whatever the caller asked to sort by. Timestamps are
+     * not unique, and an offset page boundary landing between two problems
+     * that share one shows the same problem twice while dropping another.
+     */
+    private Pageable stabilize(Pageable pageable) {
+        if (pageable.getSort().getOrderFor("id") != null) {
+            return pageable;
+        }
+        return PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                pageable.getSort().and(Sort.by(Sort.Direction.DESC, "id"))
+        );
+    }
+
+    private String containsPattern(String query) {
+        String normalized = trimToNull(query);
+        return normalized == null
+                ? null
+                : "%" + normalized.toLowerCase(Locale.ROOT) + "%";
+    }
+
+    /**
+     * A caller may narrow the feed to one public status but not use the filter
+     * to reach into drafts or rejected problems, which is what a bare
+     * pass-through of this parameter would allow.
+     */
+    private ProblemStatus requirePublicStatus(ProblemStatus status) {
+        if (status == null) {
+            return null;
+        }
+        if (!PUBLIC_STATUSES.contains(status)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "status must be PUBLISHED, RESOLVED, or CLOSED"
+            );
+        }
+        return status;
     }
 
     @Override
@@ -551,6 +634,12 @@ public class ProblemServiceImpl implements ProblemService {
     @Override
     @Transactional
     public void incrementViewCount(UUID id) {
+        // Counted once per viewer per window. The endpoint still succeeds on
+        // a repeat view — the caller is reporting a page load, not asking for
+        // a number, and failing it would only teach clients to retry.
+        if (!viewCountGuard.shouldCount(id)) {
+            return;
+        }
         if (problemRepository.incrementPublicViewCount(id) == 0) {
             throw notFound(id);
         }
