@@ -1,7 +1,10 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramOrganizationDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
@@ -32,9 +35,13 @@ public class ProgramMapper {
                 .engagementType(request.engagementType())
                 .visibility(request.visibility())
                 .policy(request.policy().trim())
-                .proofOfConceptRequirements(
-                        request.proofOfConceptRequirements().trim()
-                )
+                .proofOfConceptRequirements(normalizeGuidelines(
+                        request.proofOfConceptRequirements()
+                ))
+                .rulesOfEngagement(normalizeGuidelines(
+                        request.rulesOfEngagement()
+                ))
+                .exclusions(normalizeGuidelines(request.exclusions()))
                 .offersBounties(
                         request.offersBounties() == null
                                 || request.offersBounties()
@@ -71,9 +78,19 @@ public class ProgramMapper {
             program.setPolicy(request.policy().trim());
         }
         if (request.proofOfConceptRequirements() != null) {
-            program.setProofOfConceptRequirements(
-                    request.proofOfConceptRequirements().trim()
-            );
+            program.setProofOfConceptRequirements(normalizeGuidelines(
+                    request.proofOfConceptRequirements()
+            ));
+        }
+        if (request.rulesOfEngagement() != null) {
+            program.setRulesOfEngagement(normalizeGuidelines(
+                    request.rulesOfEngagement()
+            ));
+        }
+        if (request.exclusions() != null) {
+            program.setExclusions(normalizeGuidelines(
+                    request.exclusions()
+            ));
         }
         if (request.offersBounties() != null) {
             program.setOffersBounties(request.offersBounties());
@@ -105,6 +122,8 @@ public class ProgramMapper {
                 program.getVisibility(),
                 program.getPolicy(),
                 program.getProofOfConceptRequirements(),
+                program.getRulesOfEngagement(),
+                program.getExclusions(),
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
@@ -121,13 +140,14 @@ public class ProgramMapper {
 
     public ProgramSummaryResponseDto toSummaryDto(
             Program program,
-            String organizationName,
+            Organization organization,
             List<ProgramAsset> inScopeAssets
     ) {
         return new ProgramSummaryResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
-                organizationName,
+                organization == null ? null : organization.getName(),
+                toOrganizationDto(organization),
                 program.getHandle(),
                 program.getName(),
                 descriptionPreview(program.getDescription()),
@@ -142,15 +162,16 @@ public class ProgramMapper {
 
     public PublicProgramResponseDto toPublicResponseDto(
             Program program,
-            String organizationName,
-            List<ProgramAsset> inScopeAssets,
+            Organization organization,
+            List<ProgramAsset> assets,
             long totalResearchers,
             long totalSubmissions
     ) {
         return new PublicProgramResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
-                organizationName,
+                organization == null ? null : organization.getName(),
+                toOrganizationDto(organization),
                 program.getHandle(),
                 program.getName(),
                 program.getDescription(),
@@ -160,10 +181,12 @@ public class ProgramMapper {
                 program.getVisibility(),
                 program.getPolicy(),
                 program.getProofOfConceptRequirements(),
+                program.getRulesOfEngagement(),
+                program.getExclusions(),
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
-                toInScopeAssetResponses(inScopeAssets),
+                toAssetResponses(assets),
                 program.getRewards().stream()
                         .map(this::toRewardResponse)
                         .toList(),
@@ -175,21 +198,55 @@ public class ProgramMapper {
     }
 
     public ProgramManagementSummaryResponseDto toManagementSummaryDto(
-            Program program
+            Program program,
+            Organization organization,
+            List<ProgramAsset> assets
     ) {
         return new ProgramManagementSummaryResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
+                organization == null ? null : organization.getName(),
+                organization == null ? null : organization.getSlug(),
+                organization == null ? null : organization.getLogoUrl(),
+                organization == null ? null : organization.getWebsiteUrl(),
+                organization == null ? null : organization.getStatus(),
                 program.getHandle(),
                 program.getName(),
+                program.getDescription(),
                 program.getEngagementType(),
                 program.getState(),
                 program.getSubmissionState(),
                 program.getVisibility(),
                 program.getOffersBounties(),
                 program.getMaximumBounty(),
+                toAssetResponses(assets),
                 program.getCreatedAt(),
-                program.getUpdatedAt()
+                program.getUpdatedAt(),
+                program.getDeletedAt()
+        );
+    }
+
+    /**
+     * Null when the program's organization row could not be loaded. Callers on
+     * the public path already fail loudly when that happens; a listing prefers
+     * to render the rest of the program over dropping the row entirely.
+     */
+    private ProgramOrganizationDto toOrganizationDto(
+            Organization organization
+    ) {
+        if (organization == null) {
+            return null;
+        }
+        return new ProgramOrganizationDto(
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug(),
+                organization.getLogoUrl(),
+                organization.getWebsiteUrl(),
+                organization.getDescription(),
+                organization.getIndustry(),
+                organization.getCountry(),
+                organization.getVerifiedAt()
         );
     }
 
@@ -266,6 +323,17 @@ public class ProgramMapper {
                 .toList();
     }
 
+    private List<ProgramAssetResponseDto> toAssetResponses(
+            List<ProgramAsset> assets
+    ) {
+        if (assets == null) {
+            return List.of();
+        }
+        return assets.stream()
+                .map(this::toAssetResponse)
+                .toList();
+    }
+
     private ProgramRewardResponseDto toRewardResponse(ProgramReward reward) {
         return new ProgramRewardResponseDto(
                 reward.getId(),
@@ -278,6 +346,17 @@ public class ProgramMapper {
 
     private String normalizeHandle(String handle) {
         return handle.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private ProgramGuidelinesDto normalizeGuidelines(
+            ProgramGuidelinesDto guidelines
+    ) {
+        return new ProgramGuidelinesDto(
+                guidelines.description().trim(),
+                guidelines.rules().stream()
+                        .map(String::trim)
+                        .toList()
+        );
     }
 
     private String trimToNull(String value) {

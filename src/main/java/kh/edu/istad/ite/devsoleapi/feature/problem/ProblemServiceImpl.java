@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
@@ -16,18 +17,22 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemTechnologyRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemType;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTag;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagId;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.ProblemTagRepository;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.Tag;
 import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagRepository;
+import kh.edu.istad.ite.devsoleapi.feature.problem.tag.TagResolver;
+import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -41,14 +46,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayInputStream;
 import java.net.URI;
-import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -66,7 +68,6 @@ public class ProblemServiceImpl implements ProblemService {
 
     private static final String ADMIN_ROLE = "ADMIN";
     private static final int MAX_TECHNOLOGIES = 20;
-    private static final int MAX_TAGS = 10;
     private static final Duration DOWNLOAD_LINK_VALIDITY =
             Duration.ofMinutes(5);
     private static final Set<ProblemStatus> PUBLIC_STATUSES = EnumSet.of(
@@ -74,8 +75,27 @@ public class ProblemServiceImpl implements ProblemService {
             ProblemStatus.RESOLVED,
             ProblemStatus.CLOSED
     );
+    /**
+     * Statuses whose edits never reach a reader, so they are held to the
+     * lighter draft rules.
+     */
     private static final Set<ProblemStatus> AUTHOR_EDITABLE_STATUSES =
             EnumSet.of(ProblemStatus.DRAFT, ProblemStatus.REJECTED);
+    /**
+     * Published work an author may still correct. Edits here apply in place
+     * and stay visible: a typo fix should not pull a problem other people are
+     * reading, and re-reviewing every edit would make moderation the
+     * bottleneck on its own content. Abusive edits are caught the way the
+     * rest of the platform catches them - reactively, through flags.
+     */
+    private static final Set<ProblemStatus> LIVE_EDITABLE_STATUSES =
+            EnumSet.of(ProblemStatus.PUBLISHED, ProblemStatus.RESOLVED);
+    private static final Set<ProblemStatus> EDITABLE_STATUSES = EnumSet.of(
+            ProblemStatus.DRAFT,
+            ProblemStatus.REJECTED,
+            ProblemStatus.PUBLISHED,
+            ProblemStatus.RESOLVED
+    );
     private static final Set<String> PROBLEM_SORT_PROPERTIES = Set.of(
             "id",
             "createdAt",
@@ -95,9 +115,14 @@ public class ProblemServiceImpl implements ProblemService {
     private final UserProfileRepository userProfileRepository;
     private final ProblemMapper problemMapper;
     private final ProblemContentSafety contentSafety;
-    private final ProblemAttachmentValidator attachmentValidator;
+    private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
     private final FollowNotificationService followNotificationService;
+    private final TagResolver tagResolver;
+    private final SolutionRepository solutionRepository;
+
+    @Autowired(required = false)
+    private ProblemResponseEnricher responseEnricher;
 
     @Override
     @Transactional(readOnly = true)
@@ -117,13 +142,13 @@ public class ProblemServiceImpl implements ProblemService {
         if (technologyName != null) {
             technologyName = technologyName.toLowerCase(Locale.ROOT);
         }
-        return problemRepository.findPublished(
+        return toResponses(problemRepository.findPublished(
                 categoryId,
                 sdlcPhase,
                 tagSlug,
                 technologyName,
                 validatedPageable
-        ).map(this::toResponse);
+        ));
     }
 
     @Override
@@ -134,10 +159,10 @@ public class ProblemServiceImpl implements ProblemService {
                 pageable,
                 PROBLEM_SORT_PROPERTIES
         );
-        return problemRepository.findAllByAuthorId(
+        return toResponses(problemRepository.findAllByAuthorId(
                 authorId,
                 validatedPageable
-        ).map(this::toResponse);
+        ));
     }
 
     @Override
@@ -150,11 +175,11 @@ public class ProblemServiceImpl implements ProblemService {
                 pageable,
                 PROBLEM_SORT_PROPERTIES
         );
-        return problemRepository.findAllByAuthorIdAndStatusIn(
+        return toResponses(problemRepository.findAllByAuthorIdAndStatusIn(
                 authorId,
                 PUBLIC_STATUSES,
                 validatedPageable
-        ).map(this::toResponse);
+        ));
     }
 
     @Override
@@ -171,10 +196,10 @@ public class ProblemServiceImpl implements ProblemService {
         ProblemStatus effectiveStatus = status == null
                 ? ProblemStatus.PENDING_APPROVAL
                 : status;
-        return problemRepository.findAllByStatus(
+        return toResponses(problemRepository.findAllByStatus(
                 effectiveStatus,
                 validatedPageable
-        ).map(this::toResponse);
+        ));
     }
 
     @Override
@@ -201,11 +226,25 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     @Transactional
-    public ProblemResponse updateDraft(
+    public ProblemResponse update(
             UUID id,
-            ProblemUpdateRequest request
+            ProblemUpdateRequest request,
+            long expectedVersion
     ) {
         Problem problem = findOwnedEditableProblem(id);
+        if (problem.getVersion() != expectedVersion) {
+            throw new ResponseStatusException(
+                    HttpStatus.PRECONDITION_FAILED,
+                    "The problem changed after it was read; fetch it again before editing"
+            );
+        }
+        return applyUpdate(problem, request);
+    }
+
+    private ProblemResponse applyUpdate(
+            Problem problem,
+            ProblemUpdateRequest request
+    ) {
 
         if (request.categoryId() != null) {
             validateDraftCategory(request.categoryId());
@@ -213,6 +252,9 @@ public class ProblemServiceImpl implements ProblemService {
         }
         if (request.title() != null) {
             problem.setTitle(contentSafety.normalizeText(request.title()));
+        }
+        if (request.problemType() != null) {
+            problem.setProblemType(request.problemType());
         }
         if (request.description() != null) {
             problem.setDescription(
@@ -225,13 +267,49 @@ public class ProblemServiceImpl implements ProblemService {
         if (request.sdlcPhase() != null) {
             problem.setSdlcPhase(request.sdlcPhase());
         }
+        if (request.expectedBehavior() != null) {
+            problem.setExpectedBehavior(normalizeOptional(request.expectedBehavior()));
+        }
+        if (request.actualBehavior() != null) {
+            problem.setActualBehavior(normalizeOptional(request.actualBehavior()));
+        }
+        if (request.reproductionSteps() != null) {
+            problem.setReproductionSteps(normalizeSteps(request.reproductionSteps()));
+        }
+        if (request.environment() != null) {
+            problem.setEnvironment(request.environment().stream()
+                    .map(item -> new ProblemEnvironment(
+                            requireText(item.technology(), "Environment technology"),
+                            trimToNull(item.version())
+                    ))
+                    .collect(Collectors.toCollection(ArrayList::new)));
+        }
+        if (request.attemptsTried() != null) {
+            problem.setAttemptsTried(normalizeOptional(request.attemptsTried()));
+        }
+        if (request.errorMessage() != null) {
+            problem.setErrorMessage(normalizeOptional(request.errorMessage()));
+        }
+        if (request.severity() != null) {
+            problem.setSeverity(request.severity());
+        }
+        if (request.repositoryUrl() != null) {
+            problem.setRepositoryUrl(trimToNull(request.repositoryUrl()));
+        }
+
+        // An edit to live content has to clear the same bar the moderator
+        // approved it against, or a published problem could be emptied out
+        // one PATCH at a time.
+        if (LIVE_EDITABLE_STATUSES.contains(problem.getStatus())) {
+            validateForPublication(problem);
+        }
 
         Problem saved = problemRepository.saveAndFlush(problem);
         if (request.technologies() != null) {
             replaceTechnologies(saved, request.technologies());
         }
-        if (request.tagIds() != null || request.tags() != null) {
-            replaceTags(saved, request.tagIds(), request.tags());
+        if (request.tagIds() != null || request.newTagNames() != null) {
+            replaceTags(saved, request.tagIds(), request.newTagNames());
         }
         return toResponse(saved);
     }
@@ -240,7 +318,7 @@ public class ProblemServiceImpl implements ProblemService {
     @Transactional
     public ProblemResponse submit(UUID id) {
         Problem problem = findOwnedEditableProblem(id);
-        validateForSubmission(problem);
+        validateForPublication(problem);
         problem.setStatus(ProblemStatus.PENDING_APPROVAL);
         problem.setPublishedAt(null);
         return toResponse(problemRepository.saveAndFlush(problem));
@@ -268,7 +346,7 @@ public class ProblemServiceImpl implements ProblemService {
         }
 
         if (request.status() == ProblemStatus.PUBLISHED) {
-            validateForSubmission(problem);
+            validateForPublication(problem);
             problem.setPublishedAt(Instant.now());
         } else {
             problem.setPublishedAt(null);
@@ -301,12 +379,14 @@ public class ProblemServiceImpl implements ProblemService {
         if (!admin && !author) {
             throw forbidden("You are not allowed to delete this problem");
         }
-        if (!admin && !AUTHOR_EDITABLE_STATUSES.contains(
-                problem.getStatus()
-        )) {
+        // An author may withdraw their own problem at any point in its life,
+        // published included - but not once other people have answered it.
+        // Deleting then would take somebody else's published solution down
+        // with it, which is not the author's call to make.
+        if (!admin && hasPublishedSolutions(problem.getId())) {
             throw conflict(
-                    "Only draft or rejected problems can be deleted by "
-                            + "their author"
+                    "This problem has published solutions and can no longer "
+                            + "be deleted; ask an admin if it has to go"
             );
         }
 
@@ -318,8 +398,36 @@ public class ProblemServiceImpl implements ProblemService {
         if (!associatedTagIds.isEmpty()) {
             tagRepository.decrementUsageCounts(associatedTagIds);
         }
+        discardAttachments(problem.getId());
         problem.softDelete();
         problemRepository.saveAndFlush(problem);
+    }
+
+    private boolean hasPublishedSolutions(UUID problemId) {
+        return solutionRepository
+                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
+                        problemId
+                ) > 0;
+    }
+
+    /**
+     * A deleted problem cannot be restored, so its uploads are unreachable
+     * from that point on. Dropping the rows and the stored objects keeps the
+     * bucket from filling with files nothing can ever link to again.
+     */
+    private void discardAttachments(UUID problemId) {
+        List<ProblemAttachment> attachments = attachmentRepository
+                .findAllByProblemIdOrderByCreatedAtAsc(problemId);
+        if (attachments.isEmpty()) {
+            return;
+        }
+        List<String> storageKeys = attachments.stream()
+                .map(ProblemAttachment::getStorageKey)
+                .filter(Objects::nonNull)
+                .toList();
+        attachmentRepository.deleteAll(attachments);
+        attachmentRepository.flush();
+        deleteStoredObjectsAfterCommit(storageKeys);
     }
 
     @Override
@@ -329,7 +437,7 @@ public class ProblemServiceImpl implements ProblemService {
             MultipartFile file
     ) {
         Problem problem = findOwnedEditableProblem(id);
-        ProblemAttachmentValidator.ValidatedAttachment validated =
+        AttachmentValidator.ValidatedAttachment validated =
                 attachmentValidator.validate(file);
         String storageKey = "problems/"
                 + problem.getId()
@@ -344,6 +452,12 @@ public class ProblemServiceImpl implements ProblemService {
                 validated.sizeBytes(),
                 validated.mimeType()
         );
+        // The object is already in the bucket while the row that points at it
+        // is not committed yet. Anything that rolls the transaction back after
+        // this point - here or further up the call stack - would strand the
+        // file, so the compensation is hung off the transaction itself rather
+        // than off this block.
+        deleteStoredObjectIfRolledBack(storageKey);
 
         try {
             ProblemAttachment attachment = ProblemAttachment.builder()
@@ -382,15 +496,7 @@ public class ProblemServiceImpl implements ProblemService {
         String storageKey = attachment.getStorageKey();
         attachmentRepository.delete(attachment);
         attachmentRepository.flush();
-
-        TransactionSynchronizationManager.registerSynchronization(
-                new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        deleteStoredObjectQuietly(storageKey);
-                    }
-                }
-        );
+        deleteStoredObjectsAfterCommit(List.of(storageKey));
     }
 
     @Override
@@ -428,9 +534,7 @@ public class ProblemServiceImpl implements ProblemService {
     ) {
         UUID authorId = currentUserId();
         findAuthor(authorId);
-        if (request.categoryId() != null) {
-            validateDraftCategory(request.categoryId());
-        }
+        validateDraftCategory(request.categoryId());
 
         String title = contentSafety.normalizeText(request.title());
         String description = Objects.requireNonNullElse(
@@ -441,21 +545,35 @@ public class ProblemServiceImpl implements ProblemService {
         Problem problem = problemMapper.toEntity(request, authorId);
         problem.setTitle(title);
         problem.setDescription(description);
+        problem.setExpectedBehavior(normalizeOptional(request.expectedBehavior()));
+        problem.setActualBehavior(normalizeOptional(request.actualBehavior()));
+        problem.setReproductionSteps(normalizeSteps(request.reproductionSteps()));
+        problem.setEnvironment(request.environment() == null
+                ? new ArrayList<>()
+                : request.environment().stream()
+                .map(item -> new ProblemEnvironment(
+                        requireText(item.technology(), "Environment technology"),
+                        trimToNull(item.version())
+                ))
+                .collect(Collectors.toCollection(ArrayList::new)));
+        problem.setAttemptsTried(normalizeOptional(request.attemptsTried()));
+        problem.setErrorMessage(normalizeOptional(request.errorMessage()));
+        problem.setRepositoryUrl(trimToNull(request.repositoryUrl()));
         problem.setStatus(ProblemStatus.DRAFT);
         problem.setViewCount(0L);
         problem = problemRepository.saveAndFlush(problem);
         replaceTechnologies(problem, request.technologies());
-        replaceTags(problem, request.tagIds(), request.tags());
+        replaceTags(problem, request.tagIds(), request.newTagNames());
 
         if (submit) {
-            validateForSubmission(problem);
+            validateForPublication(problem);
             problem.setStatus(ProblemStatus.PENDING_APPROVAL);
             problem = problemRepository.saveAndFlush(problem);
         }
         return toResponse(problem);
     }
 
-    private void validateForSubmission(Problem problem) {
+    private void validateForPublication(Problem problem) {
         if (problem.getTitle() == null
                 || problem.getTitle().length() < 10
                 || problem.getTitle().length() > 180) {
@@ -485,25 +603,33 @@ public class ProblemServiceImpl implements ProblemService {
         ).orElseThrow(() -> badRequest(
                 "A submitted problem needs an active PROBLEM category"
         ));
-        if (technologyRepository
-                .findAllByProblemIdOrderByNameAsc(problem.getId())
-                .isEmpty()) {
-            throw badRequest(
-                    "A submitted problem needs at least one technology"
-            );
+        if (problem.getProblemType() == null) {
+            throw badRequest("A submitted problem needs a problem type");
+        }
+        if (problem.getProblemType() == ProblemType.BUG) {
+            if (trimToNull(problem.getExpectedBehavior()) == null
+                    || trimToNull(problem.getActualBehavior()) == null
+                    || problem.getReproductionSteps().isEmpty()) {
+                throw badRequest(
+                        "BUG problems require expectedBehavior, actualBehavior, "
+                                + "and at least one reproduction step"
+                );
+            }
         }
     }
 
     private void validateDraftCategory(UUID categoryId) {
-        Category category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Category not found"
-                ));
-        if (category.getScope() == CategoryScope.SHOWCASE) {
-            throw badRequest(
-                    "A showcase category cannot be used for a problem"
-            );
+        if (categoryId == null) {
+            throw badRequest("Category is required");
         }
+        categoryRepository
+                .findByIdAndScopeAndIsActiveTrue(
+                        categoryId,
+                        CategoryScope.PROBLEM
+                )
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Active problem category not found"
+                ));
     }
 
     private void replaceTechnologies(
@@ -558,53 +684,11 @@ public class ProblemServiceImpl implements ProblemService {
             Set<UUID> tagIds,
             Set<String> tagNames
     ) {
-        Set<UUID> requestedIds = tagIds == null
-                ? Set.of()
-                : new LinkedHashSet<>(tagIds);
-        Set<String> requestedNames = tagNames == null
-                ? Set.of()
-                : new LinkedHashSet<>(tagNames);
-        if (requestedIds.size() + requestedNames.size() > MAX_TAGS) {
-            throw badRequest("A problem can contain at most 10 tags");
-        }
-        if (requestedIds.contains(null)) {
-            throw badRequest("Tag IDs cannot be null");
-        }
-
-        Map<UUID, Tag> desired = new LinkedHashMap<>();
-        List<Tag> tagsById = tagRepository.findAllByIdIn(requestedIds);
-        if (tagsById.size() != requestedIds.size()) {
-            throw badRequest("One or more tag IDs do not exist");
-        }
-        tagsById.forEach(tag -> desired.put(tag.getId(), tag));
-
-        Set<String> normalizedSlugs = new HashSet<>();
-        for (String requestedName : requestedNames) {
-            String name = trimToNull(requestedName);
-            if (name == null) {
-                throw badRequest("Tag names cannot be blank");
-            }
-            String slug = normalizeSlug(name);
-            if (!normalizedSlugs.add(slug)) {
-                throw badRequest("Duplicate normalized tag names");
-            }
-
-            Tag tag = tagRepository.findBySlug(slug)
-                    .orElseGet(() -> tagRepository.saveAndFlush(
-                            Tag.builder()
-                                    .name(name)
-                                    .slug(slug)
-                                    .build()
-                    ));
-            if (desired.putIfAbsent(tag.getId(), tag) != null) {
-                throw badRequest(
-                        "The same tag was supplied by both ID and name"
-                );
-            }
-        }
-        if (desired.size() > MAX_TAGS) {
-            throw badRequest("A problem can contain at most 10 tags");
-        }
+        Map<UUID, Tag> desired = tagResolver.resolve(
+                tagIds,
+                tagNames,
+                "problem"
+        );
 
         List<ProblemTag> existing = problemTagRepository
                 .findAllByProblemId(problem.getId());
@@ -650,10 +734,14 @@ public class ProblemServiceImpl implements ProblemService {
         if (!problem.getAuthorId().equals(currentUserId())) {
             throw forbidden("You are not the author of this problem");
         }
-        if (!AUTHOR_EDITABLE_STATUSES.contains(problem.getStatus())) {
+        if (problem.getStatus() == ProblemStatus.PENDING_APPROVAL) {
             throw conflict(
-                    "Only draft or rejected problems can be edited"
+                    "A problem awaiting moderation cannot be edited; wait "
+                            + "for the decision, then edit it"
             );
+        }
+        if (!EDITABLE_STATUSES.contains(problem.getStatus())) {
+            throw conflict("A closed problem can no longer be edited");
         }
     }
 
@@ -667,27 +755,119 @@ public class ProblemServiceImpl implements ProblemService {
                 .orElse(false);
     }
 
+    private Page<ProblemResponse> toResponses(Page<Problem> problems) {
+        ProblemAssociations associations =
+                loadAssociations(problems.getContent());
+        return problems.map(problem -> toResponse(problem, associations));
+    }
+
     private ProblemResponse toResponse(Problem problem) {
-        UserProfile author = findAuthor(problem.getAuthorId());
-        Category category = problem.getCategoryId() == null
-                ? null
-                : categoryRepository.findById(problem.getCategoryId())
-                .orElse(null);
+        return toResponse(problem, loadAssociations(List.of(problem)));
+    }
+
+    /**
+     * Everything a page of problems needs from other tables, fetched once for
+     * the whole page. Reading these per problem instead turns a single listing
+     * into upwards of a hundred queries.
+     */
+    private ProblemAssociations loadAssociations(List<Problem> problems) {
+        if (problems.isEmpty()) {
+            return ProblemAssociations.empty();
+        }
+        List<UUID> problemIds = problems.stream()
+                .map(Problem::getId)
+                .toList();
+        Set<UUID> authorIds = problems.stream()
+                .map(Problem::getAuthorId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Set<UUID> categoryIds = problems.stream()
+                .map(Problem::getCategoryId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        return new ProblemAssociations(
+                userProfileRepository.findAllById(authorIds).stream()
+                        .collect(Collectors.toMap(
+                                UserProfile::getId,
+                                Function.identity()
+                        )),
+                categoryRepository.findAllById(categoryIds).stream()
+                        .collect(Collectors.toMap(
+                                Category::getId,
+                                Function.identity()
+                        )),
+                technologyRepository
+                        .findAllByProblemIdInOrderByNameAsc(problemIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                technology -> technology.getProblem().getId()
+                        )),
+                problemTagRepository.findAllByProblemIdIn(problemIds).stream()
+                        .collect(Collectors.groupingBy(
+                                problemTag -> problemTag.getProblem().getId()
+                        )),
+                attachmentRepository
+                        .findAllByProblemIdInOrderByCreatedAtAsc(problemIds)
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                attachment -> attachment.getProblem().getId()
+                        )),
+                responseEnricher == null
+                        ? Map.of()
+                        : responseEnricher.readAll(problems)
+        );
+    }
+
+    private ProblemResponse toResponse(
+            Problem problem,
+            ProblemAssociations associations
+    ) {
         return problemMapper.toResponse(
                 problem,
-                author,
-                category,
-                technologyRepository.findAllByProblemIdOrderByNameAsc(
-                        problem.getId()
+                // Null rather than a 404: one problem whose author profile has
+                // gone missing should cost that row its byline, not take the
+                // whole page down with it.
+                associations.authors().get(problem.getAuthorId()),
+                associations.categories().get(problem.getCategoryId()),
+                associations.technologies().getOrDefault(
+                        problem.getId(),
+                        List.of()
                 ),
-                problemTagRepository.findAllByProblemId(problem.getId()),
-                attachmentRepository
-                        .findAllByProblemIdOrderByCreatedAtAsc(problem.getId()),
+                associations.tags().getOrDefault(problem.getId(), List.of()),
+                associations.attachments().getOrDefault(
+                        problem.getId(),
+                        List.of()
+                ),
                 contentSafety.warnings(
                         problem.getTitle(),
                         problem.getDescription()
+                ),
+                associations.metrics().getOrDefault(
+                        problem.getId(),
+                        ProblemResponseMetrics.empty()
                 )
         );
+    }
+
+    private record ProblemAssociations(
+            Map<UUID, UserProfile> authors,
+            Map<UUID, Category> categories,
+            Map<UUID, List<ProblemTechnology>> technologies,
+            Map<UUID, List<ProblemTag>> tags,
+            Map<UUID, List<ProblemAttachment>> attachments,
+            Map<UUID, ProblemResponseMetrics> metrics
+    ) {
+        static ProblemAssociations empty() {
+            return new ProblemAssociations(
+                    Map.of(),
+                    Map.of(),
+                    Map.of(),
+                    Map.of(),
+                    Map.of(),
+                    Map.of()
+            );
+        }
     }
 
     private Problem findProblem(UUID id) {
@@ -737,21 +917,7 @@ public class ProblemServiceImpl implements ProblemService {
     }
 
     private String normalizeSlug(String value) {
-        String normalized = Normalizer.normalize(
-                        Objects.requireNonNullElse(value, ""),
-                        Normalizer.Form.NFKD
-                )
-                .replaceAll("\\p{M}", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("(^-+|-+$)", "");
-        if (normalized.isBlank()) {
-            throw badRequest("Tag name must contain letters or numbers");
-        }
-        if (normalized.length() > 50) {
-            throw badRequest("Normalized tag slug cannot exceed 50 characters");
-        }
-        return normalized;
+        return TagResolver.normalizeSlug(value);
     }
 
     private String trimToNull(String value) {
@@ -760,6 +926,74 @@ public class ProblemServiceImpl implements ProblemService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String normalizeOptional(String value) {
+        String normalized = contentSafety.normalizeText(value);
+        return trimToNull(normalized);
+    }
+
+    private List<String> normalizeSteps(List<String> steps) {
+        if (steps == null) {
+            return new ArrayList<>();
+        }
+        if (steps.size() > 20) {
+            throw badRequest("A problem can contain at most 20 reproduction steps");
+        }
+        return steps.stream()
+                .map(step -> requireText(step, "Reproduction step"))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private String requireText(String value, String fieldName) {
+        String normalized = normalizeOptional(value);
+        if (normalized == null) {
+            throw badRequest(fieldName + " cannot be blank");
+        }
+        return normalized;
+    }
+
+    /**
+     * Storage is not transactional, so the rows go first and the objects
+     * follow only once the database has actually committed. A crash between
+     * the two leaves an unreferenced object, which is the harmless direction
+     * to fail in - the alternative is a row pointing at a file that is gone.
+     */
+    private void deleteStoredObjectsAfterCommit(List<String> storageKeys) {
+        if (storageKeys.isEmpty()) {
+            return;
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            storageKeys.forEach(this::deleteStoredObjectQuietly);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        storageKeys.forEach(
+                                ProblemServiceImpl.this
+                                        ::deleteStoredObjectQuietly
+                        );
+                    }
+                }
+        );
+    }
+
+    private void deleteStoredObjectIfRolledBack(String storageKey) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status == STATUS_ROLLED_BACK) {
+                            deleteStoredObjectQuietly(storageKey);
+                        }
+                    }
+                }
+        );
     }
 
     private void deleteStoredObjectQuietly(String storageKey) {

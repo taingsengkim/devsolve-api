@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryRespo
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
@@ -14,6 +15,12 @@ public interface UserProfileService {
     UserProfileResponse me();
 
     UserProfileResponse updateMe(UpdateUserProfileRequest request);
+
+    /** Replaces the caller's own avatar. */
+    UserProfileResponse uploadAvatar(MultipartFile file);
+
+    /** Clears the caller's own avatar. */
+    UserProfileResponse removeAvatar();
 
     Page<AdminUserSummaryResponse> getAllForAdmin(
             String query,

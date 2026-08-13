@@ -24,6 +24,7 @@ public record ShowCasesResponse(
         Integer viewCount,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
+        List<ShowcaseTagResponse> tags,
         List<ShowcaseStepResponse> steps
 ) {
 }

@@ -53,6 +53,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
 
+    # The VPS pulls a private image, so this job has to hand it a registry
+    # credential. Reading packages is all that takes.
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - name: Configure SSH
         env:
@@ -64,16 +70,27 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
 
+      # Log the VPS in with this job's own token rather than relying on a
+      # credential placed by hand at setup time: that one expires silently and
+      # the next deploy fails on "error from registry: unauthorized" with a
+      # perfectly good image already published. Fed over stdin so the token
+      # never appears in the VPS process list or on its disk, and dropped again
+      # as soon as the pull is done.
       - name: Deploy to OVH VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ssh \
+          printf '%s' "$REGISTRY_TOKEN" | ssh \
             -i ~/.ssh/id_ed25519 \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$VPS_USER@$VPS_HOST" \
-            "/home/ubuntu/istad/devsolve-api/deploy.sh '$IMAGE_TAG'"
+            "set -e
+             docker login ghcr.io -u '$REGISTRY_USER' --password-stdin
+             trap 'docker logout ghcr.io' EXIT
+             /home/ubuntu/istad/devsolve-api/deploy.sh '$IMAGE_TAG'"

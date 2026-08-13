@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
@@ -31,6 +32,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
@@ -64,6 +66,9 @@ class OrganizationServiceImplTest {
 
     @Mock
     private CompanyIdentityService companyIdentityService;
+
+    @Mock
+    private ImageStorageService imageStorageService;
 
     @Mock
     private OrganizationReviewHistoryRepository reviewHistoryRepository;
@@ -204,6 +209,66 @@ class OrganizationServiceImplTest {
     }
 
     @Test
+    void ownerCanUploadOrganizationLogo() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        organization.setLogoUrl("https://cdn.example.com/old-logo.png");
+        MockMultipartFile logo = new MockMultipartFile(
+                "file",
+                "logo.png",
+                "image/png",
+                new byte[]{1, 2, 3}
+        );
+        String uploadedUrl = "https://cdn.example.com/new-logo.png";
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(imageStorageService.replace(
+                "organizations/" + organization.getId(),
+                organization.getLogoUrl(),
+                logo
+        )).thenReturn(uploadedUrl);
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        OrganizationResponse response = createService(
+                new WebsiteUrlServiceImpl()
+        ).uploadLogo(logo);
+
+        assertEquals(uploadedUrl, response.logoUrl());
+        assertEquals(uploadedUrl, organization.getLogoUrl());
+        verify(organizationRepository).saveAndFlush(organization);
+    }
+
+    @Test
+    void ownerCanRemoveOrganizationLogo() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        String currentLogoUrl = "https://cdn.example.com/logo.png";
+        organization.setLogoUrl(currentLogoUrl);
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        OrganizationResponse response = createService(
+                new WebsiteUrlServiceImpl()
+        ).removeLogo();
+
+        assertNull(response.logoUrl());
+        assertNull(organization.getLogoUrl());
+        verify(imageStorageService).remove(currentLogoUrl);
+        verify(organizationRepository).saveAndFlush(organization);
+    }
+
+    @Test
     void firstInvitationCreatesPendingMembership() {
         UUID ownerId = UUID.randomUUID();
         UUID organizationId = UUID.randomUUID();
@@ -286,6 +351,61 @@ class OrganizationServiceImplTest {
 
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(userProfileRepository, never()).findByEmailIgnoreCase(any());
+    }
+
+    @Test
+    void adminListsAndFiltersAllOrganizationsNewestFirst() {
+        authenticate("ADMIN");
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        ArgumentCaptor<Pageable> pageableCaptor =
+                ArgumentCaptor.forClass(Pageable.class);
+        when(organizationRepository.findForAdmin(
+                eq("%acme%"),
+                eq(OrganizationStatus.ACTIVE),
+                pageableCaptor.capture()
+        )).thenReturn(new PageImpl<>(List.of(organization)));
+
+        Page<OrganizationReviewSummaryResponse> result =
+                createService(new WebsiteUrlServiceImpl())
+                        .getOrganizationsForAdmin(
+                                "  AcMe  ",
+                                OrganizationStatus.ACTIVE,
+                                1,
+                                25
+                        );
+
+        OrganizationReviewSummaryResponse response =
+                result.getContent().getFirst();
+        assertEquals(organization.getId(), response.id());
+        assertEquals(OrganizationStatus.ACTIVE, response.status());
+        assertEquals(1, pageableCaptor.getValue().getPageNumber());
+        assertEquals(25, pageableCaptor.getValue().getPageSize());
+        assertEquals(
+                Sort.Direction.DESC,
+                pageableCaptor.getValue().getSort()
+                        .getOrderFor("createdAt")
+                        .getDirection()
+        );
+    }
+
+    @Test
+    void nonAdminCannotListAllOrganizations() {
+        authenticate("COMPANY");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> createService(new WebsiteUrlServiceImpl())
+                        .getOrganizationsForAdmin(null, null, 0, 20)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verify(organizationRepository, never()).findForAdmin(
+                any(),
+                any(),
+                any()
+        );
     }
 
     @Test
@@ -570,6 +690,7 @@ class OrganizationServiceImplTest {
                 userProfileRepository,
                 new OrganizationMapper(websiteUrlService),
                 websiteUrlService,
+                imageStorageService,
                 companyIdentityService,
                 reviewHistoryRepository,
                 eventPublisher

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -52,6 +53,24 @@ public interface NotificationRepository
               and notification.read = false
             """)
     int markAllRead(@Param("userId") UUID userId);
+
+    /**
+     * Returns the IDs of all followers who would receive a bulk notification
+     * for the given followable entity, excluding the actor themselves.
+     * Used to push SSE events after a dispatchToFollowers call.
+     */
+    @Query(value = """
+            SELECT follow_record.follower_id
+            FROM public.follows follow_record
+            WHERE follow_record.followable_type = :followableType
+              AND follow_record.followable_id = :followableId
+              AND follow_record.follower_id <> :actorId
+            """, nativeQuery = true)
+    List<UUID> findFollowerIds(
+            @Param("followableType") String followableType,
+            @Param("followableId") UUID followableId,
+            @Param("actorId") UUID actorId
+    );
 
     @Modifying(flushAutomatically = true)
     @Query(value = """

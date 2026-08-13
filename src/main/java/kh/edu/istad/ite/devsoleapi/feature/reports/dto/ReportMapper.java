@@ -77,7 +77,11 @@ public class ReportMapper {
         return new ReportResponse.AttachmentSummary(
                 attachment.getId(),
                 attachment.getFileName(),
-                attachment.getFileUrl(),
+                "/api/v1/reports/"
+                        + attachment.getReport().getId()
+                        + "/attachments/"
+                        + attachment.getId()
+                        + "/download",
                 attachment.getMimeType(),
                 attachment.getSizeBytes(),
                 attachment.getUploadedBy().getId(),

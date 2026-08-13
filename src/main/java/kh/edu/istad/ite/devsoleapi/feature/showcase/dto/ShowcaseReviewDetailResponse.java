@@ -29,6 +29,7 @@ public record ShowcaseReviewDetailResponse(
         LocalDateTime reviewedAt,
         String rejectionReason,
         LocalDateTime submittedAt,
+        List<ShowcaseTagResponse> tags,
         List<ShowcaseStepResponse> steps
 ) {
 }

@@ -5,6 +5,7 @@ import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
@@ -43,8 +44,14 @@ class ProgramRequestValidationTest {
                 "Security research program",
                 EngagementType.BOUNTY,
                 Visibility.PRIVATE,
+                null,
                 "Only test assets explicitly listed as in scope.",
-                "Include reproducible steps, affected endpoints, and evidence.",
+                guidelines(
+                        "Include reproducible steps and evidence",
+                        "Attach the affected endpoints"
+                ),
+                guidelines("Follow the testing rules", "Test only in scope"),
+                guidelines("These findings are excluded", "Self-XSS"),
                 false,
                 null,
                 null,
@@ -69,8 +76,11 @@ class ProgramRequestValidationTest {
                 null,
                 null,
                 Visibility.PRIVATE,
+                null,
                 " ",
-                " ",
+                null,
+                null,
+                null,
                 false,
                 null,
                 null,
@@ -87,7 +97,7 @@ class ProgramRequestValidationTest {
         Set<ConstraintViolation<ProgramRequestDto>> violations =
                 validator.validate(request);
 
-        assertEquals(9, violations.size());
+        assertEquals(11, violations.size());
         assertTrue(violations.stream().anyMatch(violation ->
                 violation.getPropertyPath().toString().equals("handle")
         ));
@@ -99,5 +109,62 @@ class ProgramRequestValidationTest {
                 violation.getPropertyPath().toString()
                         .equals("proofOfConceptRequirements")
         ));
+        assertTrue(violations.stream().anyMatch(violation ->
+                violation.getPropertyPath().toString()
+                        .equals("rulesOfEngagement")
+        ));
+        assertTrue(violations.stream().anyMatch(violation ->
+                violation.getPropertyPath().toString()
+                        .equals("exclusions")
+        ));
+    }
+
+    @Test
+    void guidelinesRejectBlankDescriptionAndRules() {
+        ProgramRequestDto request = new ProgramRequestDto(
+                "acme-security",
+                "Acme Security Program",
+                null,
+                EngagementType.RESPONSE,
+                Visibility.PRIVATE,
+                null,
+                "Test only assets explicitly listed as in scope.",
+                guidelines(
+                        "Include reproducible steps and evidence",
+                        "Attach a request trace"
+                ),
+                new ProgramGuidelinesDto(" ", List.of(" ")),
+                guidelines("These findings are excluded", "Self-XSS"),
+                false,
+                null,
+                null,
+                List.of(new ProgramAssetRequestDto(
+                        AssetType.URL,
+                        "https://app.acme.test",
+                        null,
+                        true,
+                        null
+                )),
+                List.of()
+        );
+
+        Set<ConstraintViolation<ProgramRequestDto>> violations =
+                validator.validate(request);
+
+        assertTrue(violations.stream().anyMatch(violation ->
+                violation.getPropertyPath().toString()
+                        .equals("rulesOfEngagement.description")
+        ));
+        assertTrue(violations.stream().anyMatch(violation ->
+                violation.getPropertyPath().toString()
+                        .startsWith("rulesOfEngagement.rules[0]")
+        ));
+    }
+
+    private ProgramGuidelinesDto guidelines(
+            String description,
+            String rule
+    ) {
+        return new ProgramGuidelinesDto(description, List.of(rule));
     }
 }

@@ -1,18 +1,35 @@
 package kh.edu.istad.ite.devsoleapi.feature.solution;
 
+import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemAcceptedSolution;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemService;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
+import kh.edu.istad.ite.devsoleapi.feature.solution.dto.AcceptedSolutionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionRequest;
+import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionResourceRequest;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.SolutionUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.solution.dto.TestedWithRequest;
 import kh.edu.istad.ite.devsoleapi.feature.solution.dto.UpdateSolutionReviewStatusRequest;
+import kh.edu.istad.ite.devsoleapi.feature.solution.dto.VerificationStepRequest;
 import kh.edu.istad.ite.devsoleapi.feature.solution.enums.ReviewStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.Vote;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteRepository;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteSummaryProjection;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -20,65 +37,82 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.ByteArrayInputStream;
+import java.net.URI;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class SolutionServiceImpl implements SolutionService {
 
-    private static final List<ReviewStatus> PUBLIC_STATUSES =
-            List.of(
-                    ReviewStatus.APPROVED,
-                    ReviewStatus.ACCEPTED
-            );
+    private static final int MAX_ATTACHMENTS = 10;
+    private static final Duration DOWNLOAD_LINK_VALIDITY = Duration.ofMinutes(5);
+    private static final Pattern DANGEROUS_MARKUP = Pattern.compile(
+            "(?is)<\\s*(script|iframe|object|embed|style)\\b.*?<\\s*/\\s*\\1\\s*>"
+    );
+    private static final Pattern EVENT_HANDLER = Pattern.compile(
+            "(?i)\\s+on[a-z]+\\s*=\\s*(['\"]).*?\\1"
+    );
+    private static final Pattern JAVASCRIPT_SCHEME = Pattern.compile(
+            "(?i)javascript\\s*:"
+    );
 
     private final SolutionRepository solutionRepository;
+    private final SolutionRevisionRepository revisionRepository;
+    private final SolutionAttachmentRepository attachmentRepository;
     private final ProblemRepository problemRepository;
+    private final ProblemService problemService;
+    private final UserProfileRepository userProfileRepository;
+    private final VoteRepository voteRepository;
+    private final CommentRepository commentRepository;
+    private final AttachmentValidator attachmentValidator;
+    private final ObjectStorageService objectStorageService;
     private final FollowNotificationService followNotificationService;
 
     @Override
     @Transactional
-    public SolutionResponse createSolution(
-            UUID problemId,
-            SolutionRequest request
-    ) {
-        Problem problem = problemRepository
-                .findPublicById(problemId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Problem not found with id: " + problemId
-                ));
-
-        if (problem.getStatus() != ProblemStatus.PUBLISHED) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Solutions can only be submitted to published problems."
+    public SolutionResponse createSolution(UUID problemId, SolutionRequest request) {
+        Problem problem = problemRepository.findPublicById(problemId)
+                .orElseThrow(() -> notFound("Problem", problemId));
+        if (problem.getStatus() != ProblemStatus.PUBLISHED
+                && problem.getStatus() != ProblemStatus.RESOLVED) {
+            throw conflict(
+                    "Solutions can only be submitted to published or resolved problems"
             );
         }
 
-        UUID currentUserId = extractCurrentUserId();
-        Solution solution = Solution.builder()
-                .problem(problem)
-                .authorId(currentUserId)
-                .description(request.description().trim())
-                .videoUrl(request.videoUrl())
-                .diagramUrl(request.diagramUrl())
-                .reviewStatus(ReviewStatus.PENDING)
-                .build();
-
-        Solution saved = solutionRepository.save(solution);
-        log.info(
-                "Solution created for problem {} by user {}",
-                problemId,
-                currentUserId
+        UUID authorId = requireCurrentUserId();
+        requireAuthorProfile(authorId);
+        Solution solution = solutionRepository.saveAndFlush(
+                Solution.builder()
+                        .problem(problem)
+                        .authorId(authorId)
+                        .build()
         );
-        return toResponse(saved);
+        SolutionRevision revision = revisionRepository.saveAndFlush(
+                createRevision(solution, 1, request)
+        );
+        solution.setLatestRevision(revision);
+        solution = solutionRepository.saveAndFlush(solution);
+        return toResponse(solution, revision, true);
     }
 
     @Override
@@ -90,60 +124,50 @@ public class SolutionServiceImpl implements SolutionService {
     ) {
         validatePagination(pageNumber, pageSize);
         problemRepository.findPublicById(problemId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Problem not found with id: " + problemId
-                ));
-
+                .orElseThrow(() -> notFound("Problem", problemId));
         Pageable pageable = PageRequest.of(
                 pageNumber,
                 pageSize,
                 Sort.by(Sort.Direction.ASC, "createdAt")
         );
-
         return solutionRepository
-                .findAllByProblem_IdAndReviewStatusInAndDeletedAtIsNull(
+                .findAllByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
                         problemId,
-                        PUBLIC_STATUSES,
                         pageable
                 )
-                .map(this::toResponse);
+                .map(solution -> toResponse(
+                        solution,
+                        solution.getCurrentPublishedRevision(),
+                        false
+                ));
     }
 
     @Override
     @Transactional(readOnly = true)
     public SolutionResponse getById(UUID solutionId) {
         Solution solution = solutionRepository
-                .findByIdAndReviewStatusInAndDeletedAtIsNull(
-                        solutionId,
-                        PUBLIC_STATUSES
-                )
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Solution not found with id: " + solutionId
-                ));
-
-        return toResponse(solution);
+                .findByIdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(solutionId)
+                .orElseThrow(() -> notFound("Solution", solutionId));
+        return toResponse(solution, solution.getCurrentPublishedRevision(), false);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Page<SolutionResponse> getMine(
-            int pageNumber,
-            int pageSize
-    ) {
+    public Page<SolutionResponse> getMine(int pageNumber, int pageSize) {
         validatePagination(pageNumber, pageSize);
-        UUID currentUserId = extractCurrentUserId();
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(Sort.Direction.DESC, "updatedAt")
-        );
-
-        return solutionRepository
-                .findAllByAuthorIdAndDeletedAtIsNull(
-                        currentUserId,
-                        pageable
+        UUID authorId = requireCurrentUserId();
+        return solutionRepository.findAllByAuthorIdAndDeletedAtIsNull(
+                authorId,
+                PageRequest.of(
+                        pageNumber,
+                        pageSize,
+                        Sort.by(Sort.Direction.DESC, "updatedAt")
                 )
-                .map(this::toResponse);
+        ).map(solution -> toResponse(
+                solution,
+                solution.getLatestRevision(),
+                true
+        ));
     }
 
     @Override
@@ -154,18 +178,20 @@ public class SolutionServiceImpl implements SolutionService {
             int pageSize
     ) {
         validatePagination(pageNumber, pageSize);
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(Sort.Direction.DESC, "createdAt")
-        );
         return solutionRepository
-                .findAllByAuthorIdAndReviewStatusInAndDeletedAtIsNull(
+                .findAllByAuthorIdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
                         authorId,
-                        PUBLIC_STATUSES,
-                        pageable
+                        PageRequest.of(
+                                pageNumber,
+                                pageSize,
+                                Sort.by(Sort.Direction.DESC, "createdAt")
+                        )
                 )
-                .map(this::toResponse);
+                .map(solution -> toResponse(
+                        solution,
+                        solution.getCurrentPublishedRevision(),
+                        false
+                ));
     }
 
     @Override
@@ -177,132 +203,139 @@ public class SolutionServiceImpl implements SolutionService {
     ) {
         requireAdmin();
         validatePagination(pageNumber, pageSize);
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(Sort.Direction.ASC, "createdAt")
-        );
-
-        return solutionRepository
-                .findForModeration(reviewStatus, pageable)
-                .map(this::toResponse);
+        return solutionRepository.findForModeration(
+                reviewStatus,
+                PageRequest.of(
+                        pageNumber,
+                        pageSize,
+                        Sort.by(Sort.Direction.ASC, "createdAt")
+                )
+        ).map(solution -> toResponse(
+                solution,
+                solution.getLatestRevision(),
+                true
+        ));
     }
 
     @Override
     @Transactional(readOnly = true)
     public SolutionResponse getAdminById(UUID solutionId) {
         requireAdmin();
-        return toResponse(findActiveSolution(solutionId));
+        Solution solution = findActiveSolution(solutionId);
+        return toResponse(solution, solution.getLatestRevision(), true);
     }
 
     @Override
     @Transactional
     public SolutionResponse updateSolution(
             UUID id,
-            SolutionUpdateRequest request
+            SolutionUpdateRequest request,
+            long expectedVersion
     ) {
-        Solution solution = findActiveSolution(id);
-        UUID currentUserId = extractCurrentUserId();
-        requireAuthor(solution, currentUserId);
+        return updateSolution(findActiveSolution(id), request, expectedVersion);
+    }
 
-        if (solution.getReviewStatus() == ReviewStatus.ACCEPTED) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Accepted solutions cannot be edited."
-            );
-        }
-
+    private SolutionResponse updateSolution(
+            Solution solution,
+            SolutionUpdateRequest request,
+        long expectedVersion
+    ) {
+        requireAuthor(solution, requireCurrentUserId());
+        requireVersion(solution, expectedVersion);
         validateUpdateRequest(request);
-        applyUpdate(solution, request);
-        solution.setReviewStatus(ReviewStatus.PENDING);
-        solution.setReviewedAt(null);
-        solution.setReviewedBy(null);
-        solution.setRejectionReason(null);
-
-        Solution updated = solutionRepository.save(solution);
-        log.info("Solution {} updated by user {}", id, currentUserId);
-        return toResponse(updated);
+        SolutionRevision previous = requireLatestRevision(solution);
+        SolutionRevision revision = revisionRepository.saveAndFlush(
+                createRevision(solution, previous.getRevisionNumber() + 1, request, previous)
+        );
+        solution.setLatestRevision(revision);
+        Solution saved = solutionRepository.saveAndFlush(solution);
+        return toResponse(saved, revision, true);
     }
 
     @Override
     @Transactional
     public void deleteSolution(UUID id) {
-        Solution solution = findActiveSolution(id);
-        UUID currentUserId = extractCurrentUserId();
-        boolean isAuthor = solution.getAuthorId().equals(currentUserId);
-        boolean isAdmin = AuthUtils.hasRole("ADMIN");
-
-        if (!isAuthor && !isAdmin) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "You are not allowed to delete this solution."
-            );
+        Solution solution = solutionRepository.findActiveByIdForUpdate(id)
+                .orElseThrow(() -> notFound("Solution", id));
+        UUID userId = requireCurrentUserId();
+        boolean admin = AuthUtils.hasRole("ADMIN");
+        if (!admin && !solution.getAuthorId().equals(userId)) {
+            throw forbidden("You are not allowed to delete this solution");
         }
-
-        if (solution.getReviewStatus() == ReviewStatus.ACCEPTED
-                && !isAdmin) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Accepted solutions can only be removed by an admin."
-            );
-        }
-
-        if (solution.getReviewStatus() == ReviewStatus.ACCEPTED
-                && solution.getProblem().getStatus()
-                        == ProblemStatus.RESOLVED) {
-            boolean anotherAcceptedSolutionExists =
-                    solutionRepository
-                            .existsByProblem_IdAndReviewStatusAndDeletedAtIsNullAndIdNot(
-                                    solution.getProblem().getId(),
-                                    ReviewStatus.ACCEPTED,
-                                    solution.getId()
-                            );
-
-            if (!anotherAcceptedSolutionExists) {
-                solution.getProblem().setStatus(
-                        ProblemStatus.PUBLISHED
-                );
-                problemRepository.save(solution.getProblem());
+        Problem problem = problemRepository.findActiveByIdForUpdate(
+                        solution.getProblem().getId()
+                )
+                .orElseThrow(() -> notFound("Problem", solution.getProblem().getId()));
+        Optional<ProblemAcceptedSolution> acceptance = findAcceptance(
+                problem,
+                solution.getId()
+        );
+        if (acceptance.isPresent()) {
+            if (!admin) {
+                throw conflict("Remove acceptance before deleting this solution");
             }
+            problem.getAcceptedSolutions().remove(acceptance.get());
+            reopenIfNoAcceptedSolutions(problem);
+            problemRepository.saveAndFlush(problem);
         }
-
         solution.setDeletedAt(LocalDateTime.now());
-        solutionRepository.save(solution);
-        log.info("Solution {} soft-deleted by user {}", id, currentUserId);
+        solutionRepository.saveAndFlush(solution);
     }
 
     @Override
     @Transactional
-    public SolutionResponse acceptSolution(UUID id) {
-        Solution solution = findActiveSolution(id);
-        Problem problem = solution.getProblem();
-        UUID currentUserId = extractCurrentUserId();
-
-        if (!problem.getAuthorId().equals(currentUserId)) {
+    public ProblemResponse setAcceptedSolution(
+            UUID problemId,
+            AcceptedSolutionRequest request
+    ) {
+        Problem problem = problemRepository.findActiveByIdForUpdate(problemId)
+                .orElseThrow(() -> notFound("Problem", problemId));
+        requireAcceptancePermission(problem);
+        Solution solution = solutionRepository.findActiveByIdForUpdate(request.solutionId())
+                .orElseThrow(() -> notFound("Solution", request.solutionId()));
+        if (!problemId.equals(solution.getProblem().getId())) {
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only the problem author can accept a solution."
+                    HttpStatus.BAD_REQUEST,
+                    "The solution does not belong to this problem"
             );
         }
-
-        if (solution.getReviewStatus() != ReviewStatus.APPROVED) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Only an approved solution can be accepted."
-            );
+        SolutionRevision published = solution.getCurrentPublishedRevision();
+        if (published == null || published.getModerationStatus() != ReviewStatus.APPROVED) {
+            throw conflict("Only an approved solution can be accepted");
         }
+        if (findAcceptance(problem, solution.getId()).isEmpty()) {
+            problem.getAcceptedSolutions().add(
+                    ProblemAcceptedSolution.builder()
+                            .problem(problem)
+                            .solutionId(solution.getId())
+                            .acceptedBy(requireCurrentUserId())
+                            .build()
+            );
+            problem.setStatus(ProblemStatus.RESOLVED);
+            problemRepository.saveAndFlush(problem);
+        }
+        return problemService.findById(problemId);
+    }
 
-        solution.setReviewStatus(ReviewStatus.ACCEPTED);
-        problem.setStatus(ProblemStatus.RESOLVED);
-
-        problemRepository.save(problem);
-        Solution updated = solutionRepository.save(solution);
-        log.info(
-                "Solution {} accepted by problem author {}",
-                id,
-                currentUserId
+    @Override
+    @Transactional
+    public ProblemResponse removeAcceptedSolution(
+            UUID problemId,
+            UUID solutionId
+    ) {
+        Problem problem = problemRepository.findActiveByIdForUpdate(problemId)
+                .orElseThrow(() -> notFound("Problem", problemId));
+        requireAcceptancePermission(problem);
+        Optional<ProblemAcceptedSolution> acceptance = findAcceptance(
+                problem,
+                solutionId
         );
-        return toResponse(updated);
+        if (acceptance.isPresent()) {
+            problem.getAcceptedSolutions().remove(acceptance.get());
+            reopenIfNoAcceptedSolutions(problem);
+            problemRepository.saveAndFlush(problem);
+        }
+        return problemService.findById(problemId);
     }
 
     @Override
@@ -313,144 +346,612 @@ public class SolutionServiceImpl implements SolutionService {
     ) {
         requireAdmin();
         validateReviewRequest(request);
-
-        Solution solution = findActiveSolution(solutionId);
-        if (solution.getReviewStatus() != ReviewStatus.PENDING) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Only pending solutions can be reviewed."
-            );
+        Solution solution = solutionRepository.findActiveByIdForUpdate(solutionId)
+                .orElseThrow(() -> notFound("Solution", solutionId));
+        SolutionRevision revision = requireLatestRevision(solution);
+        if (revision.getModerationStatus() != ReviewStatus.PENDING) {
+            throw conflict("Only a pending solution revision can be reviewed");
         }
 
-        UUID reviewerId = extractCurrentUserId();
-        solution.setReviewStatus(request.reviewStatus());
-        solution.setReviewedBy(reviewerId);
-        solution.setReviewedAt(LocalDateTime.now());
-        solution.setRejectionReason(
+        UUID reviewerId = requireCurrentUserId();
+        revision.setModerationStatus(request.reviewStatus());
+        revision.setReviewedBy(reviewerId);
+        revision.setReviewedAt(LocalDateTime.now());
+        revision.setRejectionReason(
                 request.reviewStatus() == ReviewStatus.REJECTED
                         ? request.rejectionReason().trim()
                         : null
         );
-
-        Solution updated = solutionRepository.save(solution);
-        if (updated.getReviewStatus() == ReviewStatus.APPROVED) {
+        revisionRepository.saveAndFlush(revision);
+        if (request.reviewStatus() == ReviewStatus.APPROVED) {
+            solution.setCurrentPublishedRevision(revision);
+            solutionRepository.saveAndFlush(solution);
             followNotificationService.notifyFollowers(
                     FollowType.PROBLEM,
-                    updated.getProblem().getId(),
+                    solution.getProblem().getId(),
                     reviewerId,
                     "New solution posted",
                     "A new solution was approved for: "
-                            + updated.getProblem().getTitle(),
+                            + solution.getProblem().getTitle(),
                     NotificationType.SOLUTION,
-                    updated.getId(),
-                    "solution-approved:" + updated.getId()
+                    solution.getId(),
+                    "solution-approved:" + solution.getId()
+                            + ":revision:" + revision.getRevisionNumber()
             );
         }
-        log.info(
-                "Solution {} reviewed by admin {} as {}",
-                solutionId,
-                reviewerId,
-                request.reviewStatus()
+        return toResponse(solution, revision, true);
+    }
+
+    @Override
+    @Transactional
+    public SolutionResponse uploadAttachment(
+            UUID solutionId,
+            MultipartFile file,
+            long expectedVersion
+    ) {
+        Solution solution = solutionRepository
+                .findActiveByIdForUpdate(solutionId)
+                .orElseThrow(() -> notFound("Solution", solutionId));
+        requireAuthor(solution, requireCurrentUserId());
+        requireVersion(solution, expectedVersion);
+        SolutionRevision revision = editableAttachmentRevision(solution);
+        if (attachmentRepository.countByRevision_Id(revision.getId()) >= MAX_ATTACHMENTS) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "A solution revision can contain at most 10 attachments"
+            );
+        }
+
+        AttachmentValidator.ValidatedAttachment validated = attachmentValidator.validate(file);
+        String storageKey = "solutions/" + solution.getId()
+                + "/revisions/" + revision.getRevisionNumber()
+                + "/" + UUID.randomUUID() + "." + validated.extension();
+        objectStorageService.store(
+                storageKey,
+                new ByteArrayInputStream(validated.content()),
+                validated.sizeBytes(),
+                validated.mimeType()
         );
-        return toResponse(updated);
+        try {
+            SolutionAttachment attachment = attachmentRepository.saveAndFlush(
+                    SolutionAttachment.builder()
+                            .revision(revision)
+                            .fileName(validated.originalFileName())
+                            .storageKey(storageKey)
+                            .mimeType(validated.mimeType())
+                            .fileSize(validated.sizeBytes())
+                            .build()
+            );
+            revision.getAttachments().add(attachment);
+            solution.setUpdatedAt(LocalDateTime.now());
+            Solution saved = solutionRepository.saveAndFlush(solution);
+            return toResponse(saved, revision, true);
+        } catch (RuntimeException exception) {
+            deleteStoredObjectQuietly(storageKey);
+            throw exception;
+        }
+    }
+
+    @Override
+    @Transactional
+    public void removeAttachment(
+            UUID solutionId,
+            UUID attachmentId,
+            long expectedVersion
+    ) {
+        Solution solution = solutionRepository
+                .findActiveByIdForUpdate(solutionId)
+                .orElseThrow(() -> notFound("Solution", solutionId));
+        requireAuthor(solution, requireCurrentUserId());
+        requireVersion(solution, expectedVersion);
+        SolutionAttachment requested = attachmentRepository
+                .findByIdAndRevision_Solution_Id(attachmentId, solutionId)
+                .orElseThrow(() -> notFound("Solution attachment", attachmentId));
+        SolutionRevision editable = editableAttachmentRevision(solution);
+        SolutionAttachment attachment = requested.getRevision().getId()
+                .equals(editable.getId())
+                ? requested
+                : editable.getAttachments().stream()
+                .filter(item -> item.getStorageKey().equals(
+                        requested.getStorageKey()
+                ))
+                .findFirst()
+                .orElseThrow(() -> notFound(
+                        "Solution attachment",
+                        attachmentId
+                ));
+        String storageKey = attachment.getStorageKey();
+        editable.getAttachments().remove(attachment);
+        attachmentRepository.delete(attachment);
+        attachmentRepository.flush();
+        solution.setUpdatedAt(LocalDateTime.now());
+        solutionRepository.saveAndFlush(solution);
+        if (attachmentRepository.countByStorageKey(storageKey) == 0) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            deleteStoredObjectQuietly(storageKey);
+                        }
+                    }
+            );
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public URI createAttachmentDownloadUrl(UUID solutionId, UUID attachmentId) {
+        Solution solution = findActiveSolution(solutionId);
+        SolutionAttachment attachment = attachmentRepository
+                .findByIdAndRevision_Solution_Id(attachmentId, solutionId)
+                .orElseThrow(() -> notFound("Solution attachment", attachmentId));
+        boolean published = solution.getCurrentPublishedRevision() != null
+                && solution.getCurrentPublishedRevision().getId()
+                .equals(attachment.getRevision().getId());
+        boolean privileged = AuthUtils.hasRole("ADMIN") || optionalCurrentUserId()
+                .map(solution.getAuthorId()::equals)
+                .orElse(false);
+        if (!published && !privileged) {
+            throw notFound("Solution attachment", attachmentId);
+        }
+        return objectStorageService.createDownloadUrl(
+                attachment.getStorageKey(),
+                DOWNLOAD_LINK_VALIDITY
+        );
+    }
+
+    private SolutionRevision createRevision(
+            Solution solution,
+            int revisionNumber,
+            SolutionRequest request
+    ) {
+        SolutionRevision revision = SolutionRevision.builder()
+                .solution(solution)
+                .revisionNumber(revisionNumber)
+                .summary(normalizeRequired(request.summary(), "Summary"))
+                .bodyMarkdown(sanitizeMarkdown(request.bodyMarkdown()))
+                .approachType(request.approachType())
+                .verificationSteps(toVerificationSteps(request.verificationSteps()))
+                .testedWith(toTestedWith(request.testedWith()))
+                .tradeoffs(normalizeOptional(request.tradeoffs()))
+                .moderationStatus(ReviewStatus.PENDING)
+                .build();
+        revision.setResources(toResources(revision, request.resources()));
+        return revision;
+    }
+
+    private SolutionRevision editableAttachmentRevision(Solution solution) {
+        SolutionRevision latest = requireLatestRevision(solution);
+        if (latest.getModerationStatus() == ReviewStatus.PENDING) {
+            return latest;
+        }
+        SolutionUpdateRequest unchanged = new SolutionUpdateRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        SolutionRevision pending = revisionRepository.saveAndFlush(
+                createRevision(
+                        solution,
+                        latest.getRevisionNumber() + 1,
+                        unchanged,
+                        latest
+                )
+        );
+        solution.setLatestRevision(pending);
+        solutionRepository.saveAndFlush(solution);
+        return pending;
+    }
+
+    private SolutionRevision createRevision(
+            Solution solution,
+            int revisionNumber,
+            SolutionUpdateRequest request,
+            SolutionRevision previous
+    ) {
+        SolutionRevision revision = SolutionRevision.builder()
+                .solution(solution)
+                .revisionNumber(revisionNumber)
+                .summary(request.summary() == null
+                        ? previous.getSummary()
+                        : normalizeRequired(request.summary(), "Summary"))
+                .bodyMarkdown(request.bodyMarkdown() == null
+                        ? previous.getBodyMarkdown()
+                        : sanitizeMarkdown(request.bodyMarkdown()))
+                .approachType(request.approachType() == null
+                        ? previous.getApproachType()
+                        : request.approachType())
+                .verificationSteps(request.verificationSteps() == null
+                        ? copyVerificationSteps(previous.getVerificationSteps())
+                        : toVerificationSteps(request.verificationSteps()))
+                .testedWith(request.testedWith() == null
+                        ? copyTestedWith(previous.getTestedWith())
+                        : toTestedWith(request.testedWith()))
+                .tradeoffs(request.tradeoffs() == null
+                        ? previous.getTradeoffs()
+                        : normalizeOptional(request.tradeoffs()))
+                .moderationStatus(ReviewStatus.PENDING)
+                .build();
+        if (request.resources() == null) {
+            revision.setResources(copyResources(revision, previous.getResources()));
+        } else {
+            revision.setResources(toResources(revision, request.resources()));
+        }
+        revision.setAttachments(copyAttachments(
+                revision,
+                previous.getAttachments()
+        ));
+        return revision;
+    }
+
+    private List<SolutionVerificationStep> toVerificationSteps(
+            List<VerificationStepRequest> requests
+    ) {
+        if (requests == null) {
+            return new ArrayList<>();
+        }
+        return requests.stream()
+                .map(item -> new SolutionVerificationStep(
+                        normalizeRequired(item.instruction(), "Verification instruction"),
+                        normalizeRequired(item.expectedResult(), "Expected result")
+                ))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
+    private List<SolutionTestedWith> toTestedWith(List<TestedWithRequest> requests) {
+        if (requests == null) {
+            return new ArrayList<>();
+        }
+        return requests.stream()
+                .map(item -> new SolutionTestedWith(
+                        normalizeRequired(item.technology(), "Tested technology"),
+                        normalizeOptional(item.version())
+                ))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
+    private List<SolutionResource> toResources(
+            SolutionRevision revision,
+            List<SolutionResourceRequest> requests
+    ) {
+        if (requests == null) {
+            return new ArrayList<>();
+        }
+        List<SolutionResource> resources = new ArrayList<>();
+        for (int index = 0; index < requests.size(); index++) {
+            SolutionResourceRequest item = requests.get(index);
+            resources.add(SolutionResource.builder()
+                    .revision(revision)
+                    .type(item.type())
+                    .label(normalizeRequired(item.label(), "Resource label"))
+                    .url(requireHttpsUrl(item.url()))
+                    .displayOrder(index)
+                    .build());
+        }
+        return resources;
+    }
+
+    private List<SolutionVerificationStep> copyVerificationSteps(
+            List<SolutionVerificationStep> source
+    ) {
+        return source.stream()
+                .map(item -> new SolutionVerificationStep(
+                        item.getInstruction(),
+                        item.getExpectedResult()
+                ))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
+    private List<SolutionTestedWith> copyTestedWith(List<SolutionTestedWith> source) {
+        return source.stream()
+                .map(item -> new SolutionTestedWith(
+                        item.getTechnology(),
+                        item.getVersion()
+                ))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
+    private List<SolutionResource> copyResources(
+            SolutionRevision revision,
+            List<SolutionResource> source
+    ) {
+        return source.stream()
+                .map(item -> SolutionResource.builder()
+                        .revision(revision)
+                        .type(item.getType())
+                        .label(item.getLabel())
+                        .url(item.getUrl())
+                        .displayOrder(item.getDisplayOrder())
+                        .build())
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+    }
+
+    private List<SolutionAttachment> copyAttachments(
+            SolutionRevision revision,
+            List<SolutionAttachment> source
+    ) {
+        return source.stream()
+                .map(item -> SolutionAttachment.builder()
+                        .revision(revision)
+                        .fileName(item.getFileName())
+                        .storageKey(item.getStorageKey())
+                        .mimeType(item.getMimeType())
+                        .fileSize(item.getFileSize())
+                        .build())
+                .collect(java.util.stream.Collectors.toCollection(
+                        ArrayList::new
+                ));
+    }
+
+    private SolutionResponse toResponse(
+            Solution solution,
+            SolutionRevision revision,
+            boolean includeModeration
+    ) {
+        if (revision == null) {
+            throw new IllegalStateException(
+                    "Solution " + solution.getId() + " has no content revision"
+            );
+        }
+        UserProfile author = requireAuthorProfile(solution.getAuthorId());
+        VoteSummaryProjection votes = voteRepository.summarize(
+                VoteType.SOLUTION,
+                solution.getId()
+        );
+        String viewerVote = optionalCurrentUserId()
+                .flatMap(userId -> voteRepository
+                        .findByUserIdAndVotableTypeAndVotableId(
+                                userId,
+                                VoteType.SOLUTION,
+                                solution.getId()
+                        ))
+                .map(Vote::getVoteValue)
+                .map(value -> value > 0 ? "UP" : "DOWN")
+                .orElse(null);
+        return new SolutionResponse(
+                solution.getId(),
+                solution.getProblem().getId(),
+                new SolutionResponse.AuthorSummary(
+                        author.getId(),
+                        author.getFullName(),
+                        author.getAvatarUrl()
+                ),
+                revision.getSummary(),
+                revision.getBodyMarkdown(),
+                revision.getApproachType(),
+                revision.getVerificationSteps().stream()
+                        .map(item -> new SolutionResponse.VerificationStep(
+                                item.getInstruction(),
+                                item.getExpectedResult()
+                        ))
+                        .toList(),
+                revision.getTestedWith().stream()
+                        .map(item -> new SolutionResponse.TestedWith(
+                                item.getTechnology(),
+                                item.getVersion()
+                        ))
+                        .toList(),
+                revision.getTradeoffs(),
+                revision.getResources().stream()
+                        .map(item -> new SolutionResponse.ResourceSummary(
+                                item.getId(),
+                                item.getType(),
+                                item.getLabel(),
+                                item.getUrl(),
+                                item.getDisplayOrder()
+                        ))
+                        .toList(),
+                revision.getAttachments().stream()
+                        .map(item -> new SolutionResponse.AttachmentSummary(
+                                item.getId(),
+                                item.getFileName(),
+                                item.getMimeType(),
+                                item.getFileSize(),
+                                "/api/v1/solutions/" + solution.getId()
+                                        + "/attachments/" + item.getId()
+                                        + "/download",
+                                item.getCreatedAt()
+                        ))
+                        .toList(),
+                findAcceptance(solution.getProblem(), solution.getId())
+                        .isPresent(),
+                votes == null ? 0 : votes.getScore(),
+                commentRepository
+                        .countByCommentableTypeAndCommentableIdAndDeletedAtIsNullAndInternalFalse(
+                                CommentableType.SOLUTION,
+                                solution.getId()
+                        ),
+                viewerVote,
+                solution.getVersion(),
+                includeModeration
+                        ? new SolutionResponse.ModerationDetails(
+                        revision.getId(),
+                        revision.getRevisionNumber(),
+                        revision.getModerationStatus(),
+                        revision.getRejectionReason(),
+                        revision.getReviewedBy(),
+                        revision.getReviewedAt()
+                )
+                        : null,
+                solution.getCreatedAt(),
+                solution.getUpdatedAt()
+        );
     }
 
     private Solution findActiveSolution(UUID id) {
         return solutionRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Solution not found with id: " + id
-                ));
+                .orElseThrow(() -> notFound("Solution", id));
     }
 
-    private void requireAuthor(
-            Solution solution,
-            UUID currentUserId
-    ) {
-        if (!solution.getAuthorId().equals(currentUserId)) {
+    private SolutionRevision requireLatestRevision(Solution solution) {
+        if (solution.getLatestRevision() == null) {
+            throw new IllegalStateException(
+                    "Solution " + solution.getId() + " has no latest revision"
+            );
+        }
+        return solution.getLatestRevision();
+    }
+
+    private UserProfile requireAuthorProfile(UUID id) {
+        return userProfileRepository.findById(id)
+                .orElseThrow(() -> notFound("Solution author profile", id));
+    }
+
+    private void requireAuthor(Solution solution, UUID userId) {
+        if (!solution.getAuthorId().equals(userId)) {
+            throw forbidden("You are not the author of this solution");
+        }
+    }
+
+    private void requireAcceptancePermission(Problem problem) {
+        UUID userId = requireCurrentUserId();
+        if (!AuthUtils.hasRole("ADMIN") && !problem.getAuthorId().equals(userId)) {
+            throw forbidden(
+                    "Only the problem author or an administrator can manage acceptance"
+            );
+        }
+        if (problem.getStatus() != ProblemStatus.PUBLISHED
+                && problem.getStatus() != ProblemStatus.RESOLVED) {
+            throw conflict("Acceptance can only be changed on a published problem");
+        }
+    }
+
+    private void requireVersion(Solution solution, long expectedVersion) {
+        if (solution.getVersion() != expectedVersion) {
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "You are not the author of this solution."
+                    HttpStatus.PRECONDITION_FAILED,
+                    "The solution changed after it was read; fetch it again before editing"
             );
         }
     }
 
-    private void applyUpdate(
-            Solution solution,
-            SolutionUpdateRequest request
+    private Optional<ProblemAcceptedSolution> findAcceptance(
+            Problem problem,
+            UUID solutionId
     ) {
-        if (request.description() != null) {
-            solution.setDescription(request.description().trim());
-        }
-        if (request.videoUrl() != null) {
-            solution.setVideoUrl(request.videoUrl());
-        }
-        if (request.diagramUrl() != null) {
-            solution.setDiagramUrl(request.diagramUrl());
+        return problem.getAcceptedSolutions().stream()
+                .filter(item -> item.getSolutionId().equals(solutionId))
+                .findFirst();
+    }
+
+    private void reopenIfNoAcceptedSolutions(Problem problem) {
+        if (problem.getAcceptedSolutions().isEmpty()
+                && problem.getStatus() == ProblemStatus.RESOLVED) {
+            problem.setStatus(ProblemStatus.PUBLISHED);
         }
     }
 
-    private void validateUpdateRequest(
-            SolutionUpdateRequest request
-    ) {
-        if (request.description() == null
-                && request.videoUrl() == null
-                && request.diagramUrl() == null) {
+    private void validateUpdateRequest(SolutionUpdateRequest request) {
+        if (request.summary() == null
+                && request.bodyMarkdown() == null
+                && request.approachType() == null
+                && request.verificationSteps() == null
+                && request.testedWith() == null
+                && request.tradeoffs() == null
+                && request.resources() == null) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "At least one solution field must be provided."
-            );
-        }
-        if (request.description() != null
-                && request.description().isBlank()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Description must not be blank."
+                    "At least one solution field must be provided"
             );
         }
     }
 
-    private void validateReviewRequest(
-            UpdateSolutionReviewStatusRequest request
-    ) {
+    private void validateReviewRequest(UpdateSolutionReviewStatusRequest request) {
         if (request.reviewStatus() != ReviewStatus.APPROVED
                 && request.reviewStatus() != ReviewStatus.REJECTED) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Review status must be APPROVED or REJECTED."
+                    "Review status must be APPROVED or REJECTED"
             );
         }
-
         boolean hasReason = request.rejectionReason() != null
                 && !request.rejectionReason().isBlank();
-        if (request.reviewStatus() == ReviewStatus.REJECTED
-                && !hasReason) {
+        if (request.reviewStatus() == ReviewStatus.REJECTED && !hasReason) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Rejection reason is required when rejecting a solution."
+                    "Rejection reason is required when rejecting a solution"
             );
         }
-        if (request.reviewStatus() == ReviewStatus.APPROVED
-                && hasReason) {
+        if (request.reviewStatus() == ReviewStatus.APPROVED && hasReason) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Rejection reason is only allowed for rejected solutions."
+                    "Rejection reason is only allowed for rejected solutions"
             );
         }
+    }
+
+    private String sanitizeMarkdown(String markdown) {
+        String value = normalizeRequired(markdown, "Solution body");
+        value = DANGEROUS_MARKUP.matcher(value).replaceAll("");
+        value = EVENT_HANDLER.matcher(value).replaceAll("");
+        value = JAVASCRIPT_SCHEME.matcher(value).replaceAll("");
+        return value;
+    }
+
+    private String requireHttpsUrl(String value) {
+        String normalized = normalizeRequired(value, "Resource URL");
+        try {
+            URI uri = URI.create(normalized);
+            if (!"https".equalsIgnoreCase(uri.getScheme())
+                    || uri.getHost() == null) {
+                throw new IllegalArgumentException();
+            }
+            return uri.toASCIIString();
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Resource URL must be a valid HTTPS URL"
+            );
+        }
+    }
+
+    private String normalizeRequired(String value, String fieldName) {
+        String normalized = normalizeOptional(value);
+        if (normalized == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    fieldName + " cannot be blank"
+            );
+        }
+        return normalized;
+    }
+
+    private String normalizeOptional(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private void requireAdmin() {
         if (!AuthUtils.hasRole("ADMIN")) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only ADMIN can review solutions."
-            );
+            throw forbidden("Only ADMIN can review solutions");
         }
     }
 
-    private UUID extractCurrentUserId() {
+    private UUID requireCurrentUserId() {
+        return optionalCurrentUserId().orElseThrow(() ->
+                new ResponseStatusException(
+                        HttpStatus.UNAUTHORIZED,
+                        "A valid Keycloak access token is required"
+                )
+        );
+    }
+
+    private Optional<UUID> optionalCurrentUserId() {
+        Authentication authentication = AuthUtils.getAuth();
+        if (!(authentication instanceof JwtAuthenticationToken jwt)
+                || !authentication.isAuthenticated()) {
+            return Optional.empty();
+        }
         try {
-            return UUID.fromString(AuthUtils.extractUserId());
-        } catch (IllegalArgumentException | NullPointerException exception) {
+            return Optional.of(UUID.fromString(jwt.getToken().getSubject()));
+        } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
                     "Authenticated user ID is not a valid UUID",
@@ -459,38 +960,32 @@ public class SolutionServiceImpl implements SolutionService {
         }
     }
 
-    private void validatePagination(
-            int pageNumber,
-            int pageSize
-    ) {
-        if (pageNumber < 0) {
+    private void validatePagination(int pageNumber, int pageSize) {
+        if (pageNumber < 0 || pageSize < 1 || pageSize > 100) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Page number must be greater than or equal to 0."
-            );
-        }
-        if (pageSize < 1 || pageSize > 100) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Page size must be between 1 and 100."
+                    "Page number must be non-negative and page size must be between 1 and 100"
             );
         }
     }
 
-    private SolutionResponse toResponse(Solution solution) {
-        return new SolutionResponse(
-                solution.getId(),
-                solution.getProblem().getId(),
-                solution.getAuthorId(),
-                solution.getDescription(),
-                solution.getVideoUrl(),
-                solution.getDiagramUrl(),
-                solution.getReviewStatus(),
-                solution.getReviewedBy(),
-                solution.getReviewedAt(),
-                solution.getRejectionReason(),
-                solution.getCreatedAt(),
-                solution.getUpdatedAt()
-        );
+    private void deleteStoredObjectQuietly(String storageKey) {
+        try {
+            objectStorageService.delete(storageKey);
+        } catch (RuntimeException exception) {
+            log.error("Unable to delete object storage key {}", storageKey, exception);
+        }
+    }
+
+    private ResourceNotFoundException notFound(String resource, UUID id) {
+        return new ResourceNotFoundException(resource + " not found with id: " + id);
+    }
+
+    private ResponseStatusException forbidden(String message) {
+        return new ResponseStatusException(HttpStatus.FORBIDDEN, message);
+    }
+
+    private ResponseStatusException conflict(String message) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, message);
     }
 }

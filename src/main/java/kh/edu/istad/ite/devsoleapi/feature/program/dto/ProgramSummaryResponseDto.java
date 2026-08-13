@@ -12,6 +12,7 @@ public record ProgramSummaryResponseDto(
         UUID id,
         UUID organizationId,
         String organizationName,
+        ProgramOrganizationDto organization,
         String handle,
         String name,
         String description,

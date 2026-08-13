@@ -1,5 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.config.security;
 
+import kh.edu.istad.ite.devsoleapi.feature.auth.UserProvisioningService;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.action.AccountStatusService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,10 +13,12 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.Collection;
 import java.util.List;
@@ -27,12 +31,36 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain apiSecurity(
             HttpSecurity http,
-            JwtAuthenticationConverter jwtAuthenticationConverter
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            CorsConfigurationSource corsConfigurationSource,
+            AccountStatusService accountStatusService,
+            UserProvisioningService userProvisioningService,
+            ObjectMapper objectMapper
     ) throws Exception {
+        http.cors(cors -> cors.configurationSource(corsConfigurationSource));
         http.oauth2ResourceServer(oauth -> oauth.jwt(jwt ->
                 jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)
         ));
 
+        // Social logins are created by Keycloak's broker flow and so never hit
+        // /api/v1/auth/register: this gives them the local profile row that
+        // registration would have written. Placed first of the two so the
+        // status gate below sees a real row instead of its "no profile,
+        // nothing to enforce" default.
+        http.addFilterAfter(
+                new UserProvisioningFilter(userProvisioningService),
+                BearerTokenAuthenticationFilter.class
+        );
+
+        // Runs once the bearer token has been turned into an Authentication, so
+        // a suspended or removed account is stopped before it reaches any
+        // controller. Constructed here rather than injected as a bean to keep
+        // the servlet container from registering it a second time.
+        http.addFilterAfter(
+                new AccountStatusFilter(accountStatusService, objectMapper),
+                UserProvisioningFilter.class
+        );
+//        http.cors(Customizer.withDefaults());
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/register").permitAll()
                 .requestMatchers(
@@ -55,6 +83,10 @@ public class SecurityConfig {
                         "/api/v1/categories/**"
                 ).permitAll()
                 .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/categories"
+                ).permitAll()
+                .requestMatchers(
                         HttpMethod.POST,
                         "/api/v1/categories"
                 ).hasRole("ADMIN")
@@ -64,6 +96,10 @@ public class SecurityConfig {
                 ).hasRole("ADMIN")
                 .requestMatchers(
                         HttpMethod.PATCH,
+                        "/api/v1/categories/**"
+                ).hasRole("ADMIN")
+                .requestMatchers(
+                        HttpMethod.PUT,
                         "/api/v1/categories/**"
                 ).hasRole("ADMIN")
 
@@ -226,7 +262,6 @@ public class SecurityConfig {
         http.sessionManagement(state -> state
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
         );
-        http.cors(Customizer.withDefaults());
         http.csrf(AbstractHttpConfigurer::disable);
         http.formLogin(AbstractHttpConfigurer::disable);
 
@@ -260,35 +295,31 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource(
-            @Value("${app.cors.allowed-origins:http://localhost:3000}")
+            @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173,https://devsolve-api.quizzy.it.com}")
             List<String> allowedOrigins
     ) {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOriginPatterns(
                 allowedOrigins.stream()
                         .map(String::trim)
                         .filter(origin -> !origin.isBlank())
                         .toList()
         );
-        configuration.setAllowedMethods(List.of(
-                "GET",
-                "POST",
-                "PUT",
-                "PATCH",
-                "DELETE",
-                "OPTIONS"
-        ));
-        configuration.setAllowedHeaders(List.of(
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        config.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
-                "Accept"
+                "X-Requested-With",
+                "Accept",
+                "Access-Control-Request-Method",
+                "Access-Control-Request-Headers",
+                "Origin"
         ));
-        configuration.setExposedHeaders(List.of("Location"));
-        configuration.setAllowCredentials(true);
-
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
+        config.setExposedHeaders(List.of("Authorization", "Location"));
+        config.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
         return source;
     }
+
 }

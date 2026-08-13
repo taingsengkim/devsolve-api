@@ -43,7 +43,7 @@ public class CommentServiceImpl implements CommentService {
 
     private static final String ADMIN_ROLE = "ADMIN";
     private static final List<ReviewStatus> PUBLIC_SOLUTION_STATUSES =
-            List.of(ReviewStatus.APPROVED, ReviewStatus.ACCEPTED);
+            List.of(ReviewStatus.APPROVED);
 
     private final CommentRepository commentRepository;
     private final ReportService reportService;
@@ -346,7 +346,7 @@ public class CommentServiceImpl implements CommentService {
             }
             case PROGRAM -> {
                 programRepository
-                    .findByIdAndStateAndSubmissionStateAndVisibility(
+                    .findByIdAndStateAndSubmissionStateAndVisibilityAndDeletedAtIsNull(
                             commentableId,
                             ProgramState.ACTIVE,
                             SubmissionState.APPROVED,

@@ -12,6 +12,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -58,6 +60,14 @@ public class ProgramServiceImpl implements ProgramService {
             "handle",
             "state",
             "submissionState"
+    );
+    private static final Set<String> DELETED_PROGRAM_SORT_PROPERTIES = Set.of(
+            "id",
+            "createdAt",
+            "updatedAt",
+            "deletedAt",
+            "name",
+            "handle"
     );
     private static final Set<String> PROGRAM_UPDATE_SORT_PROPERTIES =
             Set.of("id", "createdAt");
@@ -95,7 +105,7 @@ public class ProgramServiceImpl implements ProgramService {
         );
         return programs.map(program -> mapper.toSummaryDto(
                 program,
-                context.organizationNames().get(program.getOrganizationId()),
+                context.organizations().get(program.getOrganizationId()),
                 context.assetsByProgram().getOrDefault(
                         program.getId(),
                         List.of()
@@ -131,13 +141,56 @@ public class ProgramServiceImpl implements ProgramService {
                 pageable,
                 PROGRAM_SORT_PROPERTIES
         );
-        return programRepository.findAll(
-                        ProgramSpecification.organizationPrograms(
-                                organization.getId()
-                        ),
-                        validatedPageable
-                )
-                .map(mapper::toManagementSummaryDto);
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.organizationPrograms(
+                        organization.getId()
+                ),
+                validatedPageable
+        );
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                loadProgramAssets(programs.getContent());
+        return programs.map(program -> mapper.toManagementSummaryDto(
+                program,
+                organization,
+                assetsByProgram.getOrDefault(program.getId(), List.of())
+        ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            Pageable pageable
+    ) {
+        Organization organization = findAccessibleOrganization(
+                OrganizationPermission.VIEW_PROGRAMS
+        );
+        Pageable validatedPageable = PageableValidator.requireAllowedSort(
+                pageable,
+                DELETED_PROGRAM_SORT_PROPERTIES
+        );
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.deletedOrganizationPrograms(
+                        organization.getId()
+                ),
+                validatedPageable
+        );
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                loadProgramAssets(programs.getContent());
+        return programs.map(program -> mapper.toManagementSummaryDto(
+                program,
+                organization,
+                assetsByProgram.getOrDefault(program.getId(), List.of())
+        ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProgramResponseDto getMyProgram(UUID id) {
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.VIEW_PROGRAMS
+        );
+        return mapper.toResponseDto(program);
     }
 
     @Override
@@ -150,12 +203,15 @@ public class ProgramServiceImpl implements ProgramService {
 
         Program program = mapper.toEntity(request);
         program.setOrganizationId(organization.getId());
-        program.setState(ProgramState.DRAFT);
+        program.setState(resolveInitialState(request.state()));
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         validateProgramConfiguration(program);
 
         Program saved = programRepository.saveAndFlush(program);
-        logUpdate(saved, "Program created and submitted for admin review");
+        logUpdate(saved, saved.getState() == ProgramState.ACTIVE
+                ? "Program created and submitted for admin review; "
+                        + "launches on approval"
+                : "Program created and submitted for admin review");
         return mapper.toResponseDto(saved);
     }
 
@@ -312,6 +368,52 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     @Override
+    @Transactional
+    public void deleteProgram(UUID id) {
+        Program program = findProgramForManagement(
+                id,
+                OrganizationPermission.DELETE_PROGRAM
+        );
+        program.setState(ProgramState.CLOSED);
+        program.setVisibility(Visibility.PRIVATE);
+        logUpdate(program, "Program deleted");
+        program.setDeletedAt(LocalDateTime.now());
+    }
+
+    /**
+     * Undoes a delete without republishing. Deleting closes the program and
+     * makes it private, and restoring deliberately does not undo that: it
+     * hands back a private draft the organization must relaunch on purpose.
+     * Anything else would put a program back on the public internet — with
+     * researchers notified — as the side effect of an undo click.
+     *
+     * <p>The admin decision rides along untouched, so a program that was
+     * approved before the delete needs no second review. A deleted handle
+     * stays reserved against {@code existsByHandleIgnoreCase}, so nothing
+     * can have claimed it in the meantime.
+     */
+    @Override
+    @Transactional
+    public ProgramResponseDto restoreProgram(UUID id) {
+        Program program = programRepository.findById(id)
+                .orElseThrow(this::programNotFound);
+        organizationAuthorization.requirePermission(
+                program.getOrganizationId(),
+                extractCurrentUserId(),
+                OrganizationPermission.DELETE_PROGRAM
+        );
+        if (program.getDeletedAt() == null) {
+            throw conflict("Program is not deleted");
+        }
+
+        program.setDeletedAt(null);
+        program.setState(ProgramState.DRAFT);
+        program.setVisibility(Visibility.PRIVATE);
+        logUpdate(program, "Program restored as a private draft");
+        return mapper.toResponseDto(program);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Page<ProgramUpdateChangeLogDto> getPublicProgramUpdates(
             UUID id,
@@ -338,13 +440,30 @@ public class ProgramServiceImpl implements ProgramService {
                 pageable,
                 PROGRAM_SORT_PROPERTIES
         );
-        return programRepository.findAll(
-                        ProgramSpecification.programsForReview(
-                                submissionState
-                        ),
-                        validatedPageable
-                )
-                .map(mapper::toManagementSummaryDto);
+        Page<Program> programs = programRepository.findAll(
+                ProgramSpecification.programsForReview(submissionState),
+                validatedPageable
+        );
+        Map<UUID, Organization> organizationsById = loadOrganizationsById(
+                programs.getContent()
+        );
+        Map<UUID, List<ProgramAsset>> assetsByProgram =
+                loadProgramAssets(programs.getContent());
+        return programs.map(program -> mapper.toManagementSummaryDto(
+                program,
+                organizationsById.get(program.getOrganizationId()),
+                assetsByProgram.getOrDefault(program.getId(), List.of())
+        ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProgramResponseDto getProgramForAdmin(UUID id) {
+        requireRole(ADMIN_ROLE);
+        Program program = programRepository.findById(id)
+                .filter(candidate -> candidate.getDeletedAt() == null)
+                .orElseThrow(this::programNotFound);
+        return mapper.toResponseDto(program);
     }
 
     @Override
@@ -392,6 +511,7 @@ public class ProgramServiceImpl implements ProgramService {
             OrganizationPermission permission
     ) {
         Program program = programRepository.findById(id)
+                .filter(candidate -> candidate.getDeletedAt() == null)
                 .orElseThrow(this::programNotFound);
         organizationAuthorization.requirePermission(
                 program.getOrganizationId(),
@@ -403,6 +523,7 @@ public class ProgramServiceImpl implements ProgramService {
 
     private Program findPendingProgramForReview(UUID id) {
         Program program = programRepository.findById(id)
+                .filter(candidate -> candidate.getDeletedAt() == null)
                 .orElseThrow(this::programNotFound);
         if (program.getSubmissionState() != SubmissionState.PENDING_REVIEW) {
             throw conflict("Program is not pending admin review");
@@ -431,7 +552,8 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     private boolean isPubliclyAccessible(Program program) {
-        return program.getState() == ProgramState.ACTIVE
+        return program.getDeletedAt() == null
+                && program.getState() == ProgramState.ACTIVE
                 && program.getSubmissionState() == SubmissionState.APPROVED
                 && program.getVisibility() == Visibility.PUBLIC;
     }
@@ -456,10 +578,15 @@ public class ProgramServiceImpl implements ProgramService {
         if (program.getPolicy() == null || program.getPolicy().isBlank()) {
             throw badRequest("Program policy is required");
         }
-        if (program.getProofOfConceptRequirements() == null
-                || program.getProofOfConceptRequirements().isBlank()) {
-            throw badRequest("Proof of concept requirements are required");
-        }
+        validateGuidelines(
+                "Proof of concept requirements",
+                program.getProofOfConceptRequirements()
+        );
+        validateGuidelines(
+                "Rules of engagement",
+                program.getRulesOfEngagement()
+        );
+        validateGuidelines("Program exclusions", program.getExclusions());
         if (program.getAssets().isEmpty()) {
             throw badRequest("At least one program asset is required");
         }
@@ -473,6 +600,31 @@ public class ProgramServiceImpl implements ProgramService {
         validateRewards(program);
     }
 
+    /**
+     * The state a new program starts in, defaulting to {@code DRAFT}.
+     *
+     * <p>Creating as {@code ACTIVE} does not skip review: the submission state
+     * is still {@code PENDING_REVIEW}, and the public listing requires both
+     * {@code ACTIVE} and {@code APPROVED}. It only settles in advance what
+     * happens once an admin approves — go live immediately, rather than wait
+     * for a separate call to publish.
+     *
+     * <p>{@code PAUSED} and {@code CLOSED} describe a program that has already
+     * run, so neither is a coherent starting point.
+     */
+    private ProgramState resolveInitialState(ProgramState requested) {
+        if (requested == null) {
+            return ProgramState.DRAFT;
+        }
+        if (requested != ProgramState.DRAFT
+                && requested != ProgramState.ACTIVE) {
+            throw badRequest(
+                    "A program can only be created as DRAFT or ACTIVE"
+            );
+        }
+        return requested;
+    }
+
     private boolean hasChanges(ProgramUpdateRequestDto request) {
         return request.handle() != null
                 || request.name() != null
@@ -481,6 +633,8 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.visibility() != null
                 || request.policy() != null
                 || request.proofOfConceptRequirements() != null
+                || request.rulesOfEngagement() != null
+                || request.exclusions() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null
@@ -497,6 +651,8 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.engagementType() != null
                 || request.policy() != null
                 || request.proofOfConceptRequirements() != null
+                || request.rulesOfEngagement() != null
+                || request.exclusions() != null
                 || request.offersBounties() != null
                 || request.minimumBounty() != null
                 || request.maximumBounty() != null
@@ -579,21 +735,54 @@ public class ProgramServiceImpl implements ProgramService {
         }
     }
 
+    private void validateGuidelines(
+            String fieldName,
+            ProgramGuidelinesDto guidelines
+    ) {
+        if (guidelines == null) {
+            throw badRequest(fieldName + " are required");
+        }
+        if (guidelines.description() == null
+                || guidelines.description().isBlank()) {
+            throw badRequest(fieldName + " description is required");
+        }
+        if (guidelines.description().length() > 2000) {
+            throw badRequest(
+                    fieldName + " description cannot exceed 2000 characters"
+            );
+        }
+        if (guidelines.rules() == null || guidelines.rules().isEmpty()) {
+            throw badRequest(fieldName + " must contain at least one rule");
+        }
+        if (guidelines.rules().size() > 50) {
+            throw badRequest(fieldName + " cannot contain more than 50 rules");
+        }
+        boolean invalidRule = guidelines.rules().stream()
+                .anyMatch(rule -> rule == null
+                        || rule.isBlank()
+                        || rule.length() > 500);
+        if (invalidRule) {
+            throw badRequest(
+                    fieldName
+                            + " rules must be non-blank and cannot exceed 500 characters"
+            );
+        }
+    }
+
     private PublicProgramResponseDto toPublicResponse(Program program) {
-        PublicProgramContext context = loadPublicProgramContext(
-                List.of(program)
-        );
+        Organization organization = organizationRepository
+                .findById(program.getOrganizationId())
+                .orElseThrow(this::programNotFound);
+        List<ProgramAsset> assets = programAssetRepository
+                .findByProgramIdOrderByCreatedAtAsc(program.getId());
         ProgramRepository.PublicProgramStatistics statistics =
                 programRepository.findPublicStatisticsByProgramId(
                         program.getId()
                 );
         return mapper.toPublicResponseDto(
                 program,
-                context.organizationNames().get(program.getOrganizationId()),
-                context.assetsByProgram().getOrDefault(
-                        program.getId(),
-                        List.of()
-                ),
+                organization,
+                assets,
                 statistics.getTotalResearchers(),
                 statistics.getTotalSubmissions()
         );
@@ -606,16 +795,9 @@ public class ProgramServiceImpl implements ProgramService {
             return new PublicProgramContext(Map.of(), Map.of());
         }
 
-        Set<UUID> organizationIds = programs.stream()
-                .map(Program::getOrganizationId)
-                .collect(Collectors.toSet());
-        Map<UUID, String> organizationNames = organizationRepository
-                .findAllById(organizationIds)
-                .stream()
-                .collect(Collectors.toUnmodifiableMap(
-                        Organization::getId,
-                        Organization::getName
-                ));
+        // The whole row, not just the name: the public listing now carries the
+        // organization's profile, and this query already had to load it.
+        Map<UUID, Organization> organizations = loadOrganizationsById(programs);
 
         Set<UUID> programIds = programs.stream()
                 .map(Program::getId)
@@ -629,13 +811,46 @@ public class ProgramServiceImpl implements ProgramService {
                         ));
 
         return new PublicProgramContext(
-                organizationNames,
+                organizations,
                 assetsByProgram
         );
     }
 
+    private Map<UUID, Organization> loadOrganizationsById(
+            Collection<Program> programs
+    ) {
+        if (programs.isEmpty()) {
+            return Map.of();
+        }
+        Set<UUID> organizationIds = programs.stream()
+                .map(Program::getOrganizationId)
+                .collect(Collectors.toSet());
+        return organizationRepository.findAllById(organizationIds)
+                .stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        Organization::getId,
+                        organization -> organization
+                ));
+    }
+
+    private Map<UUID, List<ProgramAsset>> loadProgramAssets(
+            Collection<Program> programs
+    ) {
+        if (programs.isEmpty()) {
+            return Map.of();
+        }
+        Set<UUID> programIds = programs.stream()
+                .map(Program::getId)
+                .collect(Collectors.toSet());
+        return programAssetRepository.findByProgramIds(programIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        asset -> asset.getProgram().getId()
+                ));
+    }
+
     private record PublicProgramContext(
-            Map<UUID, String> organizationNames,
+            Map<UUID, Organization> organizations,
             Map<UUID, List<ProgramAsset>> assetsByProgram
     ) {
     }

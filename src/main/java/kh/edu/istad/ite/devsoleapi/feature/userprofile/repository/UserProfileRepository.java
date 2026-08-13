@@ -4,11 +4,9 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
 
@@ -60,5 +58,32 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             UUID id,
             UserStatus status
     );
+
+    @Query("""
+            select count(profile) as totalUsers,
+                   coalesce(sum(case when profile.status = :activeStatus
+                       then 1 else 0 end), 0) as activeUsers,
+                   coalesce(sum(case when profile.status = :suspendedStatus
+                       then 1 else 0 end), 0) as suspendedUsers,
+                   coalesce(sum(case when profile.status = :removedStatus
+                       then 1 else 0 end), 0) as removedUsers
+            from UserProfile profile
+            """)
+    AdminUserCounts findAdminCounts(
+            @Param("activeStatus") UserStatus activeStatus,
+            @Param("suspendedStatus") UserStatus suspendedStatus,
+            @Param("removedStatus") UserStatus removedStatus
+    );
+
+    interface AdminUserCounts {
+
+        long getTotalUsers();
+
+        long getActiveUsers();
+
+        long getSuspendedUsers();
+
+        long getRemovedUsers();
+    }
     Page<UserProfile> findAllByOrderByReputationDesc(Pageable pageable);
 }

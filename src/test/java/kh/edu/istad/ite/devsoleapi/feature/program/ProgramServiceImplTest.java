@@ -10,6 +10,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberReposi
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
@@ -40,13 +41,17 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -115,6 +120,171 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void createProgramHonoursRequestedActiveStateButStillNeedsReview() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = validProgram(organization.getId());
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(program);
+        when(programRepository.saveAndFlush(program)).thenReturn(program);
+
+        service().createProgram(ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .engagementType(EngagementType.BOUNTY)
+                .visibility(Visibility.PRIVATE)
+                .state(ProgramState.ACTIVE)
+                .build());
+
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        // Launching early settles what happens after approval; it never
+        // stands in for the approval itself.
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+    }
+
+    @Test
+    void createProgramRejectsAStartingStateThatIsNotDraftOrActive() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(validProgram(organization.getId()));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().createProgram(ProgramRequestDto.builder()
+                        .handle("acme-security")
+                        .name("Acme Security Program")
+                        .engagementType(EngagementType.BOUNTY)
+                        .visibility(Visibility.PRIVATE)
+                        .state(ProgramState.CLOSED)
+                        .build())
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(programRepository, never()).saveAndFlush(any(Program.class));
+    }
+
+    @Test
+    void ownerGetsCompleteSavedDraftForEditing() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDescription("Full draft description");
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setVisibility(Visibility.PRIVATE);
+        authenticate(ownerId, "COMPANY");
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        var response = service(new ProgramMapper())
+                .getMyProgram(program.getId());
+
+        assertEquals("Full draft description", response.description());
+        assertEquals(EngagementType.BOUNTY, response.engagementType());
+        assertEquals(Visibility.PRIVATE, response.visibility());
+        assertEquals(program.getPolicy(), response.policy());
+        assertEquals(
+                program.getProofOfConceptRequirements(),
+                response.proofOfConceptRequirements()
+        );
+        assertEquals(
+                program.getRulesOfEngagement(),
+                response.rulesOfEngagement()
+        );
+        assertEquals(program.getExclusions(), response.exclusions());
+        assertEquals(program.getOffersBounties(), response.offersBounties());
+        assertEquals(1, response.assets().size());
+    }
+
+    @Test
+    void userWithoutProgramAccessCannotGetSavedDraft() {
+        UUID otherUserId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = validProgram(organization.getId());
+        authenticate(otherUserId, "COMPANY");
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+        when(organizationMemberRepository.findByOrganizationIdAndUserId(
+                organization.getId(),
+                otherUserId
+        )).thenReturn(Optional.empty());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service(new ProgramMapper())
+                        .getMyProgram(program.getId())
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+    }
+
+    @Test
+    void myProgramsIncludeDescriptionAndAllAssetsFromOneBulkLoad() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDescription("Full saved draft description");
+        ProgramAsset inScope = program.getAssets().getFirst();
+        ProgramAsset outOfScope = ProgramAsset.builder()
+                .id(UUID.randomUUID())
+                .program(program)
+                .assetType(AssetType.URL)
+                .identifier("https://legacy.acme.test")
+                .isInScope(false)
+                .build();
+        PageRequest pageable = PageRequest.of(0, 20);
+        authenticate(ownerId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(programRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<Program>>any(),
+                eq(pageable)
+        )).thenReturn(new PageImpl<>(List.of(program), pageable, 1));
+        when(programAssetRepository.findByProgramIds(Set.of(program.getId())))
+                .thenReturn(List.of(inScope, outOfScope));
+
+        var response = service(new ProgramMapper())
+                .getMyPrograms(pageable)
+                .getContent()
+                .getFirst();
+
+        assertEquals(
+                "Full saved draft description",
+                response.description()
+        );
+        assertEquals(2, response.assets().size());
+        assertTrue(response.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+                        && "https://legacy.acme.test".equals(
+                                asset.identifier()
+                        )
+        ));
+        verify(programAssetRepository).findByProgramIds(
+                Set.of(program.getId())
+        );
+    }
+
+    @Test
     void createProgramAllowsPublicVisibilityWhilePendingApproval() {
         UUID userId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(userId);
@@ -163,6 +333,8 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 Visibility.PUBLIC,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -236,7 +408,12 @@ class ProgramServiceImplTest {
                         null,
                         null,
                         null,
-                        "Provide a working exploit and an HTTP request trace.",
+                        new ProgramGuidelinesDto(
+                                "Provide a working exploit.",
+                                List.of("Attach an HTTP request trace")
+                        ),
+                        null,
+                        null,
                         null,
                         null,
                         null,
@@ -273,6 +450,8 @@ class ProgramServiceImplTest {
                 null,
                 null,
                 Visibility.PUBLIC,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -380,6 +559,180 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void ownerCanSoftDeletePublishedProgram() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().deleteProgram(program.getId());
+
+        assertEquals(ProgramState.CLOSED, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+        assertNotNull(program.getDeletedAt());
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program deleted",
+                updateCaptor.getValue().getChangeSummary()
+        );
+        verifyNoInteractions(followNotificationService);
+    }
+
+    @Test
+    void deletedProgramCannotBeManagedAgain() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(UUID.randomUUID(), "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().deleteProgram(program.getId())
+        );
+
+        verifyNoInteractions(organizationRepository);
+        verifyNoInteractions(programUpdateRepository);
+    }
+
+    @Test
+    void restoreBringsBackAPrivateDraftInsteadOfRepublishing() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.CLOSED);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PRIVATE);
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().restoreProgram(program.getId());
+
+        assertNull(program.getDeletedAt());
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+        assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program restored as a private draft",
+                updateCaptor.getValue().getChangeSummary()
+        );
+        verifyNoInteractions(followNotificationService);
+    }
+
+    @Test
+    void restoreKeepsAPendingProgramWaitingForReview() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.CLOSED);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().restoreProgram(program.getId());
+
+        assertNull(program.getDeletedAt());
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+    }
+
+    @Test
+    void liveProgramCannotBeRestored() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().restoreProgram(program.getId())
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals("Program is not deleted", exception.getReason());
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        assertEquals(Visibility.PUBLIC, program.getVisibility());
+        verifyNoInteractions(programUpdateRepository);
+    }
+
+    @Test
+    void outsiderCannotRestoreAnotherOrganizationsProgram() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(UUID.randomUUID(), "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service().restoreProgram(program.getId())
+        );
+
+        assertNotNull(program.getDeletedAt());
+        verifyNoInteractions(programUpdateRepository);
+    }
+
+    @Test
+    void deletedProgramsListingIsScopedToTheOwnOrganization() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setDeletedAt(LocalDateTime.now());
+        authenticate(ownerId, "COMPANY");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(programRepository.findAll(
+                any(Specification.class),
+                any(PageRequest.class)
+        )).thenReturn(new PageImpl<>(List.of(program)));
+
+        service().getMyDeletedPrograms(PageRequest.of(
+                0,
+                20,
+                Sort.by(Sort.Direction.DESC, "deletedAt")
+        ));
+
+        verify(programMapper).toManagementSummaryDto(
+                eq(program),
+                eq(organization),
+                any()
+        );
+    }
+
+    @Test
     void activeProgramCannotBeResumed() {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
@@ -458,6 +811,47 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void adminCanViewFullPendingProgramDetails() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(UUID.randomUUID(), "ADMIN");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        var response = service(new ProgramMapper())
+                .getProgramForAdmin(program.getId());
+
+        assertEquals(program.getId(), response.id());
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                response.submissionState()
+        );
+        assertEquals(program.getPolicy(), response.policy());
+        assertEquals(
+                program.getProofOfConceptRequirements(),
+                response.proofOfConceptRequirements()
+        );
+        assertEquals(1, response.assets().size());
+    }
+
+    @Test
+    void nonAdminCannotViewAdminProgramDetails() {
+        Program program = validProgram(UUID.randomUUID());
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        authenticate(UUID.randomUUID(), "COMPANY");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().getProgramForAdmin(program.getId())
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verifyNoInteractions(programRepository);
+    }
+
+    @Test
     void publicListIncludesOrganizationNameAndOnlyInScopeAssets() {
         Organization organization = activeOwnedOrganization(UUID.randomUUID());
         organization.setName("Acme Corporation");
@@ -501,13 +895,20 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void publicDetailIncludesDistinctResearchersAndSubmissions() {
+    void publicDetailIncludesAllAssetsAndProgramStatistics() {
         Organization organization = activeOwnedOrganization(UUID.randomUUID());
         organization.setName("Acme Corporation");
         Program program = validProgram(organization.getId());
         program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.APPROVED);
         program.setVisibility(Visibility.PUBLIC);
+        ProgramAsset outOfScope = ProgramAsset.builder()
+                .id(UUID.randomUUID())
+                .program(program)
+                .assetType(AssetType.URL)
+                .identifier("https://legacy.acme.test")
+                .isInScope(false)
+                .build();
         ProgramRepository.PublicProgramStatistics statistics =
                 org.mockito.Mockito.mock(
                         ProgramRepository.PublicProgramStatistics.class
@@ -515,11 +916,11 @@ class ProgramServiceImplTest {
 
         when(programRepository.findById(program.getId()))
                 .thenReturn(Optional.of(program));
-        when(organizationRepository.findAllById(Set.of(organization.getId())))
-                .thenReturn(List.of(organization));
-        when(programAssetRepository.findInScopeByProgramIds(
-                Set.of(program.getId())
-        )).thenReturn(List.of(program.getAssets().getFirst()));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+        when(programAssetRepository.findByProgramIdOrderByCreatedAtAsc(
+                program.getId()
+        )).thenReturn(List.of(program.getAssets().getFirst(), outOfScope));
         when(programRepository.findPublicStatisticsByProgramId(
                 program.getId()
         )).thenReturn(statistics);
@@ -531,6 +932,10 @@ class ProgramServiceImplTest {
 
         assertEquals(7, response.totalResearchers());
         assertEquals(12, response.totalSubmissions());
+        assertEquals(2, response.assets().size());
+        assertTrue(response.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+        ));
     }
 
     @Test
@@ -551,6 +956,50 @@ class ProgramServiceImplTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
         verifyNoInteractions(programRepository);
+    }
+
+    @Test
+    void reviewListIncludesOrganizationDisplayInformation() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        organization.setName("Acme Corporation");
+        organization.setSlug("acme-corporation");
+        organization.setLogoUrl("https://acme.test/logo.png");
+        organization.setWebsiteUrl("https://acme.test");
+        Program program = validProgram(organization.getId());
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        PageRequest pageable = PageRequest.of(0, 20);
+        authenticate(UUID.randomUUID(), "ADMIN");
+
+        when(programRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<Program>>any(),
+                eq(pageable)
+        )).thenReturn(new PageImpl<>(List.of(program), pageable, 1));
+        when(organizationRepository.findAllById(Set.of(organization.getId())))
+                .thenReturn(List.of(organization));
+
+        var response = service(new ProgramMapper())
+                .getProgramsForReview(
+                        SubmissionState.PENDING_REVIEW,
+                        pageable
+                )
+                .getContent()
+                .getFirst();
+
+        assertEquals("Acme Corporation", response.organizationName());
+        assertEquals("acme-corporation", response.organizationSlug());
+        assertEquals(
+                "https://acme.test/logo.png",
+                response.organizationLogoUrl()
+        );
+        assertEquals(
+                "https://acme.test",
+                response.organizationWebsiteUrl()
+        );
+        assertEquals(
+                OrganizationStatus.ACTIVE,
+                response.organizationStatus()
+        );
     }
 
     private ProgramServiceImpl service() {
@@ -587,9 +1036,18 @@ class ProgramServiceImplTest {
         program.setHandle("acme-security");
         program.setName("Acme Security Program");
         program.setPolicy("Test only the assets listed as in scope.");
-        program.setProofOfConceptRequirements(
-                "Include reproducible steps and supporting evidence."
-        );
+        program.setProofOfConceptRequirements(new ProgramGuidelinesDto(
+                "Include reproducible steps and supporting evidence.",
+                List.of("Attach an HTTP request trace")
+        ));
+        program.setRulesOfEngagement(new ProgramGuidelinesDto(
+                "Follow these rules during testing.",
+                List.of("Test only assets listed as in scope")
+        ));
+        program.setExclusions(new ProgramGuidelinesDto(
+                "The following findings are excluded.",
+                List.of("Self-XSS without demonstrated impact")
+        ));
         program.setEngagementType(EngagementType.BOUNTY);
         program.setVisibility(Visibility.PRIVATE);
         program.setOffersBounties(false);

@@ -1,7 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.*;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import org.springframework.data.domain.Page;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +19,10 @@ public interface OrganizationService {
     void resendVerificationEmail();
 
     OrganizationResponse updateMe(OrganizationUpdateRequest request);
+
+    OrganizationResponse uploadLogo(MultipartFile file);
+
+    OrganizationResponse removeLogo();
 
     void deleteMe();
 
@@ -47,6 +53,13 @@ public interface OrganizationService {
     OrganizationResponse reject(UUID id, RejectOrganizationRequest request);
 
     OrganizationResponse resubmit();
+
+    Page<OrganizationReviewSummaryResponse> getOrganizationsForAdmin(
+            String query,
+            OrganizationStatus status,
+            int pageNumber,
+            int pageSize
+    );
 
     Page<OrganizationReviewSummaryResponse> getPendingOrganizations(
             int pageNumber,

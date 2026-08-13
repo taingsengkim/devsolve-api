@@ -1,5 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -33,14 +37,39 @@ class ProgramMapperTest {
                 .engagementType(EngagementType.RESPONSE)
                 .visibility(Visibility.PRIVATE)
                 .policy("Follow the rules of engagement.")
-                .proofOfConceptRequirements(
-                        "  Include reproducible steps and evidence.  "
-                )
+                .proofOfConceptRequirements(guidelines(
+                        "  Include reproducible steps and evidence.  ",
+                        "  Attach a request trace.  "
+                ))
+                .rulesOfEngagement(guidelines(
+                        "  Follow these rules.  ",
+                        "  Test only in scope.  "
+                ))
+                .exclusions(guidelines(
+                        "  These findings are excluded.  ",
+                        "  Self-XSS without impact.  "
+                ))
                 .build());
 
         assertEquals(
                 "Include reproducible steps and evidence.",
-                program.getProofOfConceptRequirements()
+                program.getProofOfConceptRequirements().description()
+        );
+        assertEquals(
+                "Attach a request trace.",
+                program.getProofOfConceptRequirements().rules().getFirst()
+        );
+        assertEquals(
+                "Follow these rules.",
+                program.getRulesOfEngagement().description()
+        );
+        assertEquals(
+                "Test only in scope.",
+                program.getRulesOfEngagement().rules().getFirst()
+        );
+        assertEquals(
+                "Self-XSS without impact.",
+                program.getExclusions().rules().getFirst()
         );
 
         mapper.updateEntity(
@@ -51,7 +80,12 @@ class ProgramMapperTest {
                         null,
                         null,
                         null,
-                        "  Provide an HTTP request trace.  ",
+                        guidelines(
+                                "  Provide an HTTP request trace.  ",
+                                "  Include the response body.  "
+                        ),
+                        null,
+                        null,
                         null,
                         null,
                         null,
@@ -63,7 +97,11 @@ class ProgramMapperTest {
 
         assertEquals(
                 "Provide an HTTP request trace.",
-                program.getProofOfConceptRequirements()
+                program.getProofOfConceptRequirements().description()
+        );
+        assertEquals(
+                "Include the response body.",
+                program.getProofOfConceptRequirements().rules().getFirst()
         );
     }
 
@@ -81,13 +119,24 @@ class ProgramMapperTest {
 
         ProgramSummaryResponseDto result = mapper.toSummaryDto(
                 program,
-                "Acme Corporation",
+                organization(program),
                 List.of(inScope, outOfScope)
         );
 
         assertEquals(program.getId(), result.id());
         assertEquals(program.getOrganizationId(), result.organizationId());
         assertEquals("Acme Corporation", result.organizationName());
+        assertEquals(
+                program.getOrganizationId(),
+                result.organization().id()
+        );
+        assertEquals("acme-corporation", result.organization().slug());
+        assertEquals(
+                "https://acme.test/logo.png",
+                result.organization().logoUrl()
+        );
+        assertEquals(Industry.TECHNOLOGY, result.organization().industry());
+        assertEquals("Cambodia", result.organization().country());
         assertEquals(1, result.inScopeAssets().size());
         assertEquals(
                 "https://app.acme.test",
@@ -113,23 +162,62 @@ class ProgramMapperTest {
     }
 
     @Test
-    void managementSummaryContainsWorkflowFieldsWithoutRelationships() {
+    void managementSummaryContainsDescriptionAssetsAndWorkflowFields() {
         Program program = program();
-        program.setAssets(null);
         program.setRewards(null);
+        ProgramAsset inScope = asset(
+                program,
+                true,
+                "https://app.acme.test"
+        );
+        ProgramAsset outOfScope = asset(
+                program,
+                false,
+                "https://legacy.acme.test"
+        );
+        Organization organization = new Organization();
+        organization.setId(program.getOrganizationId());
+        organization.setName("Acme Corporation");
+        organization.setSlug("acme-corporation");
+        organization.setLogoUrl("https://acme.test/logo.png");
+        organization.setWebsiteUrl("https://acme.test");
+        organization.setStatus(OrganizationStatus.ACTIVE);
 
         ProgramManagementSummaryResponseDto result =
-                mapper.toManagementSummaryDto(program);
+                mapper.toManagementSummaryDto(
+                        program,
+                        organization,
+                        List.of(inScope, outOfScope)
+                );
 
         assertEquals(program.getId(), result.id());
+        assertEquals("Acme Corporation", result.organizationName());
+        assertEquals("acme-corporation", result.organizationSlug());
+        assertEquals(
+                "https://acme.test/logo.png",
+                result.organizationLogoUrl()
+        );
+        assertEquals(
+                "https://acme.test",
+                result.organizationWebsiteUrl()
+        );
+        assertEquals(
+                OrganizationStatus.ACTIVE,
+                result.organizationStatus()
+        );
         assertEquals(ProgramState.ACTIVE, result.state());
         assertEquals(SubmissionState.APPROVED, result.submissionState());
         assertEquals(Visibility.PUBLIC, result.visibility());
+        assertEquals("Security research program", result.description());
+        assertEquals(2, result.assets().size());
+        assertTrue(result.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+        ));
         assertEquals(program.getCreatedAt(), result.createdAt());
     }
 
     @Test
-    void publicDetailPreservesAssetsFieldButExcludesOutOfScopeAssets() {
+    void publicDetailIncludesInScopeAndOutOfScopeAssets() {
         Program program = program();
         ProgramAsset inScope = asset(program, true, "https://app.acme.test");
         ProgramAsset outOfScope = asset(
@@ -140,24 +228,54 @@ class ProgramMapperTest {
 
         PublicProgramResponseDto result = mapper.toPublicResponseDto(
                 program,
-                "Acme Corporation",
+                organization(program),
                 List.of(inScope, outOfScope),
                 7,
                 12
         );
 
         assertEquals("Acme Corporation", result.organizationName());
+        assertEquals("acme-corporation", result.organization().slug());
+        assertEquals(
+                "Security-first payments company",
+                result.organization().description()
+        );
         assertEquals(
                 program.getProofOfConceptRequirements(),
                 result.proofOfConceptRequirements()
         );
-        assertEquals(1, result.assets().size());
+        assertEquals(
+                program.getRulesOfEngagement(),
+                result.rulesOfEngagement()
+        );
+        assertEquals(program.getExclusions(), result.exclusions());
+        assertEquals(2, result.assets().size());
+        assertTrue(result.assets().stream().anyMatch(asset ->
+                Boolean.FALSE.equals(asset.isInScope())
+                        && "https://legacy.acme.test".equals(
+                                asset.identifier()
+                        )
+        ));
         assertEquals(7, result.totalResearchers());
         assertEquals(12, result.totalSubmissions());
         assertEquals(
                 "https://app.acme.test",
                 result.assets().getFirst().identifier()
         );
+    }
+
+    private Organization organization(Program program) {
+        Organization organization = new Organization();
+        organization.setId(program.getOrganizationId());
+        organization.setName("Acme Corporation");
+        organization.setSlug("acme-corporation");
+        organization.setLogoUrl("https://acme.test/logo.png");
+        organization.setWebsiteUrl("https://acme.test");
+        organization.setDescription("Security-first payments company");
+        organization.setIndustry(Industry.TECHNOLOGY);
+        organization.setCountry("Cambodia");
+        organization.setStatus(OrganizationStatus.ACTIVE);
+        return organization;
     }
 
     private Program program() {
@@ -172,9 +290,18 @@ class ProgramMapperTest {
                 .submissionState(SubmissionState.APPROVED)
                 .visibility(Visibility.PUBLIC)
                 .policy("Follow the program rules of engagement.")
-                .proofOfConceptRequirements(
-                        "Include reproducible steps and supporting evidence."
-                )
+                .proofOfConceptRequirements(guidelines(
+                        "Include reproducible steps and supporting evidence.",
+                        "Attach a request trace."
+                ))
+                .rulesOfEngagement(guidelines(
+                        "Follow these rules during testing.",
+                        "Test only in-scope assets"
+                ))
+                .exclusions(guidelines(
+                        "The following findings are excluded.",
+                        "Self-XSS without demonstrated impact"
+                ))
                 .offersBounties(true)
                 .minimumBounty(new BigDecimal("100.00"))
                 .maximumBounty(new BigDecimal("5000.00"))
@@ -182,5 +309,12 @@ class ProgramMapperTest {
         program.setCreatedAt(LocalDateTime.of(2026, 8, 1, 10, 0));
         program.setUpdatedAt(LocalDateTime.of(2026, 8, 1, 11, 0));
         return program;
+    }
+
+    private ProgramGuidelinesDto guidelines(
+            String description,
+            String rule
+    ) {
+        return new ProgramGuidelinesDto(description, List.of(rule));
     }
 }

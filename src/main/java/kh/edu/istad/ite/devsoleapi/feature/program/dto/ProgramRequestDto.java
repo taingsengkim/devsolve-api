@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.program.dto;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.dto.ProgramRewardRequestDto;
@@ -48,15 +49,28 @@ public record ProgramRequestDto(
         @NotNull(message = "Visibility is required")
         Visibility visibility,
 
+        /**
+         * {@code DRAFT} or {@code ACTIVE} only, defaulting to {@code DRAFT}.
+         * Choosing {@code ACTIVE} does not skip review — it means the program
+         * goes live the moment an admin approves it, instead of waiting for a
+         * separate call to {@code PATCH /programs/{id}/publish}.
+         */
+        ProgramState state,
+
         @NotBlank(message = "Program policy is required")
         String policy,
 
-        @NotBlank(message = "Proof of concept requirements are required")
-        @Size(
-                max = 10000,
-                message = "Proof of concept requirements must not exceed 10000 characters"
-        )
-        String proofOfConceptRequirements,
+        @NotNull(message = "Proof of concept requirements are required")
+        @Valid
+        ProgramGuidelinesDto proofOfConceptRequirements,
+
+        @NotNull(message = "Rules of engagement are required")
+        @Valid
+        ProgramGuidelinesDto rulesOfEngagement,
+
+        @NotNull(message = "Program exclusions are required")
+        @Valid
+        ProgramGuidelinesDto exclusions,
 
         Boolean offersBounties,
 

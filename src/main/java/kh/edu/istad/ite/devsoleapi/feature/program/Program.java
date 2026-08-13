@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
@@ -27,6 +28,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -96,11 +98,34 @@ public class Program extends BasedEntity {
     @Builder.Default
     private Visibility visibility = Visibility.PRIVATE;
 
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Column(name = "policy", columnDefinition = "TEXT")
     private String policy;
 
-    @Column(name = "proof_of_concept_requirements", columnDefinition = "TEXT")
-    private String proofOfConceptRequirements;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(
+            name = "proof_of_concept_requirements",
+            columnDefinition = "jsonb"
+    )
+    private ProgramGuidelinesDto proofOfConceptRequirements;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(
+            name = "rules_of_engagement",
+            nullable = false,
+            columnDefinition = "jsonb"
+    )
+    private ProgramGuidelinesDto rulesOfEngagement;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(
+            name = "exclusions",
+            nullable = false,
+            columnDefinition = "jsonb"
+    )
+    private ProgramGuidelinesDto exclusions;
 
     @Column(name = "offers_bounties", nullable = false)
     @Builder.Default

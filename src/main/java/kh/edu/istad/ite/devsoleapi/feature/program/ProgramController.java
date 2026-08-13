@@ -16,6 +16,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -97,6 +98,29 @@ public class ProgramController {
         return programService.getMyPrograms(pageable);
     }
 
+    /**
+     * Mapped above {@code /organizations/me/programs/{id}} on purpose: the
+     * literal segment wins over the variable, so "deleted" never reaches the
+     * UUID converter.
+     */
+    @GetMapping("/organizations/me/programs/deleted")
+    public Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            @PageableDefault(
+                    size = 20,
+                    sort = "deletedAt",
+                    direction = Sort.Direction.DESC
+            )
+            @ParameterObject
+            Pageable pageable
+    ) {
+        return programService.getMyDeletedPrograms(pageable);
+    }
+
+    @GetMapping("/organizations/me/programs/{id}")
+    public ProgramResponseDto getMyProgram(@PathVariable UUID id) {
+        return programService.getMyProgram(id);
+    }
+
     @PostMapping("/organizations/me/programs")
     @ResponseStatus(HttpStatus.CREATED)
     public ProgramResponseDto createProgram(
@@ -136,5 +160,16 @@ public class ProgramController {
     @PatchMapping("/programs/{id}/close")
     public ProgramResponseDto closeProgram(@PathVariable UUID id) {
         return programService.closeProgram(id);
+    }
+
+    @DeleteMapping("/programs/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteProgram(@PathVariable UUID id) {
+        programService.deleteProgram(id);
+    }
+
+    @PostMapping("/programs/{id}/restore")
+    public ProgramResponseDto restoreProgram(@PathVariable UUID id) {
+        return programService.restoreProgram(id);
     }
 }

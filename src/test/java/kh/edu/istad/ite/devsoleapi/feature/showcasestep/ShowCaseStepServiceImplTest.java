@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcasestep;
 
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCases;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
@@ -20,6 +21,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -30,6 +32,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -57,6 +60,9 @@ class ShowCaseStepServiceImplTest {
     @Mock
     private ShowcaseRevisionWorkflow showcaseRevisionWorkflow;
 
+    @Mock
+    private ImageStorageService imageStorageService;
+
     private ShowCaseStepServiceImpl service;
 
     @BeforeEach
@@ -67,7 +73,8 @@ class ShowCaseStepServiceImplTest {
                 showcaseStepMapper,
                 showcaseRevisionRepository,
                 showcaseStepRevisionRepository,
-                showcaseRevisionWorkflow
+                showcaseRevisionWorkflow,
+                imageStorageService
         );
     }
 
@@ -326,6 +333,125 @@ class ShowCaseStepServiceImplTest {
         verify(showcaseStepRepository, never()).save(
                 org.mockito.ArgumentMatchers.any()
         );
+    }
+
+    @Test
+    void uploadImageOnUnpublishedShowcaseReplacesItInPlace() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        ShowCases showcase = showcase(showcaseId, ownerId);
+
+        ShowcaseStep step = new ShowcaseStep();
+        step.setId(stepId);
+        step.setShowcase(showcase);
+        step.setImageUrl("https://cdn.test/old-screenshot.png");
+
+        MultipartFile file = mock(MultipartFile.class);
+        ShowcaseStepResponse expected = ShowcaseStepResponse.builder()
+                .id(stepId)
+                .build();
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseStepRepository
+                .findByIdAndShowcase_IdAndShowcase_DeletedAtIsNull(
+                        stepId,
+                        showcaseId
+                )).thenReturn(Optional.of(step));
+        when(imageStorageService.replace(
+                "showcases/" + showcaseId + "/steps/" + stepId + "/image",
+                "https://cdn.test/old-screenshot.png",
+                file
+        )).thenReturn("https://cdn.test/new-screenshot.png");
+        when(showcaseStepRepository.save(step)).thenReturn(step);
+        when(showcaseStepMapper
+                .mapShowcaseStepToShowcaseStepResponse(step))
+                .thenReturn(expected);
+
+        ShowcaseStepResponse actual = service.uploadImage(
+                showcaseId,
+                stepId,
+                ShowcaseStepImageKind.IMAGE,
+                file
+        );
+
+        assertSame(expected, actual);
+        assertEquals(
+                "https://cdn.test/new-screenshot.png",
+                step.getImageUrl()
+        );
+        verifyNoInteractions(showcaseRevisionWorkflow);
+    }
+
+    @Test
+    void uploadDiagramOnApprovedShowcaseLeavesThePublishedDiagramInPlace() {
+        UUID ownerId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
+        UUID stepId = UUID.randomUUID();
+        ShowCases showcase = showcase(showcaseId, ownerId);
+        showcase.setReviewStatus(ReviewStatus.APPROVED);
+
+        ShowcaseStep published = new ShowcaseStep();
+        published.setId(stepId);
+        published.setShowcase(showcase);
+        published.setDiagramUrl("https://cdn.test/live-diagram.png");
+
+        ShowcaseRevision revision = new ShowcaseRevision();
+        revision.setShowcase(showcase);
+
+        // The snapshot starts out pointing at the published diagram.
+        ShowcaseStepRevision candidate = new ShowcaseStepRevision();
+        candidate.setId(UUID.randomUUID());
+        candidate.setRevision(revision);
+        candidate.setSourceStepId(stepId);
+        candidate.setDiagramUrl("https://cdn.test/live-diagram.png");
+
+        MultipartFile file = mock(MultipartFile.class);
+        ShowcaseStepResponse expected = ShowcaseStepResponse.builder()
+                .id(stepId)
+                .build();
+
+        authenticate(ownerId.toString());
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseRevisionWorkflow.getOrCreate(showcase, ownerId))
+                .thenReturn(revision);
+        when(showcaseStepRevisionRepository
+                .findByIdAndRevision_Showcase_Id(stepId, showcaseId))
+                .thenReturn(Optional.of(candidate));
+        when(showcaseStepRepository.findById(stepId))
+                .thenReturn(Optional.of(published));
+        when(imageStorageService.replace(
+                "showcases/" + showcaseId + "/steps/" + stepId + "/diagram",
+                null,
+                file
+        )).thenReturn("https://cdn.test/candidate-diagram.png");
+        when(showcaseStepRevisionRepository.save(candidate))
+                .thenReturn(candidate);
+        when(showcaseStepMapper
+                .mapShowcaseStepRevisionToShowcaseStepResponse(candidate))
+                .thenReturn(expected);
+
+        ShowcaseStepResponse actual = service.uploadImage(
+                showcaseId,
+                stepId,
+                ShowcaseStepImageKind.DIAGRAM,
+                file
+        );
+
+        assertSame(expected, actual);
+        assertEquals(
+                "https://cdn.test/candidate-diagram.png",
+                candidate.getDiagramUrl()
+        );
+        assertEquals(
+                "https://cdn.test/live-diagram.png",
+                published.getDiagramUrl()
+        );
+        verify(showcaseRevisionWorkflow).submit(revision, ownerId);
+        verify(showcaseStepRepository, never()).save(published);
     }
 
     private ShowCases showcase(UUID showcaseId, UUID ownerId) {

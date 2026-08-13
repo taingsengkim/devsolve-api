@@ -31,6 +31,12 @@ public interface ProgramService {
             Pageable pageable
     );
 
+    Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            Pageable pageable
+    );
+
+    ProgramResponseDto getMyProgram(UUID id);
+
     ProgramResponseDto createProgram(ProgramRequestDto request);
 
     ProgramResponseDto updateProgram(
@@ -48,6 +54,10 @@ public interface ProgramService {
 
     ProgramResponseDto closeProgram(UUID id);
 
+    void deleteProgram(UUID id);
+
+    ProgramResponseDto restoreProgram(UUID id);
+
     Page<ProgramUpdateChangeLogDto> getPublicProgramUpdates(
             UUID id,
             Pageable pageable
@@ -57,6 +67,8 @@ public interface ProgramService {
             SubmissionState submissionState,
             Pageable pageable
     );
+
+    ProgramResponseDto getProgramForAdmin(UUID id);
 
     ProgramResponseDto approveProgram(UUID id);
 

@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
@@ -35,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -58,6 +60,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationUserProfileRepository userProfileRepository;
     private final OrganizationMapper organizationMapper;
     private final WebsiteUrlService websiteUrlService;
+    private final ImageStorageService imageStorageService;
     private final CompanyIdentityService companyIdentityService;
     private final OrganizationReviewHistoryRepository reviewHistoryRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -218,6 +221,34 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
 
         return organizationMapper.toOrganizationResponse(organization);
+    }
+
+    @Override
+    @Transactional
+    public OrganizationResponse uploadLogo(MultipartFile file) {
+        Organization organization = findMyOrganization();
+        String logoUrl = imageStorageService.replace(
+                "organizations/" + organization.getId(),
+                organization.getLogoUrl(),
+                file
+        );
+        organization.setLogoUrl(logoUrl);
+        Organization saved = organizationRepository.saveAndFlush(
+                organization
+        );
+        return organizationMapper.toOrganizationResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public OrganizationResponse removeLogo() {
+        Organization organization = findMyOrganization();
+        imageStorageService.remove(organization.getLogoUrl());
+        organization.setLogoUrl(null);
+        Organization saved = organizationRepository.saveAndFlush(
+                organization
+        );
+        return organizationMapper.toOrganizationResponse(saved);
     }
 
     @Override
@@ -535,6 +566,34 @@ public class OrganizationServiceImpl implements OrganizationService {
                 null
         );
         return organizationMapper.toOrganizationResponse(organization);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<OrganizationReviewSummaryResponse> getOrganizationsForAdmin(
+            String query,
+            OrganizationStatus status,
+            int pageNumber,
+            int pageSize
+    ) {
+        requireRealmRole(getCurrentJwt(), ADMIN_ROLE);
+        validatePagination(pageNumber, pageSize);
+
+        String normalizedQuery = trimToNull(query);
+        String queryPattern = normalizedQuery == null
+                ? null
+                : "%" + normalizedQuery.toLowerCase(Locale.ROOT) + "%";
+        Pageable pageable = PageRequest.of(
+                pageNumber,
+                pageSize,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        return organizationRepository.findForAdmin(
+                queryPattern,
+                status,
+                pageable
+        ).map(organizationMapper::toReviewSummary);
     }
 
     @Override

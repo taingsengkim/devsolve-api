@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.showcase.dto;
 
 import jakarta.validation.constraints.Size;
 
+import java.util.Set;
 import java.util.UUID;
 
 public record UpdateShowCasesRequest(
@@ -14,6 +15,13 @@ public record UpdateShowCasesRequest(
         String coverImageUrl,
         String liveUrl,
         String repoUrl,
-        String videoUrl
+        String videoUrl,
+
+        /*
+         * Null on both means "leave the tags alone"; supplying either one
+         * replaces the whole set, so an empty set clears the tags.
+         */
+        Set<UUID> tagIds,
+        Set<String> tags
 ) {
 }

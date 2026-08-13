@@ -12,6 +12,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -20,12 +21,14 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.util.UUID;
@@ -74,8 +77,8 @@ public class ProblemController {
     }
 
     @GetMapping("/{id}")
-    public ProblemResponse findById(@PathVariable UUID id) {
-        return problemService.findById(id);
+    public ResponseEntity<ProblemResponse> findById(@PathVariable UUID id) {
+        return withEtag(problemService.findById(id));
     }
 
     @PostMapping("/drafts")
@@ -95,11 +98,16 @@ public class ProblemController {
     }
 
     @PatchMapping("/{id}")
-    public ProblemResponse updateDraft(
+    public ResponseEntity<ProblemResponse> update(
             @PathVariable UUID id,
+            @RequestHeader(HttpHeaders.IF_MATCH) String ifMatch,
             @Valid @RequestBody ProblemUpdateRequest request
     ) {
-        return problemService.updateDraft(id, request);
+        return withEtag(problemService.update(
+                id,
+                request,
+                parseEtag(ifMatch)
+        ));
     }
 
     @PostMapping("/{id}/submit")
@@ -152,5 +160,31 @@ public class ProblemController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void incrementViewCount(@PathVariable UUID id) {
         problemService.incrementViewCount(id);
+    }
+
+    private ResponseEntity<ProblemResponse> withEtag(ProblemResponse response) {
+        return ResponseEntity.ok()
+                .eTag('"' + Long.toString(response.version()) + '"')
+                .body(response);
+    }
+
+    private long parseEtag(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.startsWith("W/")) {
+            normalized = normalized.substring(2).trim();
+        }
+        if (normalized.length() >= 2
+                && normalized.startsWith("\"")
+                && normalized.endsWith("\"")) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        try {
+            return Long.parseLong(normalized);
+        } catch (NumberFormatException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "If-Match must contain the numeric problem ETag"
+            );
+        }
     }
 }

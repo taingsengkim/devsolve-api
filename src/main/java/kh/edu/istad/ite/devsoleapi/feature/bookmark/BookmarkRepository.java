@@ -7,6 +7,10 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
+
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,6 +28,41 @@ public interface BookmarkRepository
             UUID userId,
             BookmarkType bookmarkableType,
             UUID bookmarkableId
+    );
+
+    long countByBookmarkableTypeAndBookmarkableId(
+            BookmarkType bookmarkableType,
+            UUID bookmarkableId
+    );
+
+    /**
+     * Bookmark counts for a whole page in one round trip. Ids nobody has
+     * bookmarked are absent from the result.
+     */
+    @Query("""
+            select bookmark.bookmarkableId as id, count(bookmark) as total
+            from Bookmark bookmark
+            where bookmark.bookmarkableType = :bookmarkableType
+              and bookmark.bookmarkableId in :bookmarkableIds
+            group by bookmark.bookmarkableId
+            """)
+    List<IdCountProjection> countAllByBookmarkableIds(
+            @Param("bookmarkableType") BookmarkType bookmarkableType,
+            @Param("bookmarkableIds") Collection<UUID> bookmarkableIds
+    );
+
+    /** Which of these ids the given viewer has bookmarked. */
+    @Query("""
+            select bookmark.bookmarkableId
+            from Bookmark bookmark
+            where bookmark.user.id = :userId
+              and bookmark.bookmarkableType = :bookmarkableType
+              and bookmark.bookmarkableId in :bookmarkableIds
+            """)
+    List<UUID> findBookmarkedIds(
+            @Param("userId") UUID userId,
+            @Param("bookmarkableType") BookmarkType bookmarkableType,
+            @Param("bookmarkableIds") Collection<UUID> bookmarkableIds
     );
 
     long deleteByUser_IdAndBookmarkableTypeAndBookmarkableId(

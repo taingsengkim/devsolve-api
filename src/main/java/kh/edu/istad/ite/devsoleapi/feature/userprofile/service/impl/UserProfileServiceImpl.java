@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -24,8 +25,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
@@ -43,14 +46,13 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserProfileRepository userProfileRepository;
     private final UserProfileMapper userProfileMapper;
     private final SocialLinkValidator socialLinkValidator;
+    private final ImageStorageService imageStorageService;
 
     @Override
     @Transactional(readOnly = true)
     public UserProfileResponse me() {
         UUID userId = extractCurrentUserId();
-        UserProfile userProfile = findUserProfile(userId);
-        UserRepresentation keycloakUser = findKeycloakUser(userId).toRepresentation();
-        return userProfileMapper.toUserProfileResponse(keycloakUser, userProfile);
+        return toResponse(findUserProfile(userId));
     }
 
     @Override
@@ -58,31 +60,70 @@ public class UserProfileServiceImpl implements UserProfileService {
     public UserProfileResponse updateMe(UpdateUserProfileRequest request) {
         UUID userId = extractCurrentUserId();
         UserProfile userProfile = findUserProfile(userId);
-        UserResource keycloakUserResource = findKeycloakUser(userId);
-        UserRepresentation keycloakUser = keycloakUserResource.toRepresentation();
 
         userProfileMapper.mapUpdateUserProfileRequestToUserProfile(request, userProfile);
         if (request.socialLinks() != null) {
             replaceSocialLinks(userProfile, request.socialLinks());
         }
 
-        if (request.firstName() != null || request.lastName() != null) {
-            String firstName = request.firstName() != null
-                    ? request.firstName().trim()
-                    : keycloakUser.getFirstName();
-            String lastName = request.lastName() != null
-                    ? request.lastName().trim()
-                    : keycloakUser.getLastName();
-
-            keycloakUser.setFirstName(firstName);
-            keycloakUser.setLastName(lastName);
-            userProfile.setFullName(buildFullName(firstName, lastName));
-
-            userProfileRepository.saveAndFlush(userProfile);
-            keycloakUserResource.update(keycloakUser);
+        // Keycloak owns first and last name, so only a change to those needs
+        // the admin API. Reaching for it on every edit put a remote call that
+        // can fail in the path of changes that never touch it.
+        if (request.firstName() == null && request.lastName() == null) {
+            return toResponse(userProfile);
         }
 
+        UserResource keycloakUserResource = findKeycloakUser(userId);
+        UserRepresentation keycloakUser = keycloakUserResource.toRepresentation();
+
+        String firstName = request.firstName() != null
+                ? request.firstName().trim()
+                : keycloakUser.getFirstName();
+        String lastName = request.lastName() != null
+                ? request.lastName().trim()
+                : keycloakUser.getLastName();
+
+        keycloakUser.setFirstName(firstName);
+        keycloakUser.setLastName(lastName);
+        userProfile.setFullName(buildFullName(firstName, lastName));
+
+        userProfileRepository.saveAndFlush(userProfile);
+        keycloakUserResource.update(keycloakUser);
+
+        // Answers from what was just written rather than from the token, which
+        // still carries the name the caller has only now replaced.
+        keycloakUser.setEmail(userProfile.getEmail());
         return userProfileMapper.toUserProfileResponse(keycloakUser, userProfile);
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponse uploadAvatar(MultipartFile file) {
+        UUID userId = extractCurrentUserId();
+        UserProfile userProfile = findUserProfile(userId);
+
+        String avatarUrl = imageStorageService.replace(
+                "user-profiles/" + userId,
+                userProfile.getAvatarUrl(),
+                file
+        );
+        userProfile.setAvatarUrl(avatarUrl);
+        userProfileRepository.saveAndFlush(userProfile);
+
+        return toResponse(userProfile);
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponse removeAvatar() {
+        UUID userId = extractCurrentUserId();
+        UserProfile userProfile = findUserProfile(userId);
+
+        imageStorageService.remove(userProfile.getAvatarUrl());
+        userProfile.setAvatarUrl(null);
+        userProfileRepository.saveAndFlush(userProfile);
+
+        return toResponse(userProfile);
     }
 
     @Override
@@ -159,6 +200,52 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Public user profile not found"
                 ));
+    }
+
+    private UserProfileResponse toResponse(UserProfile userProfile) {
+        return userProfileMapper.toUserProfileResponse(
+                currentIdentity(userProfile),
+                userProfile
+        );
+    }
+
+    /**
+     * The caller's name and email, taken from the access token they are already
+     * holding.
+     *
+     * <p>This used to be a Keycloak Admin API lookup on every profile read. It
+     * was the only step on that path that could fail for a perfectly valid
+     * user: the admin client throws raw JAX-RS exceptions that nothing
+     * translates, so a realm the service account cannot read users in, or an
+     * account it cannot see, turned a profile that exists into a 500. The token
+     * is already verified and carries the same fields, so reading it is both
+     * cheaper and one less thing to go wrong.
+     */
+    private UserRepresentation currentIdentity(UserProfile userProfile) {
+        Jwt token = AuthUtils.extractJwtPrincipal().getToken();
+        String firstName = token.getClaimAsString("given_name");
+        String lastName = token.getClaimAsString("family_name");
+
+        // A client that does not request the profile scope gets neither claim.
+        // The stored full name is the only other place these two live.
+        if (firstName == null && lastName == null) {
+            String fullName = userProfile.getFullName();
+            int separator = fullName == null ? -1 : fullName.indexOf(' ');
+            if (separator > 0) {
+                firstName = fullName.substring(0, separator);
+                lastName = fullName.substring(separator + 1).trim();
+            } else {
+                firstName = fullName;
+            }
+        }
+
+        UserRepresentation identity = new UserRepresentation();
+        identity.setFirstName(firstName);
+        identity.setLastName(lastName);
+        // The local row owns the email: it is non-null there, and moderation
+        // and ownership checks already read it from the database.
+        identity.setEmail(userProfile.getEmail());
+        return identity;
     }
 
     private UUID extractCurrentUserId() {
