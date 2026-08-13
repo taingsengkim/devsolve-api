@@ -15,7 +15,28 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "recognitions")
+@Table(
+        name = "recognitions",
+        // One recognition per report. Without this a triager could award the
+        // same finding repeatedly and each award would add reputation again,
+        // which is a free points loop. The service checks first for a clean
+        // 409, but two concurrent awards both pass that check, so the database
+        // has to be the one that says no.
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_recognitions_report",
+                columnNames = "report_id"
+        ),
+        indexes = {
+                @Index(
+                        name = "idx_recognitions_user_id",
+                        columnList = "user_id"
+                ),
+                @Index(
+                        name = "idx_recognitions_program_id",
+                        columnList = "program_id"
+                )
+        }
+)
 @Getter
 @Setter
 public class Recognition extends BasedEntity {

@@ -37,6 +37,7 @@ public class OrganizationController {
         return organizationService.register(request);
     }
 
+
     @GetMapping("/me")
     public OrganizationResponse me() {
         return organizationService.me();
