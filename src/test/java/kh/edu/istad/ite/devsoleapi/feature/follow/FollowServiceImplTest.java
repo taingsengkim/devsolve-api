@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.follow;
 
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowResponse;
 import kh.edu.istad.ite.devsoleapi.feature.follow.dto.FollowSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -104,6 +105,60 @@ class FollowServiceImplTest {
                 any(),
                 any()
         );
+    }
+
+    @Test
+    void followingAUserPublishesANewFollowerNotification() {
+        UUID followerId = UUID.randomUUID();
+        UUID followedUserId = UUID.randomUUID();
+        UserProfile follower = user(followerId);
+        Follow stored = Follow.builder()
+                .id(UUID.randomUUID())
+                .follower(follower)
+                .followableType(FollowType.USER)
+                .followableId(followedUserId)
+                .createdAt(LocalDateTime.now())
+                .build();
+        authenticate(followerId);
+        when(userProfileRepository.findById(followerId))
+                .thenReturn(Optional.of(follower));
+        when(followRepository.insertIfAbsent(
+                any(UUID.class),
+                org.mockito.ArgumentMatchers.eq(followerId),
+                org.mockito.ArgumentMatchers.eq("user"),
+                org.mockito.ArgumentMatchers.eq(followedUserId)
+        )).thenReturn(1);
+        when(followRepository.findByFollower_IdAndFollowableTypeAndFollowableId(
+                followerId, FollowType.USER, followedUserId
+        )).thenReturn(Optional.of(stored));
+
+        service().follow(FollowType.USER, followedUserId);
+
+        verify(eventPublisher).publishEvent(any(NotificationEvent.class));
+    }
+
+    @Test
+    void repeatedUserFollowDoesNotPublishAnotherNotification() {
+        UUID followerId = UUID.randomUUID();
+        UUID followedUserId = UUID.randomUUID();
+        UserProfile follower = user(followerId);
+        Follow stored = Follow.builder()
+                .id(UUID.randomUUID())
+                .follower(follower)
+                .followableType(FollowType.USER)
+                .followableId(followedUserId)
+                .createdAt(LocalDateTime.now())
+                .build();
+        authenticate(followerId);
+        when(userProfileRepository.findById(followerId))
+                .thenReturn(Optional.of(follower));
+        when(followRepository.findByFollower_IdAndFollowableTypeAndFollowableId(
+                followerId, FollowType.USER, followedUserId
+        )).thenReturn(Optional.of(stored));
+
+        service().follow(FollowType.USER, followedUserId);
+
+        verify(eventPublisher, never()).publishEvent(any(NotificationEvent.class));
     }
 
     @Test
