@@ -115,7 +115,7 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void createProgramUsesOwnedOrganizationAndPendingDefaults() {
+    void createProgramUsesOwnedOrganizationAndStartsAsAnUnsubmittedDraft() {
         UUID userId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(userId);
         Program program = validProgram(organization.getId());
@@ -137,11 +137,48 @@ class ProgramServiceImplTest {
         assertEquals(organization.getId(), program.getOrganizationId());
         assertEquals(ProgramState.DRAFT, program.getState());
         assertEquals(
-                SubmissionState.PENDING_REVIEW,
+                SubmissionState.NOT_SUBMITTED,
                 program.getSubmissionState()
         );
         verify(programRepository).saveAndFlush(program);
         verify(programUpdateRepository).save(any(ProgramUpdate.class));
+    }
+
+    /**
+     * A draft is unfinished work. Announcing it would put every half-written
+     * program in front of the administrators who have to clear the queue.
+     */
+    @Test
+    void savingADraftDoesNotPageTheAdministrators() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = validProgram(organization.getId());
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(program);
+        when(programRepository.saveAndFlush(program)).thenReturn(program);
+
+        service().createProgram(ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .engagementType(EngagementType.BOUNTY)
+                .visibility(Visibility.PRIVATE)
+                .state(ProgramState.DRAFT)
+                .build());
+
+        verifyNoInteractions(eventPublisher);
+        verifyNoInteractions(companyIdentityService);
+
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program created as a draft",
+                updateCaptor.getValue().getChangeSummary()
+        );
     }
 
     @Test
@@ -207,7 +244,7 @@ class ProgramServiceImplTest {
         Program program = validProgram(organization.getId());
         program.setDescription("Full draft description");
         program.setState(ProgramState.DRAFT);
-        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setSubmissionState(SubmissionState.NOT_SUBMITTED);
         program.setVisibility(Visibility.PRIVATE);
         authenticate(ownerId, "COMPANY");
 
@@ -310,7 +347,7 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void createProgramAllowsPublicVisibilityWhilePendingApproval() {
+    void createProgramAllowsPublicVisibilityBeforeApproval() {
         UUID userId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(userId);
         Program program = validProgram(organization.getId());
@@ -331,7 +368,7 @@ class ProgramServiceImplTest {
 
         assertEquals(ProgramState.DRAFT, program.getState());
         assertEquals(
-                SubmissionState.PENDING_REVIEW,
+                SubmissionState.NOT_SUBMITTED,
                 program.getSubmissionState()
         );
         assertEquals(Visibility.PUBLIC, program.getVisibility());
@@ -944,6 +981,77 @@ class ProgramServiceImplTest {
                 program.getSubmissionState()
         );
         assertEquals(Visibility.PRIVATE, program.getVisibility());
+    }
+
+    @Test
+    void draftEntersTheReviewQueueOnlyWhenItsOwnerSubmitsIt() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.NOT_SUBMITTED);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().submitProgram(program.getId());
+
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program submitted for admin review",
+                updateCaptor.getValue().getChangeSummary()
+        );
+        verify(eventPublisher).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void programAlreadyWaitingOnAnAdminCannotBeSubmittedAgain() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().submitProgram(program.getId())
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verifyNoInteractions(eventPublisher);
+    }
+
+    /**
+     * The queue holds what organizations chose to hand over. Letting an admin
+     * filter on {@code NOT_SUBMITTED} would turn it into a window onto every
+     * organization's unfinished work.
+     */
+    @Test
+    void reviewQueueCannotBeAskedForUnsubmittedPrograms() {
+        authenticate(UUID.randomUUID(), "ADMIN");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().getProgramsForReview(
+                        SubmissionState.NOT_SUBMITTED,
+                        PageRequest.of(0, 20)
+                )
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verifyNoInteractions(programRepository);
     }
 
     @Test

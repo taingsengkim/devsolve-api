@@ -86,7 +86,7 @@ public class Program extends BasedEntity {
             columnDefinition = "submission_state_enum"
     )
     @Builder.Default
-    private SubmissionState submissionState = SubmissionState.PENDING_REVIEW;
+    private SubmissionState submissionState = SubmissionState.NOT_SUBMITTED;
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
