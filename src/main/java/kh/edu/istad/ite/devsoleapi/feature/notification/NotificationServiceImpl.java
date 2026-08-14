@@ -20,6 +20,7 @@ import java.util.UUID;
 public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final NotificationResponseMapper notificationResponseMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -28,7 +29,7 @@ public class NotificationServiceImpl implements NotificationService {
             int pageNumber,
             int pageSize
     ) {
-        return notificationRepository.findInbox(
+        Page<Notification> notifications = notificationRepository.findInbox(
                 currentUserId(),
                 unreadOnly,
                 PageRequest.of(
@@ -36,7 +37,8 @@ public class NotificationServiceImpl implements NotificationService {
                         pageSize,
                         Sort.by(Sort.Direction.DESC, "createdAt")
                 )
-        ).map(this::toResponse);
+        );
+        return notificationResponseMapper.toPage(notifications);
     }
 
     @Override
@@ -63,26 +65,13 @@ public class NotificationServiceImpl implements NotificationService {
             notification.setRead(true);
             notification.setReadAt(java.time.LocalDateTime.now());
         }
-        return toResponse(notification);
+        return notificationResponseMapper.toResponse(notification);
     }
 
     @Override
     @Transactional
     public void markAllRead() {
         notificationRepository.markAllRead(currentUserId());
-    }
-
-    private NotificationResponse toResponse(Notification notification) {
-        return new NotificationResponse(
-                notification.getId(),
-                notification.getTitle(),
-                notification.getContent(),
-                notification.getNotifiableType(),
-                notification.getNotifiableId(),
-                notification.isRead(),
-                notification.getReadAt(),
-                notification.getCreatedAt()
-        );
     }
 
     private UUID currentUserId() {

@@ -1,6 +1,11 @@
 package kh.edu.istad.ite.devsoleapi.feature.notification;
 
+import kh.edu.istad.ite.devsoleapi.feature.comments.Comment;
+import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
+import kh.edu.istad.ite.devsoleapi.feature.notification.dto.NotificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.notification.sse.SseEmitterService;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -34,13 +39,23 @@ class NotificationEventTest {
     @Mock
     private SseEmitterService sseEmitterService;
 
+    @Mock
+    private CommentRepository commentRepository;
+
+    @Mock
+    private UserProfileRepository userProfileRepository;
+
     private final UUID alice = UUID.randomUUID();
     private final UUID bob = UUID.randomUUID();
 
     private NotificationDispatcher dispatcher() {
         return new NotificationDispatcher(
                 notificationRepository,
-                sseEmitterService
+                sseEmitterService,
+                new NotificationResponseMapper(
+                        commentRepository,
+                        userProfileRepository
+                )
         );
     }
 
@@ -159,6 +174,47 @@ class NotificationEventTest {
 
         verify(notificationRepository, never()).saveAll(anyList());
         verifyNoInteractions(sseEmitterService);
+    }
+
+    @Test
+    void liveCommentNotificationIncludesTheAuthorsDisplayProfile() {
+        UUID commentId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Comment comment = new Comment();
+        comment.setId(commentId);
+        comment.setAuthorId(authorId);
+        UserProfile profile = new UserProfile();
+        profile.setId(authorId);
+        profile.setFullName("Sok Dara");
+        profile.setAvatarUrl("https://cdn.example.com/sok-dara.png");
+
+        when(notificationRepository.existsByUserIdAndEventKey(any(), any()))
+                .thenReturn(false);
+        when(notificationRepository.saveAll(anyList()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(commentRepository.findAllById(List.of(commentId)))
+                .thenReturn(List.of(comment));
+        when(userProfileRepository.findAllById(List.of(authorId)))
+                .thenReturn(List.of(profile));
+
+        dispatcher().dispatchToMany(
+                List.of(bob),
+                "New comment",
+                "hello",
+                NotificationType.COMMENT,
+                commentId,
+                "comment:1"
+        );
+
+        ArgumentCaptor<NotificationResponse> response =
+                ArgumentCaptor.forClass(NotificationResponse.class);
+        verify(sseEmitterService).push(eq(bob), response.capture());
+        assertEquals(authorId, response.getValue().authorId());
+        assertEquals("Sok Dara", response.getValue().authorName());
+        assertEquals(
+                "https://cdn.example.com/sok-dara.png",
+                response.getValue().authorAvatarUrl()
+        );
     }
 
     // ---------------------------------------------------------- the listener

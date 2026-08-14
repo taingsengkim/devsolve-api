@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.notification.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 
 import java.time.LocalDateTime;
@@ -11,6 +12,12 @@ public record NotificationResponse(
         String content,
         NotificationType notifiableType,
         UUID notifiableId,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        UUID authorId,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String authorName,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String authorAvatarUrl,
         boolean read,
         LocalDateTime readAt,
         LocalDateTime createdAt
