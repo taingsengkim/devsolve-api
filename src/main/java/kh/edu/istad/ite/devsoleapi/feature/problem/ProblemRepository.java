@@ -45,6 +45,19 @@ public interface ProblemRepository extends JpaRepository<Problem, UUID> {
             """)
     Optional<Problem> findPublicById(@Param("id") UUID id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select p
+            from Problem p
+            where p.id = :id
+              and p.status in (
+                  kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus.PUBLISHED,
+                  kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus.RESOLVED,
+                  kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus.CLOSED
+              )
+            """)
+    Optional<Problem> findPublicByIdForUpdate(@Param("id") UUID id);
+
     /**
      * The public problem feed.
      *

@@ -5,12 +5,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
 
 import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -79,8 +81,26 @@ public interface SolutionRepository extends JpaRepository<Solution, UUID> {
     Optional<Solution>
     findByIdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(UUID id);
 
-    long countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-            UUID problemId
+    @Query("""
+            select solution.problem.id
+            from Solution solution
+            where solution.id = :id
+              and solution.deletedAt is null
+            """)
+    Optional<UUID> findActiveProblemId(@Param("id") UUID id);
+
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            update Solution solution
+            set solution.deletedAt = :deletedAt,
+                solution.updatedAt = :deletedAt,
+                solution.version = solution.version + 1
+            where solution.problem.id = :problemId
+              and solution.deletedAt is null
+            """)
+    int softDeleteAllByProblemId(
+            @Param("problemId") UUID problemId,
+            @Param("deletedAt") LocalDateTime deletedAt
     );
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
