@@ -714,6 +714,36 @@ ALTER TABLE IF EXISTS public.organization_members
 ALTER TABLE IF EXISTS public.programs
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP(6)^^^
 
+-- A program handed to administrators is no longer an authoring draft. Repair
+-- rows produced by the former submit/re-review transition and prevent that
+-- pair from returning. Deleted rows are exempt until restore applies the rule.
+DO $$
+BEGIN
+    IF to_regclass('public.programs') IS NOT NULL THEN
+        UPDATE public.programs
+        SET state = 'active'
+        WHERE state::text = 'draft'
+          AND submission_state::text = 'pending_review'
+          AND deleted_at IS NULL;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'ck_programs_no_pending_draft'
+              AND conrelid = 'public.programs'::regclass
+        ) THEN
+            ALTER TABLE public.programs
+                ADD CONSTRAINT ck_programs_no_pending_draft
+                CHECK (
+                    deleted_at IS NOT NULL
+                    OR state::text <> 'draft'
+                    OR submission_state::text <> 'pending_review'
+                );
+        END IF;
+    END IF;
+END
+$$^^^
+
 DO $$
 BEGIN
     IF to_regclass('public.organizations') IS NOT NULL

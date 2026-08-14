@@ -380,7 +380,7 @@ class ProgramServiceImplTest {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
         Program program = validProgram(organization.getId());
-        program.setState(ProgramState.DRAFT);
+        program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         program.setVisibility(Visibility.PRIVATE);
         authenticate(ownerId, "COMPANY");
@@ -417,7 +417,7 @@ class ProgramServiceImplTest {
                 SubmissionState.PENDING_REVIEW,
                 program.getSubmissionState()
         );
-        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(ProgramState.ACTIVE, program.getState());
         assertEquals(Visibility.PUBLIC, program.getVisibility());
         verifyNoInteractions(followNotificationService);
     }
@@ -428,6 +428,7 @@ class ProgramServiceImplTest {
         Organization organization =
                 activeOwnedOrganization(UUID.randomUUID());
         Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         authenticate(adminId, "ADMIN");
         when(programRepository.findById(program.getId()))
@@ -441,10 +442,32 @@ class ProgramServiceImplTest {
                 SubmissionState.APPROVED,
                 program.getSubmissionState()
         );
+        assertEquals(ProgramState.ACTIVE, program.getState());
         ArgumentCaptor<ProgramUpdate> updateCaptor =
                 ArgumentCaptor.forClass(ProgramUpdate.class);
         verify(programUpdateRepository).save(updateCaptor.capture());
         assertEquals(adminId, updateCaptor.getValue().getChangedBy());
+    }
+
+    @Test
+    void adminApprovalNormalizesLegacyPendingDraftToActive() {
+        UUID adminId = UUID.randomUUID();
+        Organization organization =
+                activeOwnedOrganization(UUID.randomUUID());
+        Program program = validProgram(organization.getId());
+        // Legacy rows may predate the invariant that pending review is active.
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        authenticate(adminId, "ADMIN");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().approveProgram(program.getId());
+
+        assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
+        assertEquals(ProgramState.ACTIVE, program.getState());
     }
 
     @Test
@@ -488,7 +511,7 @@ class ProgramServiceImplTest {
                 SubmissionState.PENDING_REVIEW,
                 program.getSubmissionState()
         );
-        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(ProgramState.ACTIVE, program.getState());
         assertEquals(Visibility.PRIVATE, program.getVisibility());
     }
 
@@ -839,7 +862,7 @@ class ProgramServiceImplTest {
     }
 
     @Test
-    void restoreKeepsAPendingProgramWaitingForReview() {
+    void restoreReactivatesAPendingProgramWaitingForReview() {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
         Program program = validProgram(organization.getId());
@@ -859,6 +882,7 @@ class ProgramServiceImplTest {
                 SubmissionState.PENDING_REVIEW,
                 program.getSubmissionState()
         );
+        assertEquals(ProgramState.ACTIVE, program.getState());
     }
 
     @Test
@@ -980,11 +1004,12 @@ class ProgramServiceImplTest {
                 SubmissionState.PENDING_REVIEW,
                 program.getSubmissionState()
         );
+        assertEquals(ProgramState.ACTIVE, program.getState());
         assertEquals(Visibility.PRIVATE, program.getVisibility());
     }
 
     @Test
-    void draftEntersTheReviewQueueOnlyWhenItsOwnerSubmitsIt() {
+    void submittingDraftActivatesItAndEntersTheReviewQueue() {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
         Program program = validProgram(organization.getId());
@@ -1002,6 +1027,7 @@ class ProgramServiceImplTest {
                 SubmissionState.PENDING_REVIEW,
                 program.getSubmissionState()
         );
+        assertEquals(ProgramState.ACTIVE, program.getState());
         ArgumentCaptor<ProgramUpdate> updateCaptor =
                 ArgumentCaptor.forClass(ProgramUpdate.class);
         verify(programUpdateRepository).save(updateCaptor.capture());
@@ -1017,6 +1043,7 @@ class ProgramServiceImplTest {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);
         Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         authenticate(ownerId, "COMPANY");
         when(programRepository.findById(program.getId()))
@@ -1030,6 +1057,33 @@ class ProgramServiceImplTest {
         );
 
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
+    void closedDraftCannotBeSubmittedAndReopenedAsActive() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.CLOSED);
+        program.setSubmissionState(SubmissionState.NOT_SUBMITTED);
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().submitProgram(program.getId())
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals(ProgramState.CLOSED, program.getState());
+        assertEquals(
+                SubmissionState.NOT_SUBMITTED,
+                program.getSubmissionState()
+        );
         verifyNoInteractions(eventPublisher);
     }
 
@@ -1072,7 +1126,7 @@ class ProgramServiceImplTest {
     @Test
     void publicLookupDoesNotRevealUnapprovedPublicProgram() {
         Program program = validProgram(UUID.randomUUID());
-        program.setState(ProgramState.DRAFT);
+        program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         program.setVisibility(Visibility.PUBLIC);
         when(programRepository.findById(program.getId()))
@@ -1087,7 +1141,7 @@ class ProgramServiceImplTest {
     @Test
     void adminCanViewFullPendingProgramDetails() {
         Program program = validProgram(UUID.randomUUID());
-        program.setState(ProgramState.DRAFT);
+        program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         program.setVisibility(Visibility.PUBLIC);
         authenticate(UUID.randomUUID(), "ADMIN");
@@ -1102,6 +1156,7 @@ class ProgramServiceImplTest {
                 SubmissionState.PENDING_REVIEW,
                 response.submissionState()
         );
+        assertEquals(ProgramState.ACTIVE, response.state());
         assertEquals(program.getPolicy(), response.policy());
         assertEquals(
                 program.getProofOfConceptRequirements(),
@@ -1113,6 +1168,7 @@ class ProgramServiceImplTest {
     @Test
     void nonAdminCannotViewAdminProgramDetails() {
         Program program = validProgram(UUID.randomUUID());
+        program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         authenticate(UUID.randomUUID(), "COMPANY");
 
@@ -1419,6 +1475,7 @@ class ProgramServiceImplTest {
         organization.setLogoUrl("https://acme.test/logo.png");
         organization.setWebsiteUrl("https://acme.test");
         Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         PageRequest pageable = PageRequest.of(0, 20);
         authenticate(UUID.randomUUID(), "ADMIN");
@@ -1440,6 +1497,7 @@ class ProgramServiceImplTest {
                 .getFirst();
 
         assertEquals("Acme Corporation", response.organizationName());
+        assertEquals(ProgramState.ACTIVE, response.state());
         assertEquals("acme-corporation", response.organizationSlug());
         assertEquals(
                 "https://acme.test/logo.png",

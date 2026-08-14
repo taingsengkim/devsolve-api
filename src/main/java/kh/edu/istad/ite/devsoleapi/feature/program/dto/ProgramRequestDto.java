@@ -51,9 +51,9 @@ public record ProgramRequestDto(
 
         /**
          * {@code DRAFT} or {@code ACTIVE} only, defaulting to {@code DRAFT}.
-         * Choosing {@code ACTIVE} does not skip review — it means the program
-         * goes live the moment an admin approves it, instead of waiting for a
-         * separate call to {@code PATCH /programs/{id}/publish}.
+         * A draft becomes {@code ACTIVE} when it is submitted. Choosing
+         * {@code ACTIVE} here submits it immediately; neither path skips admin
+         * review.
          */
         ProgramState state,
 

@@ -367,8 +367,7 @@ public class ProgramServiceImpl implements ProgramService {
         boolean becomingPublic = previousVisibility != Visibility.PUBLIC
                 && program.getVisibility() == Visibility.PUBLIC;
         if (requiresNewReview) {
-            program.setSubmissionState(SubmissionState.PENDING_REVIEW);
-            program.setState(ProgramState.DRAFT);
+            moveToPendingReview(program);
             program.setVisibility(Visibility.PRIVATE);
             logUpdate(
                     program,
@@ -403,8 +402,9 @@ public class ProgramServiceImpl implements ProgramService {
                 OrganizationPermission.EDIT_PROGRAM
         );
         SubmissionState current = program.getSubmissionState();
-        if (current != SubmissionState.NOT_SUBMITTED
-                && current != SubmissionState.REJECTED) {
+        if (program.getState() != ProgramState.DRAFT
+                || (current != SubmissionState.NOT_SUBMITTED
+                        && current != SubmissionState.REJECTED)) {
             throw conflict(
                     "Only draft or rejected programs can be submitted "
                             + "for review"
@@ -413,8 +413,7 @@ public class ProgramServiceImpl implements ProgramService {
         boolean resubmission = current == SubmissionState.REJECTED;
 
         validateProgramConfiguration(program);
-        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
-        program.setState(ProgramState.DRAFT);
+        moveToPendingReview(program);
         program.setVisibility(Visibility.PRIVATE);
         ProgramUpdate update = logUpdate(
                 program,
@@ -569,10 +568,11 @@ public class ProgramServiceImpl implements ProgramService {
 
     /**
      * Undoes a delete without republishing. Deleting closes the program and
-     * makes it private, and restoring deliberately does not undo that: it
-     * hands back a private draft the organization must relaunch on purpose.
-     * Anything else would put a program back on the public internet — with
-     * researchers notified — as the side effect of an undo click.
+     * makes it private. Restore normally hands back a private draft the
+     * organization must relaunch on purpose; a program already pending review
+     * resumes as active so it cannot re-enter the invalid pending/draft pair.
+     * Visibility remains private in both cases, so restore never puts a
+     * program back on the public internet as a side effect.
      *
      * <p>The admin decision rides along untouched, so a program the owner
      * deleted while it was approved needs no second review — but one an admin
@@ -595,9 +595,18 @@ public class ProgramServiceImpl implements ProgramService {
         }
 
         program.setDeletedAt(null);
-        program.setState(ProgramState.DRAFT);
+        program.setState(
+                program.getSubmissionState() == SubmissionState.PENDING_REVIEW
+                        ? ProgramState.ACTIVE
+                        : ProgramState.DRAFT
+        );
         program.setVisibility(Visibility.PRIVATE);
-        logUpdate(program, "Program restored as a private draft");
+        logUpdate(
+                program,
+                program.getState() == ProgramState.DRAFT
+                        ? "Program restored as a private draft"
+                        : "Pending program restored as active and private"
+        );
         return mapper.toResponseDto(program);
     }
 
@@ -675,6 +684,11 @@ public class ProgramServiceImpl implements ProgramService {
         requireApprovedOrganization(organization);
         validateProgramConfiguration(program);
 
+        // Pending programs now enter review as ACTIVE. Promote any legacy row
+        // that still has the old DRAFT + PENDING_REVIEW combination as well.
+        if (program.getState() == ProgramState.DRAFT) {
+            program.setState(ProgramState.ACTIVE);
+        }
         program.setSubmissionState(SubmissionState.APPROVED);
         markPublishedIfPublic(program);
         ProgramUpdate update =
@@ -686,7 +700,7 @@ public class ProgramServiceImpl implements ProgramService {
                 update,
                 "Program approved",
                 "\"" + program.getName()
-                        + "\" has been approved and can now be published."
+                        + "\" has been approved."
         );
 
         return mapper.toResponseDto(program);
@@ -867,14 +881,15 @@ public class ProgramServiceImpl implements ProgramService {
      *
      * <p>The choice also decides whether the program enters review. A
      * {@code DRAFT} is unfinished work that stays {@code NOT_SUBMITTED} until
-     * its author calls {@link #submitProgram(UUID)}; asking for {@code ACTIVE}
-     * submits it at once.
+     * its author calls {@link #submitProgram(UUID)}. Submission promotes it to
+     * {@code ACTIVE} and sends it for review; asking for {@code ACTIVE} at
+     * creation does both immediately.
      *
      * <p>Creating as {@code ACTIVE} does not skip review: the submission state
      * is still {@code PENDING_REVIEW}, and the public listing requires both
-     * {@code ACTIVE} and {@code APPROVED}. It only settles in advance what
-     * happens once an admin approves — go live immediately, rather than wait
-     * for a separate call to publish.
+     * {@code ACTIVE} and {@code APPROVED}. It only submits immediately; a
+     * program created as a draft reaches the same pair of states when its
+     * author submits it later.
      *
      * <p>{@code PAUSED} and {@code CLOSED} describe a program that has already
      * run, so neither is a coherent starting point.
@@ -890,6 +905,16 @@ public class ProgramServiceImpl implements ProgramService {
             );
         }
         return requested;
+    }
+
+    /**
+     * Hands a program to administrators for review. A program waiting for an
+     * admin is no longer an authoring draft, although approval is still
+     * required before it can be exposed by the public APIs.
+     */
+    private void moveToPendingReview(Program program) {
+        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        program.setState(ProgramState.ACTIVE);
     }
 
     private boolean hasChanges(ProgramUpdateRequestDto request) {
