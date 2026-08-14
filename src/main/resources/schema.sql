@@ -622,6 +622,7 @@ BEGIN
           AND n.nspname = 'public'
     ) THEN
         CREATE TYPE public.submission_state_enum AS ENUM (
+            'not_submitted',
             'pending_review',
             'approved',
             'rejected'
@@ -681,6 +682,13 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- Databases created before programs had an unsubmitted state already own
+-- submission_state_enum, so the CREATE TYPE above is skipped for them.
+-- Kept outside the DO block: ALTER TYPE ... ADD VALUE must not run inside a
+-- subtransaction.
+ALTER TYPE public.submission_state_enum
+    ADD VALUE IF NOT EXISTS 'not_submitted' BEFORE 'pending_review'^^^
 
 ALTER TABLE IF EXISTS public.organizations
     ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'pending'^^^

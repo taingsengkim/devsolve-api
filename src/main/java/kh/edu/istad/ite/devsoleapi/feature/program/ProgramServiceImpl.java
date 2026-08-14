@@ -299,21 +299,29 @@ public class ProgramServiceImpl implements ProgramService {
         Program program = mapper.toEntity(request);
         program.setOrganizationId(organization.getId());
         program.setState(resolveInitialState(request.state()));
-        program.setSubmissionState(SubmissionState.PENDING_REVIEW);
+        // Asking to start ACTIVE is the organization saying the program is
+        // finished, so it goes straight to the queue. A draft stays with its
+        // author until they submit it.
+        boolean submitNow = program.getState() == ProgramState.ACTIVE;
+        program.setSubmissionState(submitNow
+                ? SubmissionState.PENDING_REVIEW
+                : SubmissionState.NOT_SUBMITTED);
         validateProgramConfiguration(program);
 
         Program saved = programRepository.saveAndFlush(program);
         ProgramUpdate update = logUpdate(saved,
-                saved.getState() == ProgramState.ACTIVE
+                submitNow
                         ? "Program created and submitted for admin review; "
                                 + "launches on approval"
-                        : "Program created and submitted for admin review");
+                        : "Program created as a draft");
 
-        notifyAdministratorsOfReview(
-                saved,
-                update,
-                "New program awaiting review"
-        );
+        if (submitNow) {
+            notifyAdministratorsOfReview(
+                    saved,
+                    update,
+                    "New program awaiting review"
+            );
+        }
 
         return mapper.toResponseDto(saved);
     }
@@ -394,23 +402,33 @@ public class ProgramServiceImpl implements ProgramService {
                 id,
                 OrganizationPermission.EDIT_PROGRAM
         );
-        if (program.getSubmissionState() != SubmissionState.REJECTED) {
+        SubmissionState current = program.getSubmissionState();
+        if (current != SubmissionState.NOT_SUBMITTED
+                && current != SubmissionState.REJECTED) {
             throw conflict(
-                    "Only rejected programs can be resubmitted for review"
+                    "Only draft or rejected programs can be submitted "
+                            + "for review"
             );
         }
+        boolean resubmission = current == SubmissionState.REJECTED;
 
         validateProgramConfiguration(program);
         program.setSubmissionState(SubmissionState.PENDING_REVIEW);
         program.setState(ProgramState.DRAFT);
         program.setVisibility(Visibility.PRIVATE);
-        ProgramUpdate update =
-                logUpdate(program, "Program resubmitted for admin review");
+        ProgramUpdate update = logUpdate(
+                program,
+                resubmission
+                        ? "Program resubmitted for admin review"
+                        : "Program submitted for admin review"
+        );
 
         notifyAdministratorsOfReview(
                 program,
                 update,
-                "Program resubmitted for review"
+                resubmission
+                        ? "Program resubmitted for review"
+                        : "New program awaiting review"
         );
 
         return mapper.toResponseDto(program);
@@ -606,6 +624,14 @@ public class ProgramServiceImpl implements ProgramService {
             Pageable pageable
     ) {
         requireRole(ADMIN_ROLE);
+        // An unsubmitted program has never been handed to the platform. The
+        // review queue is not a window onto every organization's unfinished
+        // work, so there is no filter that reaches one.
+        if (submissionState == SubmissionState.NOT_SUBMITTED) {
+            throw badRequest(
+                    "Programs that have not been submitted cannot be reviewed"
+            );
+        }
         Pageable validatedPageable = PageableValidator.requireAllowedSort(
                 pageable,
                 PROGRAM_SORT_PROPERTIES
@@ -838,6 +864,11 @@ public class ProgramServiceImpl implements ProgramService {
 
     /**
      * The state a new program starts in, defaulting to {@code DRAFT}.
+     *
+     * <p>The choice also decides whether the program enters review. A
+     * {@code DRAFT} is unfinished work that stays {@code NOT_SUBMITTED} until
+     * its author calls {@link #submitProgram(UUID)}; asking for {@code ACTIVE}
+     * submits it at once.
      *
      * <p>Creating as {@code ACTIVE} does not skip review: the submission state
      * is still {@code PENDING_REVIEW}, and the public listing requires both
