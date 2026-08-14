@@ -12,10 +12,15 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.ProgramReward;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.dto.ProgramRewardRequestDto;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -23,6 +28,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProgramMapperTest {
@@ -103,6 +109,192 @@ class ProgramMapperTest {
                 "Include the response body.",
                 program.getProofOfConceptRequirements().rules().getFirst()
         );
+    }
+
+    @Test
+    void resavingFetchedCollectionsPreservesTheirRowsAndIds() {
+        Program program = program();
+        ProgramAsset asset = asset(
+                program,
+                true,
+                "https://app.acme.test"
+        );
+        ProgramReward reward = ProgramReward.builder()
+                .id(UUID.randomUUID())
+                .program(program)
+                .severity(Severity.HIGH)
+                .minAmount(new BigDecimal("500.00"))
+                .maxAmount(new BigDecimal("1000.00"))
+                .points(50)
+                .build();
+        program.getAssets().add(asset);
+        program.getRewards().add(reward);
+
+        ProgramUpdateRequestDto request = new ProgramUpdateRequestDto(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(ProgramAssetRequestDto.builder()
+                        // Current clients omit child IDs, so the natural-key
+                        // fallback must still retain the managed row.
+                        .assetType(asset.getAssetType())
+                        .identifier(asset.getIdentifier())
+                        .description("Updated asset description")
+                        .isInScope(asset.getIsInScope())
+                        .maxSeverity(Severity.CRITICAL)
+                        .build()),
+                List.of(ProgramRewardRequestDto.builder()
+                        .severity(reward.getSeverity())
+                        .minAmount(new BigDecimal("600.00"))
+                        .maxAmount(new BigDecimal("1200.00"))
+                        .points(60)
+                        .build())
+        );
+
+        mapper.updateEntity(request, program);
+        mapper.updateEntity(request, program);
+
+        assertEquals(1, program.getAssets().size());
+        assertSame(asset, program.getAssets().getFirst());
+        assertEquals("Updated asset description", asset.getDescription());
+        assertEquals(Severity.CRITICAL, asset.getMaxSeverity());
+        assertEquals(1, program.getRewards().size());
+        assertSame(reward, program.getRewards().getFirst());
+        assertEquals(new BigDecimal("600.00"), reward.getMinAmount());
+        assertEquals(new BigDecimal("1200.00"), reward.getMaxAmount());
+        assertEquals(60, reward.getPoints());
+    }
+
+    @Test
+    void assetIdPreservesTheRowWhenItsIdentifierChanges() {
+        Program program = program();
+        ProgramAsset asset = asset(
+                program,
+                true,
+                "https://old.acme.test"
+        );
+        program.getAssets().add(asset);
+
+        mapper.updateEntity(new ProgramUpdateRequestDto(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(ProgramAssetRequestDto.builder()
+                        .id(asset.getId())
+                        .assetType(AssetType.URL)
+                        .identifier("https://new.acme.test")
+                        .isInScope(true)
+                        .build()),
+                null
+        ), program);
+
+        assertEquals(1, program.getAssets().size());
+        assertSame(asset, program.getAssets().getFirst());
+        assertEquals("https://new.acme.test", asset.getIdentifier());
+    }
+
+    @Test
+    void changingSeverityAndReusingTheOldSeverityIsOrderIndependent() {
+        Program program = program();
+        ProgramReward existingLow = ProgramReward.builder()
+                .id(UUID.randomUUID())
+                .program(program)
+                .severity(Severity.LOW)
+                .minAmount(new BigDecimal("100.00"))
+                .maxAmount(new BigDecimal("200.00"))
+                .build();
+        program.getRewards().add(existingLow);
+
+        mapper.updateEntity(new ProgramUpdateRequestDto(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(
+                        ProgramRewardRequestDto.builder()
+                                .id(existingLow.getId())
+                                .severity(Severity.HIGH)
+                                .minAmount(new BigDecimal("600.00"))
+                                .maxAmount(new BigDecimal("1200.00"))
+                                .build(),
+                        ProgramRewardRequestDto.builder()
+                                .severity(Severity.LOW)
+                                .minAmount(new BigDecimal("150.00"))
+                                .maxAmount(new BigDecimal("250.00"))
+                                .build()
+                )
+        ), program);
+
+        assertEquals(2, program.getRewards().size());
+        ProgramReward low = program.getRewards().stream()
+                .filter(reward -> reward.getSeverity() == Severity.LOW)
+                .findFirst()
+                .orElseThrow();
+        ProgramReward high = program.getRewards().stream()
+                .filter(reward -> reward.getSeverity() == Severity.HIGH)
+                .findFirst()
+                .orElseThrow();
+        assertSame(existingLow, low);
+        assertEquals(new BigDecimal("150.00"), low.getMinAmount());
+        assertEquals(new BigDecimal("600.00"), high.getMinAmount());
+    }
+
+    @Test
+    void childUpdateRequestsAcceptIdsFromTheDetailResponse() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        UUID rewardId = UUID.randomUUID();
+        ObjectMapper objectMapper = new ObjectMapper();
+
+        ProgramAssetRequestDto asset = objectMapper.readValue("""
+                {
+                  "id": "%s",
+                  "assetType": "URL",
+                  "identifier": "https://app.acme.test",
+                  "isInScope": true,
+                  "maxSeverity": "CRITICAL"
+                }
+                """.formatted(assetId), ProgramAssetRequestDto.class);
+        ProgramRewardRequestDto reward = objectMapper.readValue("""
+                {
+                  "id": "%s",
+                  "severity": "HIGH",
+                  "minAmount": 500.00,
+                  "maxAmount": 1000.00,
+                  "points": 50
+                }
+                """.formatted(rewardId), ProgramRewardRequestDto.class);
+
+        assertEquals(assetId, asset.id());
+        assertEquals(AssetType.URL, asset.assetType());
+        assertEquals(rewardId, reward.id());
+        assertEquals(Severity.HIGH, reward.severity());
     }
 
     @Test

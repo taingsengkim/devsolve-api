@@ -25,6 +25,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAssetRepository;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
@@ -423,7 +424,7 @@ class ProgramServiceImplTest {
         when(organizationRepository.findById(organization.getId()))
                 .thenReturn(Optional.of(organization));
 
-        service().updateProgram(
+        service(new ProgramMapper()).updateProgram(
                 program.getId(),
                 new ProgramUpdateRequestDto(
                         null,
@@ -452,6 +453,56 @@ class ProgramServiceImplTest {
         );
         assertEquals(ProgramState.DRAFT, program.getState());
         assertEquals(Visibility.PRIVATE, program.getVisibility());
+    }
+
+    @Test
+    void identicalFullSaveDoesNotRestartReviewOrWriteAChangeLog() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        program.setPublishedAt(LocalDateTime.now());
+        authenticate(ownerId, "COMPANY");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ProgramAsset asset = program.getAssets().getFirst();
+        ProgramUpdateRequestDto request = new ProgramUpdateRequestDto(
+                program.getHandle(),
+                program.getName(),
+                program.getDescription(),
+                program.getEngagementType(),
+                program.getVisibility(),
+                program.getPolicy(),
+                program.getProofOfConceptRequirements(),
+                program.getRulesOfEngagement(),
+                program.getExclusions(),
+                program.getOffersBounties(),
+                program.getMinimumBounty(),
+                program.getMaximumBounty(),
+                List.of(ProgramAssetRequestDto.builder()
+                        .id(asset.getId())
+                        .assetType(asset.getAssetType())
+                        .identifier(asset.getIdentifier())
+                        .description(asset.getDescription())
+                        .isInScope(asset.getIsInScope())
+                        .maxSeverity(asset.getMaxSeverity())
+                        .build()),
+                List.of()
+        );
+
+        service(new ProgramMapper()).updateProgram(program.getId(), request);
+
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        assertEquals(SubmissionState.APPROVED, program.getSubmissionState());
+        assertEquals(Visibility.PUBLIC, program.getVisibility());
+        verify(programUpdateRepository, never()).save(any());
+        verify(programRepository, never()).flush();
+        verifyNoInteractions(followNotificationService);
     }
 
     @Test

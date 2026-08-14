@@ -5,12 +5,15 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
-import java.math.BigDecimal;
-
 import lombok.Builder;
+
+import java.math.BigDecimal;
+import java.util.UUID;
 
 @Builder
 public record ProgramRewardRequestDto(
+        UUID id,
+
         @NotNull(message = "Reward severity is required")
         Severity severity,
 
@@ -32,4 +35,13 @@ public record ProgramRewardRequestDto(
 
         @PositiveOrZero(message = "Reward points cannot be negative")
         Integer points
-) {}
+) {
+    public ProgramRewardRequestDto(
+            Severity severity,
+            BigDecimal minAmount,
+            BigDecimal maxAmount,
+            Integer points
+    ) {
+        this(null, severity, minAmount, maxAmount, points);
+    }
+}

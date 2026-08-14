@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -170,8 +171,28 @@ public class ProgramController {
         return programService.createProgram(request);
     }
 
-    @PatchMapping("/programs/{id}")
+    @PatchMapping({
+            "/programs/{id}",
+            "/organizations/me/programs/{id}"
+    })
     public ProgramResponseDto updateProgram(
+            @PathVariable UUID id,
+            @Valid @RequestBody ProgramUpdateRequestDto request
+    ) {
+        return programService.updateProgram(id, request);
+    }
+
+    /**
+     * Compatibility endpoint for editors that save with PUT. It deliberately
+     * keeps PATCH-style omission/null semantics rather than replacing fields
+     * the editor did not send. PATCH remains the canonical method; both apply
+     * the same workflow rules, including leaving a draft as a draft.
+     */
+    @PutMapping({
+            "/programs/{id}",
+            "/organizations/me/programs/{id}"
+    })
+    public ProgramResponseDto saveProgram(
             @PathVariable UUID id,
             @Valid @RequestBody ProgramUpdateRequestDto request
     ) {

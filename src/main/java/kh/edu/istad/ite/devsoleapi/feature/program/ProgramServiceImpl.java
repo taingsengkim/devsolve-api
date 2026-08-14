@@ -339,13 +339,25 @@ public class ProgramServiceImpl implements ProgramService {
             requireUniqueHandle(request.handle(), program.getId());
         }
 
-        boolean requiresNewReview =
-                program.getSubmissionState() == SubmissionState.APPROVED
-                        && hasReviewSensitiveChanges(request);
-        boolean becomingPublic = program.getVisibility() != Visibility.PUBLIC
-                && request.visibility() == Visibility.PUBLIC;
+        ProgramReviewConfiguration previousConfiguration =
+                reviewConfiguration(program);
+        Visibility previousVisibility = program.getVisibility();
         mapper.updateEntity(request, program);
         validateProgramConfiguration(program);
+        boolean reviewSensitiveChanges = !previousConfiguration.equals(
+                reviewConfiguration(program)
+        );
+        boolean visibilityChanged = previousVisibility
+                != program.getVisibility();
+        if (!reviewSensitiveChanges && !visibilityChanged) {
+            return mapper.toResponseDto(program);
+        }
+
+        boolean requiresNewReview =
+                program.getSubmissionState() == SubmissionState.APPROVED
+                        && reviewSensitiveChanges;
+        boolean becomingPublic = previousVisibility != Visibility.PUBLIC
+                && program.getVisibility() == Visibility.PUBLIC;
         if (requiresNewReview) {
             program.setSubmissionState(SubmissionState.PENDING_REVIEW);
             program.setState(ProgramState.DRAFT);
@@ -354,12 +366,11 @@ public class ProgramServiceImpl implements ProgramService {
                     program,
                     "Program details updated; admin approval requested again"
             );
-        } else if (request.visibility() != null
-                && !hasReviewSensitiveChanges(request)) {
+        } else if (visibilityChanged && !reviewSensitiveChanges) {
             logUpdate(
                     program,
                     "Program visibility changed to "
-                            + request.visibility()
+                            + program.getVisibility()
                             .name()
                             .toLowerCase(Locale.ROOT)
             );
@@ -370,6 +381,9 @@ public class ProgramServiceImpl implements ProgramService {
         if (becomingPublic && isPubliclyAccessible(program)) {
             notifyOrganizationFollowersOfPublishedProgram(program);
         }
+        // Assign IDs to newly added assets/rewards before the response is
+        // serialized and surface any persistence conflict on this request.
+        programRepository.flush();
         return mapper.toResponseDto(program);
     }
 
@@ -822,22 +836,46 @@ public class ProgramServiceImpl implements ProgramService {
                 || request.rewards() != null;
     }
 
-    private boolean hasReviewSensitiveChanges(
-            ProgramUpdateRequestDto request
-    ) {
-        return request.handle() != null
-                || request.name() != null
-                || request.description() != null
-                || request.engagementType() != null
-                || request.policy() != null
-                || request.proofOfConceptRequirements() != null
-                || request.rulesOfEngagement() != null
-                || request.exclusions() != null
-                || request.offersBounties() != null
-                || request.minimumBounty() != null
-                || request.maximumBounty() != null
-                || request.assets() != null
-                || request.rewards() != null;
+    private ProgramReviewConfiguration reviewConfiguration(Program program) {
+        Set<AssetConfiguration> assets = program.getAssets()
+                .stream()
+                .map(asset -> new AssetConfiguration(
+                        asset.getAssetType(),
+                        asset.getIdentifier(),
+                        asset.getDescription(),
+                        asset.getIsInScope(),
+                        asset.getMaxSeverity()
+                ))
+                .collect(Collectors.toSet());
+        Set<RewardConfiguration> rewards = program.getRewards()
+                .stream()
+                .map(reward -> new RewardConfiguration(
+                        reward.getSeverity(),
+                        normalizeAmount(reward.getMinAmount()),
+                        normalizeAmount(reward.getMaxAmount()),
+                        reward.getPoints()
+                ))
+                .collect(Collectors.toSet());
+
+        return new ProgramReviewConfiguration(
+                program.getHandle(),
+                program.getName(),
+                program.getDescription(),
+                program.getEngagementType(),
+                program.getPolicy(),
+                program.getProofOfConceptRequirements(),
+                program.getRulesOfEngagement(),
+                program.getExclusions(),
+                program.getOffersBounties(),
+                normalizeAmount(program.getMinimumBounty()),
+                normalizeAmount(program.getMaximumBounty()),
+                assets,
+                rewards
+        );
+    }
+
+    private BigDecimal normalizeAmount(BigDecimal amount) {
+        return amount == null ? null : amount.stripTrailingZeros();
     }
 
     private void validateAssets(List<ProgramAsset> assets) {
@@ -1206,6 +1244,40 @@ public class ProgramServiceImpl implements ProgramService {
 
     private ResourceNotFoundException programNotFound() {
         return new ResourceNotFoundException("Program not found");
+    }
+
+    private record ProgramReviewConfiguration(
+            String handle,
+            String name,
+            String description,
+            EngagementType engagementType,
+            String policy,
+            ProgramGuidelinesDto proofOfConceptRequirements,
+            ProgramGuidelinesDto rulesOfEngagement,
+            ProgramGuidelinesDto exclusions,
+            Boolean offersBounties,
+            BigDecimal minimumBounty,
+            BigDecimal maximumBounty,
+            Set<AssetConfiguration> assets,
+            Set<RewardConfiguration> rewards
+    ) {
+    }
+
+    private record AssetConfiguration(
+            AssetType assetType,
+            String identifier,
+            String description,
+            Boolean inScope,
+            Severity maxSeverity
+    ) {
+    }
+
+    private record RewardConfiguration(
+            Severity severity,
+            BigDecimal minimumAmount,
+            BigDecimal maximumAmount,
+            Integer points
+    ) {
     }
 
     private record PublicProgramOrdering(
