@@ -1,6 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.follow;
 
+import kh.edu.istad.ite.devsoleapi.feature.notification.Notification;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationResponseMapper;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.notification.dto.NotificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.notification.sse.SseEmitterService;
@@ -20,6 +22,7 @@ public class FollowNotificationService {
 
     private final NotificationRepository notificationRepository;
     private final SseEmitterService sseEmitterService;
+    private final NotificationResponseMapper notificationResponseMapper;
 
     /**
      * Bulk-inserts a notification for every follower of the given entity
@@ -61,15 +64,17 @@ public class FollowNotificationService {
             );
 
             // Build a lightweight SSE payload (no DB ID since we used bulk insert)
-            NotificationResponse payload = new NotificationResponse(
-                    null,           // id unknown from bulk insert
-                    title,
-                    content,
-                    notificationType,
-                    notificationTargetId,
-                    false,
-                    null,
-                    LocalDateTime.now()
+            NotificationResponse payload = notificationResponseMapper
+                    .toResponse(Notification.builder()
+                            // The native bulk insert does not return row IDs.
+                            .id(null)
+                            .title(title)
+                            .content(content)
+                            .notifiableType(notificationType)
+                            .notifiableId(notificationTargetId)
+                            .read(false)
+                            .createdAt(LocalDateTime.now())
+                            .build()
             );
 
             sseEmitterService.pushToMany(followerIds, payload);

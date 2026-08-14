@@ -20,6 +20,7 @@ public class NotificationDispatcher {
 
     private final NotificationRepository notificationRepository;
     private final SseEmitterService sseEmitterService;
+    private final NotificationResponseMapper notificationResponseMapper;
 
     /**
      * Delivering the same event twice is a no-op, not a failure. The
@@ -52,7 +53,9 @@ public class NotificationDispatcher {
                 .build();
 
         notification = notificationRepository.save(notification);
-        NotificationResponse response = toResponse(notification);
+        NotificationResponse response = notificationResponseMapper.toResponse(
+                notification
+        );
         sseEmitterService.push(userId, response);
 
         return notification;
@@ -94,23 +97,16 @@ public class NotificationDispatcher {
             return;
         }
 
-        List<Notification> savedNotifications = notificationRepository.saveAll(notificationsToSave);
-        for (Notification notification : savedNotifications) {
-            NotificationResponse response = toResponse(notification);
-            sseEmitterService.push(notification.getUserId(), response);
-        }
-    }
-
-    private NotificationResponse toResponse(Notification notification) {
-        return new NotificationResponse(
-                notification.getId(),
-                notification.getTitle(),
-                notification.getContent(),
-                notification.getNotifiableType(),
-                notification.getNotifiableId(),
-                notification.isRead(),
-                notification.getReadAt(),
-                notification.getCreatedAt()
+        List<Notification> savedNotifications = notificationRepository.saveAll(
+                notificationsToSave
         );
+        List<NotificationResponse> responses = notificationResponseMapper
+                .toResponses(savedNotifications);
+        for (int index = 0; index < savedNotifications.size(); index++) {
+            sseEmitterService.push(
+                    savedNotifications.get(index).getUserId(),
+                    responses.get(index)
+            );
+        }
     }
 }
