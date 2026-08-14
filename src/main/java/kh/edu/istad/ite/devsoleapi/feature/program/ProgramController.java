@@ -204,7 +204,10 @@ public class ProgramController {
         return programService.submitProgram(id);
     }
 
-    @PatchMapping("/programs/{id}/publish")
+    @PatchMapping({
+            "/programs/{id}/publish",
+            "/organizations/me/programs/{id}/publish"
+    })
     public ProgramResponseDto publishProgram(@PathVariable UUID id) {
         return programService.publishProgram(id);
     }

@@ -509,16 +509,58 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     /**
+     * The moderation counterpart to {@link #deleteProgram(UUID)}: an admin
+     * takes a program down without being a member of the organization that
+     * owns it, which is what {@code deleteProgram} demands.
+     *
+     * <p>It also sends the program back to {@link SubmissionState#REJECTED}.
+     * The organization keeps its restore button and loses no work, but a
+     * restored program comes back as a private draft that has to be
+     * resubmitted and re-approved — otherwise the people the removal was
+     * aimed at could undo it with one click.
+     *
+     * <p>Removing an already-removed program is a no-op rather than an error,
+     * so resolving two flags on the same program does not fail on the second.
+     */
+    @Override
+    @Transactional
+    public void removeProgramByAdmin(UUID id) {
+        requireRole(ADMIN_ROLE);
+        Program program = programRepository.findById(id)
+                .orElseThrow(this::programNotFound);
+        if (program.getDeletedAt() != null) {
+            return;
+        }
+
+        program.setState(ProgramState.CLOSED);
+        program.setVisibility(Visibility.PRIVATE);
+        program.setSubmissionState(SubmissionState.REJECTED);
+        ProgramUpdate update = logUpdate(program, "Program removed by admin");
+        program.setDeletedAt(LocalDateTime.now());
+
+        organizationRepository.findById(program.getOrganizationId())
+                .ifPresent(organization -> notifyOrganizationOwner(
+                        organization,
+                        program,
+                        update,
+                        "Program removed",
+                        "\"" + program.getName()
+                                + "\" was removed by an administrator."
+                ));
+    }
+
+    /**
      * Undoes a delete without republishing. Deleting closes the program and
      * makes it private, and restoring deliberately does not undo that: it
      * hands back a private draft the organization must relaunch on purpose.
      * Anything else would put a program back on the public internet — with
      * researchers notified — as the side effect of an undo click.
      *
-     * <p>The admin decision rides along untouched, so a program that was
-     * approved before the delete needs no second review. A deleted handle
-     * stays reserved against {@code existsByHandleIgnoreCase}, so nothing
-     * can have claimed it in the meantime.
+     * <p>The admin decision rides along untouched, so a program the owner
+     * deleted while it was approved needs no second review — but one an admin
+     * removed comes back rejected, and does. A deleted handle stays reserved
+     * against {@code existsByHandleIgnoreCase}, so nothing can have claimed it
+     * in the meantime.
      */
     @Override
     @Transactional

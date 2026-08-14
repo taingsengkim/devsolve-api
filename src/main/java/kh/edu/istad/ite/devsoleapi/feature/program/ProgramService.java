@@ -70,6 +70,8 @@ public interface ProgramService {
 
     void deleteProgram(UUID id);
 
+    void removeProgramByAdmin(UUID id);
+
     ProgramResponseDto restoreProgram(UUID id);
 
     Page<ProgramUpdateChangeLogDto> getPublicProgramUpdates(
