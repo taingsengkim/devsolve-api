@@ -36,6 +36,26 @@ class ProgramControllerTest {
     }
 
     @Test
+    void mapsCanonicalAndCompatibilityProgramSaveEndpoints() {
+        assertTrue(hasProgramEndpoint(
+                "/api/v1/organizations/me/programs/{id}",
+                RequestMethod.PATCH
+        ));
+        assertTrue(hasProgramEndpoint(
+                "/api/v1/organizations/me/programs/{id}",
+                RequestMethod.PUT
+        ));
+        assertTrue(hasProgramEndpoint(
+                "/api/v1/programs/{id}",
+                RequestMethod.PATCH
+        ));
+        assertTrue(hasProgramEndpoint(
+                "/api/v1/programs/{id}",
+                RequestMethod.PUT
+        ));
+    }
+
+    @Test
     void mapsPublicProgramViewEndpoint() {
         boolean endpointExists = handlerMapping.getHandlerMethods()
                 .entrySet()
@@ -52,5 +72,24 @@ class ProgramControllerTest {
                         .equals(ProgramController.class));
 
         assertTrue(endpointExists);
+    }
+
+    private boolean hasProgramEndpoint(
+            String path,
+            RequestMethod method
+    ) {
+        return handlerMapping.getHandlerMethods()
+                .entrySet()
+                .stream()
+                .anyMatch(entry -> entry.getKey()
+                        .getPatternValues()
+                        .contains(path)
+                        && entry.getKey()
+                        .getMethodsCondition()
+                        .getMethods()
+                        .contains(method)
+                        && entry.getValue()
+                        .getBeanType()
+                        .equals(ProgramController.class));
     }
 }

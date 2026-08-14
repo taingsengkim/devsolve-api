@@ -9,6 +9,8 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetResponseDto;
@@ -19,8 +21,14 @@ import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdate;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 @Component
 public class ProgramMapper {
@@ -276,41 +284,126 @@ public class ProgramMapper {
             Program program,
             List<ProgramAssetRequestDto> requests
     ) {
-        program.getAssets().clear();
         if (requests == null) {
             return;
         }
 
-        program.getAssets().addAll(requests.stream()
-                .map(request -> ProgramAsset.builder()
+        Map<UUID, ProgramAsset> existingById = new HashMap<>();
+        Map<String, ProgramAsset> existingByNaturalKey = new HashMap<>();
+        for (ProgramAsset asset : program.getAssets()) {
+            if (asset.getId() != null) {
+                existingById.put(asset.getId(), asset);
+            }
+            existingByNaturalKey.putIfAbsent(assetKey(
+                    asset.getAssetType(),
+                    asset.getIdentifier()
+            ), asset);
+        }
+
+        Set<ProgramAsset> retained = new HashSet<>();
+        List<ProgramAsset> additions = new ArrayList<>();
+        for (ProgramAssetRequestDto request : requests) {
+            String identifier = request.identifier().trim();
+            ProgramAsset asset = request.id() == null
+                    ? null
+                    : existingById.get(request.id());
+            if (asset == null) {
+                asset = existingByNaturalKey.get(assetKey(
+                        request.assetType(),
+                        identifier
+                ));
+            }
+            if (asset == null || retained.contains(asset)) {
+                asset = ProgramAsset.builder()
                         .program(program)
-                        .assetType(request.assetType())
-                        .identifier(request.identifier().trim())
-                        .description(trimToNull(request.description()))
-                        .isInScope(request.isInScope())
-                        .maxSeverity(request.maxSeverity())
-                        .build())
-                .toList());
+                        .build();
+                additions.add(asset);
+            }
+
+            asset.setAssetType(request.assetType());
+            asset.setIdentifier(identifier);
+            asset.setDescription(trimToNull(request.description()));
+            asset.setIsInScope(request.isInScope());
+            asset.setMaxSeverity(request.maxSeverity());
+            retained.add(asset);
+        }
+
+        program.getAssets().removeIf(asset -> !retained.contains(asset));
+        program.getAssets().addAll(additions);
     }
 
     private void replaceRewards(
             Program program,
             List<ProgramRewardRequestDto> requests
     ) {
-        program.getRewards().clear();
         if (requests == null) {
             return;
         }
 
-        program.getRewards().addAll(requests.stream()
-                .map(request -> ProgramReward.builder()
+        Map<UUID, ProgramReward> existingById = new HashMap<>();
+        Map<Severity, ProgramReward> existingBySeverity = new HashMap<>();
+        for (ProgramReward reward : program.getRewards()) {
+            if (reward.getId() != null) {
+                existingById.put(reward.getId(), reward);
+            }
+            existingBySeverity.putIfAbsent(reward.getSeverity(), reward);
+        }
+
+        Set<ProgramReward> retained = new HashSet<>();
+        List<ProgramReward> assignments = new ArrayList<>();
+        for (int index = 0; index < requests.size(); index++) {
+            assignments.add(null);
+        }
+
+        // Reserve every row whose current severity is still requested before
+        // considering child IDs. This makes a LOW -> HIGH edit plus a new LOW
+        // tier safe regardless of payload order: the old LOW row remains LOW,
+        // and another row (or a new one) supplies HIGH.
+        for (int index = 0; index < requests.size(); index++) {
+            ProgramReward reward = existingBySeverity.get(
+                    requests.get(index).severity()
+            );
+            if (reward != null && retained.add(reward)) {
+                assignments.set(index, reward);
+            }
+        }
+
+        List<ProgramReward> additions = new ArrayList<>();
+        for (int index = 0; index < requests.size(); index++) {
+            if (assignments.get(index) != null) {
+                continue;
+            }
+            ProgramRewardRequestDto request = requests.get(index);
+            ProgramReward reward = request.id() == null
+                    ? null
+                    : existingById.get(request.id());
+            if (reward == null || !retained.add(reward)) {
+                reward = ProgramReward.builder()
                         .program(program)
-                        .severity(request.severity())
-                        .minAmount(request.minAmount())
-                        .maxAmount(request.maxAmount())
-                        .points(request.points())
-                        .build())
-                .toList());
+                        .build();
+                retained.add(reward);
+                additions.add(reward);
+            }
+            assignments.set(index, reward);
+        }
+
+        for (int index = 0; index < requests.size(); index++) {
+            ProgramRewardRequestDto request = requests.get(index);
+            ProgramReward reward = assignments.get(index);
+            reward.setSeverity(request.severity());
+            reward.setMinAmount(request.minAmount());
+            reward.setMaxAmount(request.maxAmount());
+            reward.setPoints(request.points());
+        }
+
+        program.getRewards().removeIf(reward -> !retained.contains(reward));
+        program.getRewards().addAll(additions);
+    }
+
+    private String assetKey(AssetType assetType, String identifier) {
+        return assetType
+                + ":"
+                + identifier.trim().toLowerCase(Locale.ROOT);
     }
 
     private ProgramAssetResponseDto toAssetResponse(ProgramAsset asset) {

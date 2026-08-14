@@ -1,16 +1,18 @@
 package kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto;
 
-
-import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
-import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import lombok.Builder;
+
+import java.util.UUID;
 
 @Builder
 public record ProgramAssetRequestDto(
+        UUID id,
+
         @NotNull(message = "Asset type is required")
         AssetType assetType,
 
@@ -27,4 +29,21 @@ public record ProgramAssetRequestDto(
         Boolean isInScope,
 
         Severity maxSeverity
-) {}
+) {
+    public ProgramAssetRequestDto(
+            AssetType assetType,
+            String identifier,
+            String description,
+            Boolean isInScope,
+            Severity maxSeverity
+    ) {
+        this(
+                null,
+                assetType,
+                identifier,
+                description,
+                isInScope,
+                maxSeverity
+        );
+    }
+}
