@@ -127,9 +127,7 @@ class ProblemResponseEnricher {
                     viewerBookmarks.contains(problemId),
                     vote == null ? null : vote > 0 ? "UP" : "DOWN",
                     owner && EDITABLE.contains(problem.getStatus()),
-                    // Mirrors the service: an author loses the delete once
-                    // somebody has published a solution to their problem.
-                    admin || (owner && solutionCount == 0),
+                    admin || owner,
                     (admin || owner) && ACCEPTABLE.contains(
                             problem.getStatus()
                     )

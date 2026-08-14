@@ -41,6 +41,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -513,40 +514,62 @@ class ProblemServiceImplTest {
         UUID authorId = UUID.randomUUID();
         Problem problem = publishedProblem(authorId, UUID.randomUUID());
         authenticate(authorId, "USER");
-        when(problemRepository.findActiveById(problem.getId()))
+        when(problemRepository.findActiveByIdForUpdate(problem.getId()))
                 .thenReturn(Optional.of(problem));
-        when(solutionRepository
-                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-                        problem.getId()
-                ))
-                .thenReturn(0L);
 
         service.softDelete(problem.getId());
 
         assertTrue(problem.getDeletedAt() != null);
         verify(problemRepository).saveAndFlush(problem);
+        verify(solutionRepository).softDeleteAllByProblemId(
+                eq(problem.getId()),
+                any(LocalDateTime.class)
+        );
     }
 
     @Test
-    void authorCannotDeleteAProblemThatHasPublishedSolutions() {
+    void authorCanDeleteAProblemThatHasPublishedSolutions() {
         UUID authorId = UUID.randomUUID();
         Problem problem = publishedProblem(authorId, UUID.randomUUID());
         authenticate(authorId, "USER");
-        when(problemRepository.findActiveById(problem.getId()))
+        when(problemRepository.findActiveByIdForUpdate(problem.getId()))
                 .thenReturn(Optional.of(problem));
-        when(solutionRepository
-                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-                        problem.getId()
-                ))
-                .thenReturn(2L);
+        when(solutionRepository.softDeleteAllByProblemId(
+                eq(problem.getId()),
+                any(LocalDateTime.class)
+        )).thenReturn(2);
+
+        service.softDelete(problem.getId());
+
+        assertTrue(problem.getDeletedAt() != null);
+        verify(problemRepository).saveAndFlush(problem);
+        verify(solutionRepository).softDeleteAllByProblemId(
+                eq(problem.getId()),
+                any(LocalDateTime.class)
+        );
+    }
+
+    @Test
+    void anotherUserCannotDeleteTheProblemOrItsSolutions() {
+        Problem problem = publishedProblem(
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        );
+        authenticate(UUID.randomUUID(), "USER");
+        when(problemRepository.findActiveByIdForUpdate(problem.getId()))
+                .thenReturn(Optional.of(problem));
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
                 () -> service.softDelete(problem.getId())
         );
 
-        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
         assertNull(problem.getDeletedAt());
+        verify(solutionRepository, never()).softDeleteAllByProblemId(
+                any(),
+                any(LocalDateTime.class)
+        );
         verify(problemRepository, never()).saveAndFlush(problem);
     }
 
@@ -555,16 +578,16 @@ class ProblemServiceImplTest {
         UUID authorId = UUID.randomUUID();
         Problem problem = publishedProblem(authorId, UUID.randomUUID());
         authenticate(UUID.randomUUID(), "ADMIN");
-        when(problemRepository.findActiveById(problem.getId()))
+        when(problemRepository.findActiveByIdForUpdate(problem.getId()))
                 .thenReturn(Optional.of(problem));
 
         service.softDelete(problem.getId());
 
         assertTrue(problem.getDeletedAt() != null);
-        verify(solutionRepository, never())
-                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-                        any()
-                );
+        verify(solutionRepository).softDeleteAllByProblemId(
+                eq(problem.getId()),
+                any(LocalDateTime.class)
+        );
     }
 
     @Test
@@ -581,13 +604,8 @@ class ProblemServiceImplTest {
                 .uploadedBy(authorId)
                 .build();
         authenticate(authorId, "USER");
-        when(problemRepository.findActiveById(problem.getId()))
+        when(problemRepository.findActiveByIdForUpdate(problem.getId()))
                 .thenReturn(Optional.of(problem));
-        when(solutionRepository
-                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-                        problem.getId()
-                ))
-                .thenReturn(0L);
         when(attachmentRepository
                 .findAllByProblemIdOrderByCreatedAtAsc(problem.getId()))
                 .thenReturn(List.of(attachment));

@@ -56,6 +56,18 @@ class ProgramControllerTest {
     }
 
     @Test
+    void mapsCanonicalAndOrganizationScopedPublishEndpoints() {
+        assertTrue(hasProgramEndpoint(
+                "/api/v1/programs/{id}/publish",
+                RequestMethod.PATCH
+        ));
+        assertTrue(hasProgramEndpoint(
+                "/api/v1/organizations/me/programs/{id}/publish",
+                RequestMethod.PATCH
+        ));
+    }
+
+    @Test
     void mapsPublicProgramViewEndpoint() {
         boolean endpointExists = handlerMapping.getHandlerMethods()
                 .entrySet()
@@ -74,9 +86,26 @@ class ProgramControllerTest {
         assertTrue(endpointExists);
     }
 
+    @Test
+    void mapsAdminProgramRemovalEndpoint() {
+        assertTrue(hasEndpoint(
+                "/api/v1/admin/programs/{id}",
+                RequestMethod.DELETE,
+                ProgramAdminController.class
+        ));
+    }
+
     private boolean hasProgramEndpoint(
             String path,
             RequestMethod method
+    ) {
+        return hasEndpoint(path, method, ProgramController.class);
+    }
+
+    private boolean hasEndpoint(
+            String path,
+            RequestMethod method,
+            Class<?> beanType
     ) {
         return handlerMapping.getHandlerMethods()
                 .entrySet()
@@ -90,6 +119,6 @@ class ProgramControllerTest {
                         .contains(method)
                         && entry.getValue()
                         .getBeanType()
-                        .equals(ProgramController.class));
+                        .equals(beanType));
     }
 }

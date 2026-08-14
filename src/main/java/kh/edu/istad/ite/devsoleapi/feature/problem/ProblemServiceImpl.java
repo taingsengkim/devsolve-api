@@ -482,7 +482,8 @@ public class ProblemServiceImpl implements ProblemService {
     @Override
     @Transactional
     public void softDelete(UUID id) {
-        Problem problem = findProblem(id);
+        Problem problem = problemRepository.findActiveByIdForUpdate(id)
+                .orElseThrow(() -> notFound(id));
         UUID userId = currentUserId();
         boolean admin = AuthUtils.hasRole(ADMIN_ROLE);
         boolean author = problem.getAuthorId().equals(userId);
@@ -490,16 +491,14 @@ public class ProblemServiceImpl implements ProblemService {
         if (!admin && !author) {
             throw forbidden("You are not allowed to delete this problem");
         }
-        // An author may withdraw their own problem at any point in its life,
-        // published included - but not once other people have answered it.
-        // Deleting then would take somebody else's published solution down
-        // with it, which is not the author's call to make.
-        if (!admin && hasPublishedSolutions(problem.getId())) {
-            throw conflict(
-                    "This problem has published solutions and can no longer "
-                            + "be deleted; ask an admin if it has to go"
-            );
-        }
+
+        // A deleted parent must not leave independently addressable solutions
+        // behind. Keep their rows for audit/history, but hide them in the same
+        // transaction as the problem.
+        solutionRepository.softDeleteAllByProblemId(
+                problem.getId(),
+                LocalDateTime.now()
+        );
 
         Set<UUID> associatedTagIds = problemTagRepository
                 .findAllByProblemId(problem.getId())
@@ -512,13 +511,6 @@ public class ProblemServiceImpl implements ProblemService {
         discardAttachments(problem.getId());
         problem.softDelete();
         problemRepository.saveAndFlush(problem);
-    }
-
-    private boolean hasPublishedSolutions(UUID problemId) {
-        return solutionRepository
-                .countByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-                        problemId
-                ) > 0;
     }
 
     /**

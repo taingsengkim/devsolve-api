@@ -1213,3 +1213,45 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- PROGRAM joined FlaggableType. Hibernate wrote the check constraint on
+-- content_flags.flaggable_type when it first created the table, listing only
+-- the values that existed then, and ddl-auto=update never revises one — so an
+-- existing database rejects a program flag until the constraint is replaced.
+-- Any check mentioning the column is dropped, since its generated name is not
+-- guaranteed, and this block re-applies cleanly on every boot.
+DO $$
+DECLARE
+    stale_constraint TEXT;
+BEGIN
+    IF to_regclass('public.content_flags') IS NOT NULL THEN
+        FOR stale_constraint IN
+            SELECT con.conname
+            FROM pg_constraint con
+            JOIN pg_class rel
+                ON rel.oid = con.conrelid
+            JOIN pg_namespace nsp
+                ON nsp.oid = rel.relnamespace
+            WHERE nsp.nspname = 'public'
+              AND rel.relname = 'content_flags'
+              AND con.contype = 'c'
+              AND pg_get_constraintdef(con.oid) LIKE '%flaggable_type%'
+        LOOP
+            EXECUTE format(
+                'ALTER TABLE public.content_flags DROP CONSTRAINT %I',
+                stale_constraint
+            );
+        END LOOP;
+
+        ALTER TABLE public.content_flags
+            ADD CONSTRAINT content_flags_flaggable_type_check
+            CHECK (flaggable_type IN (
+                'PROGRAM',
+                'PROBLEM',
+                'SOLUTION',
+                'COMMENT',
+                'SHOWCASE'
+            ));
+    END IF;
+END
+$$^^^

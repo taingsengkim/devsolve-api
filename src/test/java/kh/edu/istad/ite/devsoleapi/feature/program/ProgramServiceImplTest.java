@@ -681,6 +681,96 @@ class ProgramServiceImplTest {
     }
 
     @Test
+    void adminCanRemoveProgramWithoutBelongingToTheOrganization() {
+        UUID adminId = UUID.randomUUID();
+        Organization organization =
+                activeOwnedOrganization(UUID.randomUUID());
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        authenticate(adminId, "ADMIN");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        service().removeProgramByAdmin(program.getId());
+
+        assertEquals(ProgramState.CLOSED, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+        assertEquals(SubmissionState.REJECTED, program.getSubmissionState());
+        assertNotNull(program.getDeletedAt());
+        verifyNoInteractions(organizationMemberRepository);
+        ArgumentCaptor<ProgramUpdate> updateCaptor =
+                ArgumentCaptor.forClass(ProgramUpdate.class);
+        verify(programUpdateRepository).save(updateCaptor.capture());
+        assertEquals(
+                "Program removed by admin",
+                updateCaptor.getValue().getChangeSummary()
+        );
+        assertEquals(adminId, updateCaptor.getValue().getChangedBy());
+        verify(eventPublisher).publishEvent(any(Object.class));
+        verifyNoInteractions(followNotificationService);
+    }
+
+    @Test
+    void onlyAdminCanRemoveAProgramOnBehalfOfModeration() {
+        Program program = validProgram(UUID.randomUUID());
+        authenticate(UUID.randomUUID(), "COMPANY");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().removeProgramByAdmin(program.getId())
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verifyNoInteractions(programRepository);
+        verifyNoInteractions(programUpdateRepository);
+    }
+
+    @Test
+    void removingAnAlreadyRemovedProgramChangesNothing() {
+        Program program = validProgram(UUID.randomUUID());
+        LocalDateTime removedAt = LocalDateTime.now().minusDays(1);
+        program.setDeletedAt(removedAt);
+        authenticate(UUID.randomUUID(), "ADMIN");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        service().removeProgramByAdmin(program.getId());
+
+        assertEquals(removedAt, program.getDeletedAt());
+        verifyNoInteractions(programUpdateRepository);
+        verifyNoInteractions(organizationRepository);
+    }
+
+    @Test
+    void restoringAnAdminRemovedProgramSendsItBackThroughReview() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(ownerId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(Visibility.PUBLIC);
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        authenticate(UUID.randomUUID(), "ADMIN");
+        service().removeProgramByAdmin(program.getId());
+
+        authenticate(ownerId, "COMPANY");
+        service().restoreProgram(program.getId());
+
+        assertNull(program.getDeletedAt());
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(Visibility.PRIVATE, program.getVisibility());
+        assertEquals(SubmissionState.REJECTED, program.getSubmissionState());
+    }
+
+    @Test
     void restoreBringsBackAPrivateDraftInsteadOfRepublishing() {
         UUID ownerId = UUID.randomUUID();
         Organization organization = activeOwnedOrganization(ownerId);

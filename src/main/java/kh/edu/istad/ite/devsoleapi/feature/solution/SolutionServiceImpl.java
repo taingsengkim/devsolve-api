@@ -93,7 +93,7 @@ public class SolutionServiceImpl implements SolutionService {
     @Override
     @Transactional
     public SolutionResponse createSolution(UUID problemId, SolutionRequest request) {
-        Problem problem = problemRepository.findPublicById(problemId)
+        Problem problem = problemRepository.findPublicByIdForUpdate(problemId)
                 .orElseThrow(() -> notFound("Problem", problemId));
         if (problem.getStatus() != ProblemStatus.PUBLISHED
                 && problem.getStatus() != ProblemStatus.RESOLVED) {
@@ -258,17 +258,23 @@ public class SolutionServiceImpl implements SolutionService {
     @Override
     @Transactional
     public void deleteSolution(UUID id) {
+        UUID problemId = solutionRepository.findActiveProblemId(id)
+                .orElseThrow(() -> notFound("Solution", id));
+        // Every workflow touching both rows locks the parent first. Keeping a
+        // single lock order prevents problem deletion and solution deletion
+        // from waiting on each other in opposite directions.
+        Problem problem = problemRepository.findActiveByIdForUpdate(problemId)
+                .orElseThrow(() -> notFound("Problem", problemId));
         Solution solution = solutionRepository.findActiveByIdForUpdate(id)
                 .orElseThrow(() -> notFound("Solution", id));
+        if (!problemId.equals(solution.getProblem().getId())) {
+            throw conflict("The solution no longer belongs to this problem");
+        }
         UUID userId = requireCurrentUserId();
         boolean admin = AuthUtils.hasRole("ADMIN");
         if (!admin && !solution.getAuthorId().equals(userId)) {
             throw forbidden("You are not allowed to delete this solution");
         }
-        Problem problem = problemRepository.findActiveByIdForUpdate(
-                        solution.getProblem().getId()
-                )
-                .orElseThrow(() -> notFound("Problem", solution.getProblem().getId()));
         Optional<ProblemAcceptedSolution> acceptance = findAcceptance(
                 problem,
                 solution.getId()

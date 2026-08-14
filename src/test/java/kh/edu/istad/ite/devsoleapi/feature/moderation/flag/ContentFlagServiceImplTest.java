@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 import kh.edu.istad.ite.devsoleapi.feature.comments.CommentService;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -19,7 +20,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,9 +32,11 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,6 +54,9 @@ class ContentFlagServiceImplTest {
     @Mock
     private CommentService commentService;
 
+    @Mock
+    private ProgramService programService;
+
     private ContentFlagServiceImpl service;
 
     @BeforeEach
@@ -57,7 +65,8 @@ class ContentFlagServiceImplTest {
                 userProfileRepository,
                 contentFlagRepository,
                 contentFlagMapper,
-                commentService
+                commentService,
+                programService
         );
     }
 
@@ -181,6 +190,70 @@ class ContentFlagServiceImplTest {
                 flag.getResolutionNote()
         );
         verify(contentFlagRepository).save(flag);
+    }
+
+    @Test
+    void resolvingAProgramFlagWithRemovalTakesTheProgramDown() {
+        UUID adminId = UUID.randomUUID();
+        UUID flagId = UUID.randomUUID();
+        UUID programId = UUID.randomUUID();
+        UserProfile admin = new UserProfile();
+        admin.setId(adminId);
+        ContentFlag flag = new ContentFlag();
+        flag.setId(flagId);
+        flag.setStatus(FlagStatus.PENDING);
+        flag.setFlaggableType(FlaggableType.PROGRAM);
+        flag.setFlaggableId(programId);
+        ResolveFlagRequest request = new ResolveFlagRequest(
+                "Program scope invites attacks on third parties.",
+                true
+        );
+
+        authenticate(adminId, true);
+        when(contentFlagRepository.findById(flagId))
+                .thenReturn(Optional.of(flag));
+        when(userProfileRepository.findById(adminId))
+                .thenReturn(Optional.of(admin));
+        when(contentFlagRepository.save(flag)).thenReturn(flag);
+        when(contentFlagMapper.mapContentFlagToFlagResponse(flag))
+                .thenReturn(response(flagId, FlagStatus.REVIEWED));
+
+        service.resolveFlag(flagId, request);
+
+        verify(programService).removeProgramByAdmin(programId);
+        assertEquals(FlagStatus.REVIEWED, flag.getStatus());
+    }
+
+    @Test
+    void resolvingAShowcaseFlagWithRemovalStillPointsAtItsOwnWorkflow() {
+        UUID adminId = UUID.randomUUID();
+        UUID flagId = UUID.randomUUID();
+        UserProfile admin = new UserProfile();
+        admin.setId(adminId);
+        ContentFlag flag = new ContentFlag();
+        flag.setId(flagId);
+        flag.setStatus(FlagStatus.PENDING);
+        flag.setFlaggableType(FlaggableType.SHOWCASE);
+        flag.setFlaggableId(UUID.randomUUID());
+        ResolveFlagRequest request = new ResolveFlagRequest(
+                "Duplicate of an earlier report.",
+                true
+        );
+
+        authenticate(adminId, true);
+        when(contentFlagRepository.findById(flagId))
+                .thenReturn(Optional.of(flag));
+        when(userProfileRepository.findById(adminId))
+                .thenReturn(Optional.of(admin));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.resolveFlag(flagId, request)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verifyNoInteractions(programService);
+        verifyNoInteractions(commentService);
     }
 
     private FlagResponse response(

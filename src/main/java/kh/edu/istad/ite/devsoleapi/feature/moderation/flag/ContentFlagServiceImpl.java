@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.comments.CommentService;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ public class ContentFlagServiceImpl implements ContentFlagService{
     private final ContentFlagRepository contentFlagRepository;
     private final ContentFlagMapper contentFlagMapper;
     private final CommentService commentService;
+    private final ProgramService programService;
 
     @Override
     @Transactional
@@ -201,24 +203,32 @@ public class ContentFlagServiceImpl implements ContentFlagService{
     /**
      * Acts on the content the flag points at.
      *
-     * <p>Only comments are wired up so far. The other flaggable types have
-     * their own review workflows — a showcase goes back through the review
-     * queue, a problem through its moderation status — and reaching around
-     * those from here would leave two paths that disagree about what
+     * <p>Comments and programs are wired up: each has a single removal path an
+     * admin owns, so resolving through here and removing through the feature's
+     * own admin endpoint mean the same thing. The remaining flaggable types
+     * have their own review workflows — a showcase goes back through the
+     * review queue, a problem through its moderation status — and reaching
+     * around those from here would leave two paths that disagree about what
      * "removed" means. Resolving a flag on one of those still records the
      * decision, which is what it did before.
      */
     private void removeFlaggedContent(ContentFlag flag, UUID adminId) {
-        if (flag.getFlaggableType() != FlaggableType.COMMENT) {
-            throw new ResponseStatusException(
+        switch (flag.getFlaggableType()) {
+            case COMMENT -> commentService.removeByModerator(
+                    flag.getFlaggableId(),
+                    adminId
+            );
+            case PROGRAM -> programService.removeProgramByAdmin(
+                    flag.getFlaggableId()
+            );
+            default -> throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Content removal on resolve is only supported for "
-                            + "comments; use the "
+                            + "comments and programs; use the "
                             + flag.getFlaggableType().name().toLowerCase()
                             + " moderation endpoints instead"
             );
         }
-        commentService.removeByModerator(flag.getFlaggableId(), adminId);
     }
 
     private ContentFlag findFlag(UUID id) {

@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.springframework.context.ApplicationEventPublisher;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -42,12 +43,14 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
@@ -295,7 +298,7 @@ class SolutionServiceImplTest {
         );
         addAcceptance(problem, UUID.randomUUID(), problem.getAuthorId());
         authenticate(authorId, false);
-        when(problemRepository.findPublicById(problem.getId()))
+        when(problemRepository.findPublicByIdForUpdate(problem.getId()))
                 .thenReturn(Optional.of(problem));
         stubAuthor(authorId);
         SolutionRequest request = new SolutionRequest(
@@ -311,6 +314,8 @@ class SolutionServiceImplTest {
         service.createSolution(problem.getId(), request);
         service.createSolution(problem.getId(), request);
 
+        verify(problemRepository, times(2))
+                .findPublicByIdForUpdate(problem.getId());
         ArgumentCaptor<SolutionRevision> revisions =
                 ArgumentCaptor.forClass(SolutionRevision.class);
         verify(revisionRepository, times(2)).saveAndFlush(revisions.capture());
@@ -321,6 +326,35 @@ class SolutionServiceImplTest {
         assertEquals(authorId, second.getAuthorId());
         assertSame(problem, first.getProblem());
         assertSame(problem, second.getProblem());
+    }
+
+    @Test
+    void deletingSolutionLocksProblemBeforeSolution() {
+        UUID authorId = UUID.randomUUID();
+        Problem problem = problem(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                ProblemStatus.PUBLISHED
+        );
+        Solution solution = solution(problem, authorId);
+        authenticate(authorId, false);
+        when(solutionRepository.findActiveProblemId(solution.getId()))
+                .thenReturn(Optional.of(problem.getId()));
+        when(problemRepository.findActiveByIdForUpdate(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        when(solutionRepository.findActiveByIdForUpdate(solution.getId()))
+                .thenReturn(Optional.of(solution));
+
+        service.deleteSolution(solution.getId());
+
+        assertNotNull(solution.getDeletedAt());
+        InOrder lockOrder = inOrder(problemRepository, solutionRepository);
+        lockOrder.verify(solutionRepository)
+                .findActiveProblemId(solution.getId());
+        lockOrder.verify(problemRepository)
+                .findActiveByIdForUpdate(problem.getId());
+        lockOrder.verify(solutionRepository)
+                .findActiveByIdForUpdate(solution.getId());
     }
 
     @Test
