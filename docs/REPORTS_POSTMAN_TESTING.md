@@ -96,6 +96,7 @@ In Postman:
 | `weaknessId` | Optional; leave empty |
 | `reportId` | Leave empty |
 | `mismatchReportId` | Leave empty |
+| `disputeId` | Leave empty |
 
 Select `DevSolve Local` as the active environment.
 
@@ -247,21 +248,41 @@ Use **Body → raw → JSON**:
 ```json
 {
   "title": "Broken access control exposes another user account",
-  "vulnerabilityInformation": "Log in as User A and request another user's identifier. The server returns the other user's private information.",
+  "vulnerabilityInformation": "The account endpoint authorises on the session but reads the identifier straight from the path, so any authenticated user can read any account.",
   "impact": "An attacker can access private account information belonging to other users.",
+  "stepsToReproduce": "1. Log in as User A.\n2. Note User B's identifier.\n3. GET /api/v1/users/{userB}.\n4. The response body is User B's private profile.",
+  "proofOfConcept": "curl -H \"Authorization: Bearer $USER_A\" https://app.example.test/api/v1/users/8f2c...",
+  "remediationRecommendation": "Compare the path identifier against the authenticated principal before loading the profile.",
+  "targetEndpoint": "https://app.example.test/api/v1/users/{id}",
+  "environment": "PRODUCTION",
+  "discoveredAt": "2026-08-14T09:30:00",
+  "referenceLinks": [
+    "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"
+  ],
   "reportedSeverity": "HIGH",
+  "cvssVector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+  "cvssScore": 7.7,
   "assetId": "{{assetId}}"
 }
 ```
 
-`weaknessId` is optional. If you have an active weakness, the complete ending
-of the request body can be:
+Only `title`, `vulnerabilityInformation`, and `reportedSeverity` are required;
+everything else is optional detail that saves triage a round trip.
 
-```json
-"reportedSeverity": "HIGH",
-"weaknessId": "{{weaknessId}}",
-"assetId": "{{assetId}}"
-```
+- `targetEndpoint` is where the finding lives *inside* the asset. `assetId`
+  still says which in-scope target it belongs to.
+- `environment` is one of `PRODUCTION`, `STAGING`, `DEVELOPMENT`, `TESTING`,
+  `LOCAL`.
+- `weaknessId` is the CWE category and is optional. With an active weakness,
+  add `"weaknessId": "{{weaknessId}}"` beside `assetId`.
+- `cvssVector` must be a CVSS v3.0 or v3.1 **base** vector, and `cvssScore`
+  must fall in the band its `reportedSeverity` claims — `0.1–3.9` LOW,
+  `4.0–6.9` MEDIUM, `7.0–8.9` HIGH, `9.0–10.0` CRITICAL. A score that
+  contradicts the claim is rejected with `400`, so the two can never disagree
+  in the record. Send either, both, or neither.
+
+Screenshots and other evidence are uploaded separately once the report exists,
+via `POST {{baseUrl}}/reports/{{reportId}}/attachments`.
 
 Add this post-response script:
 
@@ -538,8 +559,128 @@ Body:
 
 Expected status: `409 Conflict`.
 
-The Admin dispute-resolution feature must settle the disagreement before the
-final severity and reward can be recorded.
+Nothing about this report can move until an Admin settles the disagreement.
+That is what section 8.5 onwards does.
+
+### 8.5 Read the Admin dispute queue
+
+```text
+GET {{baseUrl}}/admin/disputes
+Authorization: Bearer {{adminToken}}
+```
+
+With no query string this returns every dispute still awaiting a decision,
+oldest first. Add `?pendingOnly=false` to browse settled ones, and
+`?status=RESOLVED`, `?programId=`, or `?reportId=` to narrow further.
+
+Post-response script:
+
+```javascript
+pm.test("Dispute is waiting in the Admin queue", function () {
+    pm.response.to.have.status(200);
+    const json = pm.response.json();
+
+    const dispute = json.content.find(
+        (candidate) => candidate.reportId === pm.environment.get("mismatchReportId")
+    );
+    pm.expect(dispute, "dispute for the mismatched report").to.be.an("object");
+    pm.expect(dispute.status).to.eql("OPEN");
+    pm.expect(dispute.reportedSeverity).to.eql("CRITICAL");
+    pm.expect(dispute.triageSeverity).to.eql("MEDIUM");
+
+    pm.environment.set("disputeId", dispute.id);
+});
+```
+
+### 8.6 Claim the dispute for review
+
+Optional, but it is what tells both sides somebody has picked the case up.
+
+```text
+PATCH {{baseUrl}}/admin/disputes/{{disputeId}}
+Authorization: Bearer {{adminToken}}
+```
+
+Body:
+
+```json
+{
+  "status": "UNDER_REVIEW",
+  "resolutionNotes": "Reproducing the upload chain before deciding."
+}
+```
+
+The report stays frozen. Sending `finalSeverity` here is rejected with `400`.
+
+### 8.7 Rule on the severity
+
+The Admin is not limited to the two severities on the table — the point of
+mediation is that a third number can be the correct one.
+
+```text
+PATCH {{baseUrl}}/admin/disputes/{{disputeId}}
+Authorization: Bearer {{adminToken}}
+```
+
+Body:
+
+```json
+{
+  "status": "RESOLVED",
+  "finalSeverity": "HIGH",
+  "resolutionNotes": "Command execution is real, but it needs an authenticated session, so this is not CRITICAL."
+}
+```
+
+Post-response script:
+
+```javascript
+pm.test("Admin ruling settles the report", function () {
+    pm.response.to.have.status(200);
+    const json = pm.response.json();
+
+    pm.expect(json.status).to.eql("RESOLVED");
+    pm.expect(json.resolvedSeverity).to.eql("HIGH");
+    pm.expect(json.resolvedBy).to.not.eql(null);
+    pm.expect(json.resolvedAt).to.not.eql(null);
+});
+```
+
+`resolutionNotes` are required for a ruling: the decision overrides both the
+Hacker and the Company, and neither can see why unless it is written down.
+Omitting them returns `400`. To let the Company's assessment stand instead,
+send `{"status": "DISMISSED", "resolutionNotes": "..."}` with no
+`finalSeverity` — the report then settles on the triage severity.
+
+### 8.8 Confirm the report has unfrozen
+
+```text
+GET {{baseUrl}}/reports/{{mismatchReportId}}
+Authorization: Bearer {{companyToken}}
+```
+
+Post-response script:
+
+```javascript
+pm.test("Ruled severity is now the report's severity", function () {
+    pm.response.to.have.status(200);
+    const json = pm.response.json();
+
+    // Neither side's claim — the Admin's.
+    pm.expect(json.reportedSeverity).to.eql("CRITICAL");
+    pm.expect(json.triageSeverity).to.eql("MEDIUM");
+    pm.expect(json.severity).to.eql("HIGH");
+    pm.expect(json.dispute.status).to.eql("RESOLVED");
+});
+```
+
+The reward request from 8.4 now succeeds, and the Company can move the report
+to `RESOLVED`. Re-triaging at yet another severity no longer reopens the
+argument: the ruling stands, and a report gets one severity dispute in its
+life.
+
+A dispute that has already been settled cannot be decided twice — repeating
+8.7 returns `409`.
 
 ## 9. Privacy and role tests
 

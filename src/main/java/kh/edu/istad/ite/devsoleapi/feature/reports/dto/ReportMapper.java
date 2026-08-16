@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
+import java.util.List;
 
 @Component
 public class ReportMapper {
@@ -19,7 +20,18 @@ public class ReportMapper {
                 report.getTitle(),
                 report.getVulnerabilityInformation(),
                 report.getImpact(),
+                report.getStepsToReproduce(),
+                report.getProofOfConcept(),
+                report.getRemediationRecommendation(),
+                report.getTargetEndpoint(),
+                report.getEnvironment(),
+                report.getDiscoveredAt(),
+                report.getReferenceLinks() == null
+                        ? List.of()
+                        : List.copyOf(report.getReferenceLinks()),
                 report.getReportedSeverity(),
+                report.getCvssVector(),
+                report.getCvssScore(),
                 report.getTriageSeverity(),
                 report.getSeverity(),
                 toWeaknessSummary(report),
@@ -116,6 +128,10 @@ public class ReportMapper {
         return new ReportResponse.DisputeSummary(
                 dispute.getId(),
                 dispute.getStatus(),
+                dispute.getRaisedBy() == null
+                        ? null
+                        : dispute.getRaisedBy().getId(),
+                dispute.getReason(),
                 dispute.getResolvedSeverity(),
                 dispute.getResolvedBy() == null
                         ? null

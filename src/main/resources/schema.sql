@@ -489,12 +489,138 @@ BEGIN
 END
 $$^^^
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'report_environment_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.report_environment_enum AS ENUM (
+            'production',
+            'staging',
+            'development',
+            'testing',
+            'local'
+        );
+    END IF;
+END
+$$^^^
+
+
+-- Submission detail a triager needs to reproduce a finding without a round
+-- trip: where it lives, which environment it was seen in, how to repeat it,
+-- and the CVSS the severity claim is based on. Hibernate adds these on a
+-- fresh database; the VPS does not run with ddl-auto "update", so without
+-- this block a deploy ships the fields and no columns to put them in.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL THEN
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS steps_to_reproduce TEXT;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS proof_of_concept TEXT;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS remediation_recommendation TEXT;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS target_endpoint VARCHAR(1000);
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS environment
+                public.report_environment_enum;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS discovered_at TIMESTAMP(6);
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS reference_links JSONB;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS cvss_vector VARCHAR(255);
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS cvss_score NUMERIC(3, 1);
+    END IF;
+END
+$$^^^
+
+
+-- Severity disputes. The mediation queue is the only way a report whose two
+-- severity claims disagree ever becomes payable, so the table has to exist
+-- wherever the triggers below do.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.disputes (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            report_id UUID NOT NULL
+                REFERENCES public.reports (id),
+            raised_by UUID NOT NULL
+                REFERENCES public.user_profiles (id),
+            reason TEXT NOT NULL,
+            status public.dispute_status_enum NOT NULL DEFAULT 'open',
+            resolved_severity public.severity_enum,
+            resolved_by UUID
+                REFERENCES public.user_profiles (id),
+            resolution_notes TEXT,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            resolved_at TIMESTAMP(6)
+        );
+    END IF;
+
+    IF to_regclass('public.disputes') IS NOT NULL THEN
+        -- open_report_severity_dispute() inserts without an id or a created_at,
+        -- because a trigger has no application-side generator to call. Hibernate
+        -- creates both columns NOT NULL with no default, so on a database it
+        -- built the auto-dispute insert fails outright and takes the whole
+        -- triage down with it. These defaults are what make that insert legal.
+        ALTER TABLE public.disputes
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.disputes
+            ALTER COLUMN created_at SET DEFAULT now();
+
+        -- The administrator queue reads live disputes oldest first, and every
+        -- triage and reward checks whether one report has an active dispute.
+        CREATE INDEX IF NOT EXISTS idx_disputes_status_created
+            ON public.disputes (status, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_disputes_report
+            ON public.disputes (report_id);
+    END IF;
+END
+$$^^^
+
 CREATE OR REPLACE FUNCTION public.reconcile_report_severity()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    -- Held as text, not severity_enum. This CREATE FUNCTION runs unguarded on
+    -- every startup, and a declared variable's type has to exist when the body
+    -- is validated — but severity_enum is created further down this file, so on
+    -- a fresh database it does not exist yet. text always does, and the cast
+    -- back below is resolved on first call, by which point the type is there.
+    ruled_severity text;
 BEGIN
-    IF NEW.id IS NOT NULL
+    -- An administrator's ruling on a severity dispute outranks both the
+    -- reporter's claim and the company's, and it is the thing that unfreezes
+    -- the report — so it is read before either of them. Without this branch the
+    -- ruling survives only until the next write to the row: Hibernate updates
+    -- every column, so this trigger fires on saves that changed neither
+    -- severity, and the final ELSE would null the agreed severity back out.
+    IF NEW.id IS NOT NULL THEN
+        SELECT d.resolved_severity::text
+          INTO ruled_severity
+          FROM public.disputes d
+         WHERE d.report_id = NEW.id
+           AND d.status IN ('resolved', 'dismissed')
+           AND d.resolved_severity IS NOT NULL
+         ORDER BY d.resolved_at DESC NULLS LAST, d.created_at DESC
+         LIMIT 1;
+    END IF;
+
+    IF ruled_severity IS NOT NULL THEN
+        NEW.severity := ruled_severity::public.severity_enum;
+    ELSIF NEW.id IS NOT NULL
        AND EXISTS (
            SELECT 1
            FROM public.disputes d
@@ -519,13 +645,26 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- Only a fresh assessment can open a dispute. Hibernate writes every column
+    -- on any report save, so this trigger also fires for updates that touched
+    -- neither severity — a disclosure change, an administrator writing the
+    -- ruled severity — and without this guard resolving a dispute would open
+    -- another one on the very next save, deadlocking the report for good.
+    IF TG_OP = 'UPDATE'
+       AND NEW.reported_severity IS NOT DISTINCT FROM OLD.reported_severity
+       AND NEW.triage_severity IS NOT DISTINCT FROM OLD.triage_severity THEN
+        RETURN NEW;
+    END IF;
+
     IF NEW.triage_severity IS NOT NULL
        AND NEW.reported_severity <> NEW.triage_severity
+       -- A report gets one severity dispute, ever. Once an administrator has
+       -- ruled, the ruling stands and re-triaging cannot reopen the argument,
+       -- so this looks for any dispute rather than only a live one.
        AND NOT EXISTS (
            SELECT 1
            FROM public.disputes d
            WHERE d.report_id = NEW.id
-             AND d.status IN ('open', 'under_review')
        ) THEN
         INSERT INTO public.disputes (
             report_id,
