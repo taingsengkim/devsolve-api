@@ -22,6 +22,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
@@ -46,6 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +55,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -109,6 +112,9 @@ class ReportServiceImplTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private CompanyIdentityService companyIdentityService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
@@ -131,14 +137,7 @@ class ReportServiceImplTest {
 
         service().create(
                 program.getId(),
-                new CreateReportRequest(
-                        "Broken access control",
-                        "A user can read another account.",
-                        "Private account data is exposed.",
-                        Severity.HIGH,
-                        null,
-                        asset.getId()
-                )
+                reportRequest(Severity.HIGH, asset.getId())
         );
 
         ArgumentCaptor<Report> reportCaptor =
@@ -170,12 +169,8 @@ class ReportServiceImplTest {
                 ResourceNotFoundException.class,
                 () -> service().create(
                         program.getId(),
-                        new CreateReportRequest(
-                                "Broken access control",
-                                "A user can read another account.",
-                                "Private account data is exposed.",
+                        reportRequest(
                                 Severity.HIGH,
-                                null,
                                 program.getAssets().getFirst().getId()
                         )
                 )
@@ -260,6 +255,94 @@ class ReportServiceImplTest {
                 report.getReporter(),
                 report.getDisputes().getFirst().getRaisedBy()
         );
+    }
+
+    @Test
+    void adminRulingSurvivesReTriageAndLetsTheReportResolve() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.CRITICAL);
+        report.setState(ReportState.VALID_CONFIRMED);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        report.getId(),
+                        EnumSet.of(
+                                DisputeStatus.OPEN,
+                                DisputeStatus.UNDER_REVIEW
+                        )
+                ))
+                .thenReturn(Optional.empty());
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        report.getId(),
+                        EnumSet.of(
+                                DisputeStatus.RESOLVED,
+                                DisputeStatus.DISMISSED
+                        )
+                ))
+                .thenReturn(Optional.of(
+                        Dispute.builder()
+                                .id(UUID.randomUUID())
+                                .report(report)
+                                .raisedBy(report.getReporter())
+                                .reason("Severities differ")
+                                .status(DisputeStatus.RESOLVED)
+                                .resolvedSeverity(Severity.MEDIUM)
+                                .build()
+                ));
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.LOW,
+                        ReportState.RESOLVED,
+                        null
+                )
+        );
+
+        // The administrator's number stands, not either side's claim, and the
+        // report is resolvable on it rather than deadlocked a second time.
+        assertEquals(Severity.MEDIUM, report.getSeverity());
+        assertEquals(ReportState.RESOLVED, report.getState());
+        assertNotNull(report.getResolvedAt());
+        verify(disputeRepository, never()).save(any(Dispute.class));
+    }
+
+    @Test
+    void cvssScoreMustMatchTheClaimedSeverity() {
+        UUID hackerId = UUID.randomUUID();
+        Program program = activeApprovedProgram();
+        authenticate(hackerId, "USER");
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(user(hackerId)));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+
+        CreateReportRequest request = new CreateReportRequest(
+                "Broken access control",
+                "A user can read another account.",
+                null, null, null, null, null, null, null, null,
+                Severity.CRITICAL,
+                "CVSS:3.1/AV:N/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N",
+                new java.math.BigDecimal("2.1"),
+                null,
+                program.getAssets().getFirst().getId()
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().create(program.getId(), request)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
     }
 
     @Test
@@ -643,11 +726,39 @@ class ReportServiceImplTest {
                         organizationRepository,
                         organizationMemberRepository
                 ),
+                companyIdentityService,
                 reportMapper,
                 followNotificationService,
                 attachmentValidator,
                 objectStorageService,
                 eventPublisher
+        );
+    }
+
+    /**
+     * A minimal valid submission. Tests that care about one field override it
+     * with a {@code with...} copy rather than repeating fourteen arguments.
+     */
+    private CreateReportRequest reportRequest(
+            Severity reportedSeverity,
+            UUID assetId
+    ) {
+        return new CreateReportRequest(
+                "Broken access control",
+                "A user can read another account.",
+                "Private account data is exposed.",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                reportedSeverity,
+                null,
+                null,
+                null,
+                assetId
         );
     }
 

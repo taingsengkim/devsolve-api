@@ -18,6 +18,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportEnvironment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.AllArgsConstructor;
@@ -30,6 +31,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -70,6 +72,43 @@ public class Report extends BasedEntity {
     @Column(name = "impact", columnDefinition = "TEXT")
     private String impact;
 
+    @Column(name = "steps_to_reproduce", columnDefinition = "TEXT")
+    private String stepsToReproduce;
+
+    @Column(name = "proof_of_concept", columnDefinition = "TEXT")
+    private String proofOfConcept;
+
+    @Column(name = "remediation_recommendation", columnDefinition = "TEXT")
+    private String remediationRecommendation;
+
+    /**
+     * The exact place the finding lives — a URL, an API route, a package
+     * name. {@link #asset} says which in-scope target it belongs to; this
+     * says where inside it, which is what a triager needs to reproduce.
+     */
+    @Column(name = "target_endpoint", length = 1000)
+    private String targetEndpoint;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(
+            name = "environment",
+            columnDefinition = "report_environment_enum"
+    )
+    private ReportEnvironment environment;
+
+    @Column(name = "discovered_at")
+    private LocalDateTime discoveredAt;
+
+    /**
+     * Supporting links — a CVE, an OWASP page, a public write-up of the same
+     * class of bug. Stored as jsonb rather than a child table because they are
+     * only ever read back whole, with the report.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "reference_links", columnDefinition = "jsonb")
+    private List<String> referenceLinks;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(
@@ -78,6 +117,18 @@ public class Report extends BasedEntity {
             columnDefinition = "severity_enum"
     )
     private Severity reportedSeverity;
+
+    /**
+     * The reporter's CVSS v3.1 vector and the score it produces. Optional: a
+     * severity claim alone is still a valid report. When both are given the
+     * score has to sit in the band it claims, so a CRITICAL rating cannot be
+     * attached to a 2.1.
+     */
+    @Column(name = "cvss_vector", length = 255)
+    private String cvssVector;
+
+    @Column(name = "cvss_score", precision = 3, scale = 1)
+    private BigDecimal cvssScore;
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)

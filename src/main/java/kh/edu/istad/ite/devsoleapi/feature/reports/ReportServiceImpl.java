@@ -8,6 +8,7 @@ import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import kh.edu.istad.ite.devsoleapi.feature.organization.CompanyIdentityService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
@@ -54,6 +55,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -79,6 +81,8 @@ public class ReportServiceImpl implements ReportService {
             "reportedSeverity",
             "triageSeverity",
             "severity",
+            "cvssScore",
+            "discoveredAt",
             "disclosureStatus",
             "resolvedAt"
     );
@@ -89,6 +93,12 @@ public class ReportServiceImpl implements ReportService {
                     DisputeStatus.UNDER_REVIEW
             );
 
+    private static final Set<DisputeStatus> SETTLED_DISPUTE_STATUSES =
+            EnumSet.of(
+                    DisputeStatus.RESOLVED,
+                    DisputeStatus.DISMISSED
+            );
+
     private final ReportRepository reportRepository;
     private final ReportAttachmentRepository reportAttachmentRepository;
     private final ReportRewardRepository reportRewardRepository;
@@ -97,6 +107,7 @@ public class ReportServiceImpl implements ReportService {
     private final ProgramRepository programRepository;
     private final UserProfileRepository userProfileRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final CompanyIdentityService companyIdentityService;
     private final ReportMapper reportMapper;
     private final FollowNotificationService followNotificationService;
     private final AttachmentValidator attachmentValidator;
@@ -130,6 +141,7 @@ public class ReportServiceImpl implements ReportService {
                     "Reported severity must be LOW, MEDIUM, HIGH, or CRITICAL"
             );
         }
+        validateCvss(request);
 
         Report report = Report.builder()
                 .program(program)
@@ -139,7 +151,18 @@ public class ReportServiceImpl implements ReportService {
                         request.vulnerabilityInformation().trim()
                 )
                 .impact(trimToNull(request.impact()))
+                .stepsToReproduce(trimToNull(request.stepsToReproduce()))
+                .proofOfConcept(trimToNull(request.proofOfConcept()))
+                .remediationRecommendation(
+                        trimToNull(request.remediationRecommendation())
+                )
+                .targetEndpoint(trimToNull(request.targetEndpoint()))
+                .environment(request.environment())
+                .discoveredAt(request.discoveredAt())
+                .referenceLinks(cleanReferenceLinks(request.referenceLinks()))
                 .reportedSeverity(request.reportedSeverity())
+                .cvssVector(trimToNull(request.cvssVector()))
+                .cvssScore(request.cvssScore())
                 .weakness(weakness)
                 .asset(asset)
                 .state(ReportState.NEW)
@@ -253,14 +276,23 @@ public class ReportServiceImpl implements ReportService {
         report.setTriagedAt(LocalDateTime.now());
         report.setState(targetState);
 
+        // An administrator has already settled this report's severity. That
+        // ruling is final: re-triaging may still move the state, but it can
+        // neither overwrite the agreed severity nor re-open the argument, or
+        // the two sides could bounce the report between them for ever.
+        Severity ruledSeverity = findSettledSeverity(report.getId());
         boolean severityMatches = report.getReportedSeverity()
                 == request.triageSeverity();
         report.setSeverity(
-                severityMatches ? request.triageSeverity() : null
+                ruledSeverity != null
+                        ? ruledSeverity
+                        : (severityMatches ? request.triageSeverity() : null)
         );
 
+        boolean opensDispute = ruledSeverity == null && !severityMatches;
+
         if (targetState == ReportState.RESOLVED) {
-            if (!severityMatches) {
+            if (report.getSeverity() == null) {
                 throw conflict(
                         "A report with a severity disagreement cannot be resolved"
                 );
@@ -270,7 +302,7 @@ public class ReportServiceImpl implements ReportService {
 
         reportRepository.saveAndFlush(report);
 
-        if (!severityMatches) {
+        if (opensDispute) {
             ensureSeverityDispute(report);
         }
 
@@ -290,7 +322,7 @@ public class ReportServiceImpl implements ReportService {
                         + targetState.name().toLowerCase()
         ));
 
-        if (!severityMatches) {
+        if (opensDispute) {
             // The reporter asked for one severity and triage assigned another,
             // which opens a dispute they are a party to. Telling them the
             // state changed but not why it is stuck would be worse than
@@ -308,6 +340,7 @@ public class ReportServiceImpl implements ReportService {
                     "report:" + report.getId() + ":severity-disputed:"
                             + request.triageSeverity()
             ));
+            notifyAdministratorsOfDispute(report, request.triageSeverity());
         }
 
         return reportMapper.toResponse(report);
@@ -315,6 +348,29 @@ public class ReportServiceImpl implements ReportService {
 
     private String describe(ReportState state) {
         return state.name().toLowerCase().replace('_', ' ');
+    }
+
+    /**
+     * Only an administrator can settle a severity dispute, and until one does
+     * the report can be neither re-triaged nor paid. Without this the dispute
+     * opens into a queue nobody is watching and the report sits there for good.
+     */
+    private void notifyAdministratorsOfDispute(
+            Report report,
+            Severity triageSeverity
+    ) {
+        eventPublisher.publishEvent(new NotificationEvent(
+                companyIdentityService.findUserIdsByRealmRole(ADMIN_ROLE),
+                "Severity dispute needs a decision",
+                "\"" + report.getTitle() + "\" on "
+                        + report.getProgram().getName()
+                        + " was reported as " + report.getReportedSeverity()
+                        + " and triaged as " + triageSeverity + ".",
+                NotificationType.DISPUTE,
+                report.getId(),
+                "report:" + report.getId() + ":severity-disputed:"
+                        + triageSeverity + ":admins"
+        ));
     }
 
     @Override
@@ -667,6 +723,55 @@ public class ReportServiceImpl implements ReportService {
         return program;
     }
 
+    /**
+     * A CVSS score and a severity claim describe the same thing twice. Letting
+     * them contradict each other puts a number in the record that argues with
+     * the label beside it, and triage ends up arbitrating arithmetic instead of
+     * the finding.
+     */
+    private void validateCvss(CreateReportRequest request) {
+        if (request.cvssVector() != null
+                && !CvssSeverityBands.isWellFormedVector(
+                        request.cvssVector().trim()
+                )) {
+            throw badRequest(
+                    "CVSS vector must be a CVSS v3.0 or v3.1 base vector, "
+                            + "for example CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/"
+                            + "C:H/I:H/A:H"
+            );
+        }
+        if (request.cvssScore() == null) {
+            return;
+        }
+
+        Severity rating = CvssSeverityBands.ratingFor(request.cvssScore());
+        if (rating != request.reportedSeverity()) {
+            throw badRequest(
+                    "A CVSS score of " + request.cvssScore()
+                            + " is rated " + rating
+                            + ", which does not match the reported severity "
+                            + request.reportedSeverity()
+            );
+        }
+    }
+
+    /**
+     * Null rather than an empty list when nothing survives, so the column stays
+     * absent instead of holding an empty jsonb array that reads as a deliberate
+     * "no references".
+     */
+    private List<String> cleanReferenceLinks(List<String> referenceLinks) {
+        if (referenceLinks == null) {
+            return null;
+        }
+        List<String> cleaned = referenceLinks.stream()
+                .map(this::trimToNull)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        return cleaned.isEmpty() ? null : cleaned;
+    }
+
     private ProgramAsset findReportableAsset(
             Program program,
             UUID assetId
@@ -710,6 +815,20 @@ public class ReportServiceImpl implements ReportService {
         if (!alreadyLoaded) {
             report.getDisputes().add(dispute);
         }
+    }
+
+    /**
+     * The severity an administrator settled on for this report, or null when
+     * no dispute has ever been ruled on.
+     */
+    private Severity findSettledSeverity(UUID reportId) {
+        return disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        reportId,
+                        SETTLED_DISPUTE_STATUSES
+                )
+                .map(Dispute::getResolvedSeverity)
+                .orElse(null);
     }
 
     private void requireNoActiveDispute(UUID reportId) {

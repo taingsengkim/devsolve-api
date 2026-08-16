@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportEnvironment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 
 import java.math.BigDecimal;
@@ -18,7 +19,16 @@ public record ReportResponse(
         String title,
         String vulnerabilityInformation,
         String impact,
+        String stepsToReproduce,
+        String proofOfConcept,
+        String remediationRecommendation,
+        String targetEndpoint,
+        ReportEnvironment environment,
+        LocalDateTime discoveredAt,
+        List<String> referenceLinks,
         Severity reportedSeverity,
+        String cvssVector,
+        BigDecimal cvssScore,
         Severity triageSeverity,
         Severity severity,
         WeaknessSummary weakness,
@@ -77,6 +87,8 @@ public record ReportResponse(
     public record DisputeSummary(
             UUID id,
             DisputeStatus status,
+            UUID raisedBy,
+            String reason,
             Severity resolvedSeverity,
             UUID resolvedBy,
             String resolutionNotes,
