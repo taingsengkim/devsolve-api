@@ -12,6 +12,8 @@ import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.FlaggableType;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.ProfanityFlagger;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import org.springframework.context.ApplicationEventPublisher;
@@ -131,6 +133,7 @@ public class ProblemServiceImpl implements ProblemService {
     private final TagResolver tagResolver;
     private final SolutionRepository solutionRepository;
     private final ViewCountGuard viewCountGuard;
+    private final ProfanityFlagger profanityFlagger;
 
     @Autowired(required = false)
     private ProblemResponseEnricher responseEnricher;
@@ -407,7 +410,9 @@ public class ProblemServiceImpl implements ProblemService {
         validateForPublication(problem);
         problem.setStatus(ProblemStatus.PENDING_APPROVAL);
         problem.setPublishedAt(null);
-        return toResponse(problemRepository.saveAndFlush(problem));
+        Problem saved = problemRepository.saveAndFlush(problem);
+        reviewLanguage(saved);
+        return toResponse(saved);
     }
 
     @Override
@@ -678,8 +683,34 @@ public class ProblemServiceImpl implements ProblemService {
             validateForPublication(problem);
             problem.setStatus(ProblemStatus.PENDING_APPROVAL);
             problem = problemRepository.saveAndFlush(problem);
+            reviewLanguage(problem);
         }
         return toResponse(problem);
+    }
+
+    /**
+     * Puts the problem's prose in front of a moderator if it swears.
+     *
+     * <p>On submission rather than on every save. A draft is private to its
+     * author, so flagging one asks a moderator to rule on writing nobody
+     * else can read and the author may not have finished. Slurs are refused
+     * earlier than this, by the normalising the fields already go through,
+     * so nothing here can reach a draft either.
+     *
+     * <p>The error message field is left out on purpose. It holds a pasted
+     * stack trace or log line — output, not something the author wrote — and
+     * scanning it flags people for what their tooling printed.
+     */
+    private void reviewLanguage(Problem problem) {
+        profanityFlagger.review(
+                FlaggableType.PROBLEM,
+                problem.getId(),
+                problem.getTitle(),
+                problem.getDescription(),
+                problem.getExpectedBehavior(),
+                problem.getActualBehavior(),
+                problem.getAttemptsTried()
+        );
     }
 
     private void validateForPublication(Problem problem) {

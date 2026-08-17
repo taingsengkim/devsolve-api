@@ -1,0 +1,62 @@
+# Terms that reject the write outright with a 400.
+#
+# Reserved for slurs: words whose only job is to attack somebody for what
+# they are. There is no context on this platform in which one of these is
+# the word the author needed, so there is nothing for a moderator to weigh
+# and no reason to store the text and ask them to.
+#
+# Everything milder belongs in profanity-flagged.txt, which keeps the
+# content and raises a flag instead.
+#
+# Format: one term per line, lower case, singular, no trailing comments.
+# Blank lines and lines starting with # are ignored. The matcher already
+# handles casing, plurals and the usual suffixes, padded letters (aaaa),
+# leetspeak (4 @ 3 1 0 5 $ 7), accents, and Cyrillic or Greek lookalikes,
+# so none of those need their own entries. Spellings that swap in a
+# different letter do -- "fvck" is not "fuck" to any amount of normalising
+# -- so those are listed explicitly where they are common.
+#
+# A term here fires on a comment nobody has reported yet, so the cost of a
+# wrong entry is an author who cannot post and does not know why. Prefer
+# leaving a borderline word out; the flag queue is the safety net. Words
+# that read as slurs but are ordinary here were left out deliberately --
+# there is no entry for "cripple" because dependencies get crippled.
+
+# --- Racial and ethnic ---
+nigger
+nigga
+chink
+gook
+spic
+wetback
+kike
+kaffir
+paki
+towelhead
+raghead
+jigaboo
+sandnigger
+coolie
+dago
+
+# --- Sexuality and gender ---
+faggot
+fag
+tranny
+shemale
+
+# --- Disability ---
+retard
+mongoloid
+
+# --- Khmer ---
+#
+# Short list on purpose. Khmer is written without spaces, so a term here is
+# matched as a substring, and a short one will collide with the inside of an
+# innocent word. Only terms long and distinctive enough to be safe are
+# listed, along with the romanisations people type when they have no Khmer
+# keyboard. This section needs a Khmer speaker on the team to extend it --
+# treat it as a placeholder that works, not as coverage.
+ខ្ទើយ
+kteuy
+khteuy

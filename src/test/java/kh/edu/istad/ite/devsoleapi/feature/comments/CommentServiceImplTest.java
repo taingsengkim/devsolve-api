@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.comments.dto.UpdateCommentRequest;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentRemovalReason;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentSort;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.ProfanityFlagger;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
@@ -96,6 +97,8 @@ class CommentServiceImplTest {
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private ProfanityFlagger profanityFlagger;
 
     private CommentServiceImpl service;
 
@@ -112,7 +115,8 @@ class CommentServiceImplTest {
                 voteRepository,
                 organizationAuthorization,
                 rateLimiter,
-                eventPublisher
+                eventPublisher,
+                profanityFlagger
         );
     }
 

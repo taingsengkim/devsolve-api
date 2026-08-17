@@ -10,6 +10,8 @@ import kh.edu.istad.ite.devsoleapi.feature.comments.dto.UpdateCommentRequest;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentRemovalReason;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentSort;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.FlaggableType;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.ProfanityFlagger;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
@@ -94,6 +96,7 @@ public class CommentServiceImpl implements CommentService {
     private final OrganizationAuthorizationService organizationAuthorization;
     private final CommentRateLimiter rateLimiter;
     private final ApplicationEventPublisher eventPublisher;
+    private final ProfanityFlagger profanityFlagger;
 
     @Override
     @Transactional
@@ -137,6 +140,11 @@ public class CommentServiceImpl implements CommentService {
         comment.setParentComment(parentResolution.parent());
 
         Comment saved = commentRepository.saveAndFlush(comment);
+        profanityFlagger.review(
+                FlaggableType.COMMENT,
+                saved.getId(),
+                saved.getContent()
+        );
         notifyAboutComment(
                 saved,
                 access,
@@ -599,10 +607,14 @@ public class CommentServiceImpl implements CommentService {
             }
         }
 
-        return toResponse(
-                commentRepository.saveAndFlush(comment),
-                access.canViewInternal()
+        Comment saved = commentRepository.saveAndFlush(comment);
+        profanityFlagger.review(
+                FlaggableType.COMMENT,
+                saved.getId(),
+                saved.getContent()
         );
+
+        return toResponse(saved, access.canViewInternal());
     }
 
     /**

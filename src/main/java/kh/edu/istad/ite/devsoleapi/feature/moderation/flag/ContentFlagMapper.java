@@ -10,6 +10,7 @@ public abstract class ContentFlagMapper {
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "reporter", ignore = true)
+    @Mapping(target = "source", ignore = true)
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "reviewedBy", ignore = true)
     @Mapping(target = "reviewedAt", ignore = true)

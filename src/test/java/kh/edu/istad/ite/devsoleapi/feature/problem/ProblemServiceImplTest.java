@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.ProfanityFlagger;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemTechnologyRequest;
@@ -95,6 +96,8 @@ class ProblemServiceImplTest {
     private SolutionRepository solutionRepository;
     @Mock
     private ViewCountGuard viewCountGuard;
+    @Mock
+    private ProfanityFlagger profanityFlagger;
 
     private ProblemServiceImpl service;
 
@@ -117,7 +120,8 @@ class ProblemServiceImplTest {
                 eventPublisher,
                 new TagResolver(tagRepository),
                 solutionRepository,
-                viewCountGuard
+                viewCountGuard,
+                profanityFlagger
         );
         // Every view counts unless a test says otherwise; the dedup window is
         // covered by ViewCountGuard's own test.

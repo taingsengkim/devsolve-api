@@ -46,5 +46,17 @@ public interface ContentFlagRepository extends JpaRepository<ContentFlag, UUID> 
             UUID flaggableId
     );
 
+    /**
+     * The automated equivalent of the duplicate-report check. An automated
+     * flag has no reporter to key on, and editing a comment re-runs the
+     * filter, so without this one comment could raise a fresh flag on every
+     * save.
+     */
+    boolean existsBySourceAndFlaggableTypeAndFlaggableId(
+            FlagSource source,
+            FlaggableType flaggableType,
+            UUID flaggableId
+    );
+
     long countByStatus(FlagStatus status);
 }

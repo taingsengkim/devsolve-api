@@ -76,7 +76,30 @@ public final class ContentSafetyRules {
                     subject + " contains unsafe HTML"
             );
         }
+        if (ProfanityFilter.scan(normalized).isBlocked()) {
+            // The term is not named back to the author. They know what they
+            // wrote, repeating a slur in an API error helps nobody, and an
+            // account probing for the list learns nothing from a refusal
+            // that reads the same however it was triggered.
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    subject + " contains language that is not allowed here"
+            );
+        }
         return normalized;
+    }
+
+    /**
+     * The milder half of the word lists: terms a moderator should see but
+     * that do not justify refusing the write.
+     *
+     * <p>Separate from {@link #normalizeText} because the two halves are
+     * acted on in different places. Blocking happens on the way in, where
+     * the text is; flagging happens after the row exists, because a flag
+     * needs something to point at.
+     */
+    public static List<String> profanity(String... parts) {
+        return ProfanityFilter.scan(parts).flagged();
     }
 
     public static List<String> warnings(String... parts) {
