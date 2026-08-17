@@ -65,6 +65,7 @@ public class ContentFlagServiceImpl implements ContentFlagService{
                         .mapCreateFlagRequestToContentFlag(request);
 
         flag.setReporter(reporter);
+        flag.setSource(FlagSource.USER);
         flag.setStatus(FlagStatus.PENDING);
 
         ContentFlag savedFlag =

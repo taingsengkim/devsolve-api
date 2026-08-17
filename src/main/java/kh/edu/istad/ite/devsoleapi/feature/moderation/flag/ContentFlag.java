@@ -22,9 +22,20 @@ public class ContentFlag extends BasedEntity {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "reporter_id", nullable = false)
+    /**
+     * Null when {@link #source} is {@code AUTOMATED}. The alternative was a
+     * system account holding the other end of the foreign key, which would
+     * have put a row in user_profiles that every user search, follower count
+     * and leaderboard then has to remember to exclude. An absent reporter is
+     * the honest reading: nobody reported this.
+     */
+    @ManyToOne
+    @JoinColumn(name = "reporter_id")
     private UserProfile reporter;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false, length = 20)
+    private FlagSource source = FlagSource.USER;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "flaggable_type", nullable = false, length = 20)

@@ -262,6 +262,7 @@ class ContentFlagServiceImplTest {
     ) {
         return new FlagResponse(
                 id,
+                FlagSource.USER,
                 null,
                 null,
                 FlaggableType.SHOWCASE,

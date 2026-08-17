@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.comments;
 
 import kh.edu.istad.ite.devsoleapi.feature.comments.dto.CreateCommentRequest;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.ProfanityFlagger;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
@@ -74,6 +75,8 @@ class ReportCommentNotificationTest {
     private CommentRateLimiter rateLimiter;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private ProfanityFlagger profanityFlagger;
 
     private CommentServiceImpl service;
 
@@ -96,7 +99,8 @@ class ReportCommentNotificationTest {
                 voteRepository,
                 organizationAuthorization,
                 rateLimiter,
-                eventPublisher
+                eventPublisher,
+                profanityFlagger
         );
 
         when(commentRepository.saveAndFlush(any(Comment.class)))

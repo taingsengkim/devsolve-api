@@ -1432,3 +1432,40 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- The content filter raises flags nobody reported, so a flag no longer needs
+-- a reporter and now records where it came from.
+--
+-- reporter_id loses its NOT NULL rather than pointing at a system account.
+-- A row in user_profiles standing in for "the filter" would have to be
+-- excluded by hand from every user search, follower count and leaderboard,
+-- and the first query that forgot would show it to somebody.
+--
+-- Existing rows are all reports somebody made by hand, which is what the
+-- backfill says before the column is made NOT NULL.
+DO $$
+BEGIN
+    IF to_regclass('public.content_flags') IS NOT NULL THEN
+        ALTER TABLE public.content_flags
+            ALTER COLUMN reporter_id DROP NOT NULL;
+
+        ALTER TABLE public.content_flags
+            ADD COLUMN IF NOT EXISTS source VARCHAR(20);
+
+        UPDATE public.content_flags
+        SET source = 'USER'
+        WHERE source IS NULL;
+
+        ALTER TABLE public.content_flags
+            ALTER COLUMN source SET DEFAULT 'USER';
+
+        ALTER TABLE public.content_flags
+            ALTER COLUMN source SET NOT NULL;
+
+        -- The duplicate guard for automated flags looks up exactly this.
+        CREATE INDEX IF NOT EXISTS idx_content_flags_source_target
+            ON public.content_flags (source, flaggable_type, flaggable_id);
+    END IF;
+END
+$$^^^

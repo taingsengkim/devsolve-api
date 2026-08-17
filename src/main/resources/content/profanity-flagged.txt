@@ -1,0 +1,73 @@
+# Terms that raise an automatic flag for a moderator without blocking the
+# write.
+#
+# Ordinary profanity. Somebody swearing at a build is not the same thing as
+# somebody swearing at a person, and no word list can tell those apart --
+# so the content is stored, the author is not interrupted, and a human
+# decides. A term here costs a moderator ten seconds when it is wrong,
+# which is why this list can be broader than the blocked one.
+#
+# Same format as profanity-blocked.txt: one term per line, lower case,
+# singular, no trailing comments. Casing, plurals, suffixes, padded letters,
+# leetspeak, accents and homoglyphs are handled by the matcher.
+#
+# Left out on purpose, because a professional platform that flags them ends
+# up with a queue nobody reads: damn, hell, crap, wtf, suck. The bar is
+# roughly "would this get a comment removed if it were aimed at a person".
+
+# --- General ---
+fuck
+fucker
+fucking
+motherfucker
+fuk
+fck
+fvck
+phuck
+shit
+bullshit
+dipshit
+shitty
+bitch
+cunt
+asshole
+arsehole
+ass
+arse
+jackass
+dumbass
+bastard
+dick
+dickhead
+cock
+prick
+pussy
+twat
+wanker
+bollocks
+bugger
+whore
+slut
+douchebag
+scumbag
+
+# --- Insults ---
+#
+# Only words that are almost always thrown at a person. "stupid", "idiot"
+# and "loser" were tried here and removed: "stupid bug", "I'm an idiot" and
+# "this test is a loser" are all normal things to write about code, and
+# flagging them buries the entries a moderator actually needs to see.
+moron
+imbecile
+
+# --- Khmer ---
+#
+# Substring-matched, like the blocked list -- see the note there. Kept to
+# terms distinctive enough not to collide inside an ordinary word, plus the
+# romanisations people type without a Khmer keyboard. Needs a Khmer speaker
+# to extend.
+ចុយ
+ក្ដួយ
+អាចម៍
+chuy
+kdouy
