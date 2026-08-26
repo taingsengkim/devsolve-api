@@ -1488,6 +1488,27 @@ CREATE TABLE IF NOT EXISTS public.weaknesses (
 )^^^
 
 
+-- "IF NOT EXISTS" above means the defaults it declares only ever land on a
+-- database that did not already have this table. Where Hibernate built it on
+-- an earlier boot the columns are NOT NULL with no default, because
+-- @GeneratedValue, @CreationTimestamp and @Builder.Default all produce their
+-- values in Java. The seed below supplies only cwe_id, name and description
+-- and leaves the rest to the database, so without these it fails NOT NULL on
+-- id, then created_at, then is_active, and takes startup down with it.
+DO $$
+BEGIN
+    IF to_regclass('public.weaknesses') IS NOT NULL THEN
+        ALTER TABLE public.weaknesses
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.weaknesses
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.weaknesses
+            ALTER COLUMN is_active SET DEFAULT TRUE;
+    END IF;
+END
+$$^^^
+
+
 -- Named explicitly rather than left as an inline UNIQUE, so the seed below
 -- can rely on ON CONFLICT (cwe_id) resolving to it whether the table was
 -- created by the statement above or by Hibernate on an earlier boot.
