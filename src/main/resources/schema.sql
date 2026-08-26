@@ -1663,3 +1663,75 @@ VALUES
     ('CWE-476', 'NULL Pointer Dereference',
      'A null pointer is dereferenced and the process crashes.')
 ON CONFLICT (cwe_id) DO NOTHING^^^
+
+
+-- Reports a reporter has started and not filed.
+--
+-- A table of its own rather than a DRAFT value on reports: title,
+-- vulnerability_information and reported_severity are NOT NULL there, and a
+-- half-written draft has none of them. Holding drafts on the reports table
+-- would mean dropping those three constraints for every real report, and
+-- teaching every query, trigger and notification path to skip a state none of
+-- them were written to expect — where one miss puts a draft in a triage queue.
+--
+-- Last in this file because it needs both severity_enum and
+-- report_environment_enum, and both are created above.
+DO $$
+BEGIN
+    IF to_regclass('public.programs') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.report_drafts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            program_id UUID NOT NULL
+                REFERENCES public.programs (id) ON DELETE CASCADE,
+            reporter_id UUID NOT NULL
+                REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+            title VARCHAR(255),
+            vulnerability_information TEXT,
+            impact TEXT,
+            steps_to_reproduce TEXT,
+            proof_of_concept TEXT,
+            remediation_recommendation TEXT,
+            target_endpoint VARCHAR(1000),
+            environment public.report_environment_enum,
+            discovered_at TIMESTAMP(6),
+            reference_links JSONB,
+            reported_severity public.severity_enum,
+            cvss_vector VARCHAR(255),
+            cvss_score NUMERIC(3, 1),
+            -- Deliberately not foreign keys. A draft outlives a weakness being
+            -- retired or an asset leaving scope, and a constraint here would
+            -- either block that or take the draft with it. Nothing reads these
+            -- until submit, which resolves both and reports a stale one as an
+            -- error the reporter can act on.
+            weakness_id UUID,
+            asset_id UUID,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now()
+        );
+    END IF;
+
+    IF to_regclass('public.report_drafts') IS NOT NULL THEN
+        -- The CREATE above is skipped entirely on a database where Hibernate
+        -- built this table first, taking its column defaults with it. Setting
+        -- them here is what makes the two paths agree; the weakness catalog
+        -- lost a deploy to exactly this.
+        ALTER TABLE public.report_drafts
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.report_drafts
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.report_drafts
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        -- The "continue where you left off" list: one reporter's drafts,
+        -- most recently edited first.
+        CREATE INDEX IF NOT EXISTS idx_report_drafts_reporter_updated
+            ON public.report_drafts (reporter_id, updated_at DESC);
+
+        -- Backs both the per-program listing and the count that caps how many
+        -- drafts one reporter can hold against a single program.
+        CREATE INDEX IF NOT EXISTS idx_report_drafts_reporter_program
+            ON public.report_drafts (reporter_id, program_id);
+    END IF;
+END
+$$^^^
