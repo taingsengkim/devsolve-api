@@ -1469,3 +1469,176 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- The weakness catalog: the closed vocabulary a report is classified under.
+--
+-- Created here rather than left to Hibernate because this file runs before
+-- ddl-auto and the seed below needs the table to exist on the same boot, and
+-- because the VPS does not run with ddl-auto "update" at all — without this
+-- block the entity ships with no table to put it in, and every submission
+-- carrying a weaknessId fails.
+CREATE TABLE IF NOT EXISTS public.weaknesses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cwe_id VARCHAR(20),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT now()
+)^^^
+
+
+-- Named explicitly rather than left as an inline UNIQUE, so the seed below
+-- can rely on ON CONFLICT (cwe_id) resolving to it whether the table was
+-- created by the statement above or by Hibernate on an earlier boot.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_weaknesses_cwe_id
+    ON public.weaknesses (cwe_id)^^^
+
+
+-- Reports point at the catalog. Nullable: a reporter who does not recognise
+-- the class leaves it unset and triage assigns it.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL THEN
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS weakness_id UUID;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_reports_weakness'
+              AND conrelid = 'public.reports'::regclass
+        ) THEN
+            ALTER TABLE public.reports
+                ADD CONSTRAINT fk_reports_weakness
+                FOREIGN KEY (weakness_id)
+                REFERENCES public.weaknesses (id);
+        END IF;
+
+        -- Counting reports by class is the reason the field is a catalog
+        -- rather than free text, and the delete guard on a catalog entry
+        -- runs the same lookup.
+        CREATE INDEX IF NOT EXISTS idx_reports_weakness_id
+            ON public.reports (weakness_id);
+    END IF;
+END
+$$^^^
+
+
+-- A starting catalog: the CWE Top 25 plus the web classes a bug bounty
+-- programme actually receives that the Top 25 leaves out. Names are the
+-- common ones a reporter would recognise in a picker, with the formal
+-- definition in the description; administrators extend the list from
+-- /api/v1/admin/weaknesses.
+--
+-- ON CONFLICT so a redeploy leaves an edited or retired entry alone: this
+-- seeds a catalog once, it does not own it afterwards.
+INSERT INTO public.weaknesses (cwe_id, name, description)
+VALUES
+    ('CWE-79', 'Cross-site Scripting (XSS)',
+     'Input is rendered into a page without neutralization, running attacker script in the browser of another user.'),
+    ('CWE-89', 'SQL Injection',
+     'Input reaches an SQL statement unescaped, letting an attacker read or change data the query never intended.'),
+    ('CWE-78', 'OS Command Injection',
+     'Input reaches a shell command, letting an attacker run arbitrary commands on the host.'),
+    ('CWE-77', 'Command Injection',
+     'Input reaches a command interpreter and alters the command that gets executed.'),
+    ('CWE-94', 'Code Injection',
+     'Input is evaluated as source code, letting an attacker execute code inside the application.'),
+    ('CWE-918', 'Server-Side Request Forgery (SSRF)',
+     'The server can be made to send requests to an address the attacker chooses, reaching internal services.'),
+    ('CWE-352', 'Cross-Site Request Forgery (CSRF)',
+     'A state-changing request can be forged from another site using the session of a logged-in victim.'),
+    ('CWE-22', 'Path Traversal',
+     'A path built from input escapes its intended directory and reaches other files.'),
+    ('CWE-434', 'Unrestricted File Upload',
+     'A file of a dangerous type can be uploaded and then executed or served back.'),
+    ('CWE-611', 'XML External Entity (XXE)',
+     'An XML parser resolves external entities, exposing local files or making the server issue requests.'),
+    ('CWE-502', 'Deserialization of Untrusted Data',
+     'Untrusted serialized data is deserialized, letting an attacker influence the objects the process creates.'),
+    ('CWE-1336', 'Server-Side Template Injection (SSTI)',
+     'Input is evaluated by a template engine, which usually leads to code execution.'),
+    ('CWE-1321', 'Prototype Pollution',
+     'Object prototype attributes can be modified through input, changing behaviour across the application.'),
+    ('CWE-862', 'Missing Authorization',
+     'A protected action can be performed with no authorization check at all.'),
+    ('CWE-863', 'Incorrect Authorization',
+     'An authorization check exists but admits requests it should refuse.'),
+    ('CWE-639', 'Insecure Direct Object Reference (IDOR)',
+     'Swapping an identifier in a request reaches data belonging to another account.'),
+    ('CWE-269', 'Improper Privilege Management',
+     'A user can obtain or keep privileges beyond what their role allows.'),
+    ('CWE-732', 'Incorrect Permission Assignment',
+     'A file, bucket, or record is readable or writable by more principals than intended.'),
+    ('CWE-306', 'Missing Authentication for Critical Function',
+     'A sensitive function is reachable with no authentication at all.'),
+    ('CWE-287', 'Improper Authentication',
+     'The authentication mechanism can be bypassed or satisfied by someone who should fail it.'),
+    ('CWE-307', 'Improper Restriction of Excessive Authentication Attempts',
+     'Credentials can be guessed because repeated attempts are not limited.'),
+    ('CWE-521', 'Weak Password Requirements',
+     'Password rules allow credentials that are trivial to guess.'),
+    ('CWE-640', 'Weak Password Recovery Mechanism',
+     'The forgotten-password flow can be abused to take over an account.'),
+    ('CWE-620', 'Unverified Password Change',
+     'A password can be changed without proving the current one or the identity behind the session.'),
+    ('CWE-384', 'Session Fixation',
+     'An attacker can set or keep a session identifier that survives the login of the victim.'),
+    ('CWE-613', 'Insufficient Session Expiration',
+     'Sessions or tokens stay valid long after they should have ended.'),
+    ('CWE-798', 'Use of Hard-coded Credentials',
+     'Credentials are embedded in source, configuration, or a shipped artifact.'),
+    ('CWE-200', 'Exposure of Sensitive Information',
+     'Data is disclosed to someone who should not be able to read it.'),
+    ('CWE-209', 'Sensitive Information in an Error Message',
+     'Errors return stack traces, queries, or internals useful to an attacker.'),
+    ('CWE-538', 'Sensitive Information in an Accessible File',
+     'Backups, logs, or configuration files are reachable over the network.'),
+    ('CWE-319', 'Cleartext Transmission of Sensitive Information',
+     'Sensitive data travels over a channel an attacker can read.'),
+    ('CWE-311', 'Missing Encryption of Sensitive Data',
+     'Sensitive data is stored or sent with no encryption.'),
+    ('CWE-327', 'Broken or Risky Cryptographic Algorithm',
+     'A cipher, hash, or mode no longer considered safe is in use.'),
+    ('CWE-330', 'Use of Insufficiently Random Values',
+     'A token or identifier that has to be unguessable is predictable.'),
+    ('CWE-601', 'Open Redirect',
+     'A redirect target comes from input, sending users to a site the attacker controls behind a trusted link.'),
+    ('CWE-1021', 'Clickjacking',
+     'The interface can be framed by another site and the clicks on it redirected.'),
+    ('CWE-942', 'Permissive Cross-domain Policy',
+     'A CORS or cross-domain policy trusts origins it should not.'),
+    ('CWE-113', 'HTTP Response Splitting',
+     'CRLF sequences from input reach response headers and split the response.'),
+    ('CWE-444', 'HTTP Request Smuggling',
+     'Two servers disagree on where a request ends, letting one request hide inside another.'),
+    ('CWE-614', 'Sensitive Cookie Without Secure Flag',
+     'A session cookie can be sent over an unencrypted connection.'),
+    ('CWE-1004', 'Sensitive Cookie Without HttpOnly Flag',
+     'A session cookie is readable by script, so an XSS becomes session theft.'),
+    ('CWE-565', 'Reliance on Cookies Without Validation',
+     'A security decision is made from a cookie the client can edit.'),
+    ('CWE-345', 'Insufficient Verification of Data Authenticity',
+     'Data is trusted without checking that it came from the claimed source.'),
+    ('CWE-841', 'Improper Enforcement of Behavioral Workflow',
+     'Steps in a flow can be skipped, repeated, or reordered for gain. The usual home for a business logic finding.'),
+    ('CWE-770', 'Allocation of Resources Without Limits or Throttling',
+     'An operation can be repeated or enlarged without limit.'),
+    ('CWE-400', 'Uncontrolled Resource Consumption',
+     'Input can drive the service into exhausting CPU, memory, or storage.'),
+    ('CWE-20', 'Improper Input Validation',
+     'Input is not validated before use, and the effect depends on where it lands.'),
+    ('CWE-190', 'Integer Overflow or Wraparound',
+     'Arithmetic wraps past the range of the type and produces a value the code does not expect.'),
+    ('CWE-787', 'Out-of-bounds Write',
+     'A write lands outside the bounds of the intended buffer.'),
+    ('CWE-125', 'Out-of-bounds Read',
+     'A read reaches memory outside the bounds of the intended buffer.'),
+    ('CWE-119', 'Improper Restriction of Operations Within Buffer Bounds',
+     'An operation reads or writes past the end of a buffer.'),
+    ('CWE-416', 'Use After Free',
+     'Memory is used after it has been released.'),
+    ('CWE-476', 'NULL Pointer Dereference',
+     'A null pointer is dereferenced and the process crashes.')
+ON CONFLICT (cwe_id) DO NOTHING^^^

@@ -22,6 +22,7 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemTechnologyRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.RelatedProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemType;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
@@ -107,6 +108,15 @@ public class ProblemServiceImpl implements ProblemService {
             ProblemStatus.PUBLISHED,
             ProblemStatus.RESOLVED
     );
+    /**
+     * Below four characters a needle is one or two trigrams and resembles
+     * most of the corpus; past two hundred it is a paragraph whose similarity
+     * to any single title rounds to zero. Both ends answer with no
+     * suggestions rather than with nonsense ones.
+     */
+    private static final int MIN_RELATED_QUERY_LENGTH = 4;
+    private static final int MAX_RELATED_QUERY_LENGTH = 200;
+    private static final int MAX_RELATED_RESULTS = 20;
     private static final Set<String> PROBLEM_SORT_PROPERTIES = Set.of(
             "id",
             "createdAt",
@@ -197,6 +207,58 @@ public class ProblemServiceImpl implements ProblemService {
                 unansweredOnly,
                 stabilize(validatedPageable)
         ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RelatedProblemResponse> findRelated(
+            String query,
+            UUID excludeId,
+            int limit
+    ) {
+        String needle = relatedNeedle(query);
+        if (needle == null) {
+            return List.of();
+        }
+        return problemRepository.findRelated(
+                needle,
+                excludeId,
+                Math.clamp(limit, 1, MAX_RELATED_RESULTS)
+        ).stream().map(this::toRelatedResponse).toList();
+    }
+
+    /**
+     * Normalises the draft text into something the trigram operators can rank
+     * with, or null when there is nothing worth ranking. Lowercasing happens
+     * here because the query lowercases the column to hit the indexed
+     * expression, and one side matching another's case would find nothing.
+     */
+    private String relatedNeedle(String query) {
+        String normalized = trimToNull(query);
+        if (normalized == null) {
+            return null;
+        }
+        normalized = normalized.toLowerCase(Locale.ROOT);
+        if (normalized.length() < MIN_RELATED_QUERY_LENGTH) {
+            return null;
+        }
+        return normalized.length() <= MAX_RELATED_QUERY_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_RELATED_QUERY_LENGTH);
+    }
+
+    private RelatedProblemResponse toRelatedResponse(
+            RelatedProblemProjection row
+    ) {
+        ProblemStatus status = ProblemStatus.valueOf(row.getStatus());
+        return new RelatedProblemResponse(
+                row.getId(),
+                row.getTitle(),
+                status,
+                status == ProblemStatus.RESOLVED,
+                row.getSolutionCount(),
+                row.getViewCount()
+        );
     }
 
     /**

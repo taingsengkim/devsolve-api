@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.RelatedProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -94,6 +96,33 @@ public class ProblemController {
             Pageable pageable
     ) {
         return problemService.findMine(pageable);
+    }
+
+    /**
+     * Problems resembling what an author is typing, so they can find the
+     * answer instead of writing the question. Solved ones come first.
+     *
+     * <p>This answers between keystrokes, so the caller owns the pacing:
+     * debounce until typing stops, and abort the in-flight request when firing
+     * the next one — otherwise a slow response for an early prefix lands after
+     * a fast one for a later prefix and overwrites better suggestions with
+     * worse. Text shorter than a few characters comes back empty rather than
+     * matching half the platform.
+     *
+     * @param q         the draft title, or whichever field is being edited
+     * @param excludeId the problem being edited, so it cannot suggest itself
+     */
+    @GetMapping("/related")
+    public ResponseEntity<List<RelatedProblemResponse>> findRelated(
+            @RequestParam String q,
+            @RequestParam(required = false) UUID excludeId,
+            @RequestParam(defaultValue = "5") int limit
+    ) {
+        return ListingCache.publicListing(problemService.findRelated(
+                q,
+                excludeId,
+                limit
+        ));
     }
 
     @GetMapping("/{id}")

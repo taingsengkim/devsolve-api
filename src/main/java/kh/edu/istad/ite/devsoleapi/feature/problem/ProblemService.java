@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.RelatedProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
 import org.springframework.data.domain.Page;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
@@ -34,6 +36,25 @@ public interface ProblemService {
     );
 
     Page<ProblemResponse> findMine(Pageable pageable);
+
+    /**
+     * Published problems that resemble text somebody is typing into a new
+     * problem, answered while they type. Solved ones rank first.
+     *
+     * <p>Returns empty rather than throwing when the query is too short to
+     * rank on: the caller is a keystroke handler, and the first few characters
+     * of a title are always too short.
+     *
+     * @param query     free text from the draft — the title, or whichever
+     *                  field the author is editing
+     * @param excludeId the problem being edited, or null for an unsaved draft
+     * @param limit     clamped to a sane ceiling by the implementation
+     */
+    List<RelatedProblemResponse> findRelated(
+            String query,
+            UUID excludeId,
+            int limit
+    );
 
     Page<ProblemResponse> findPublishedByAuthor(
             UUID authorId,

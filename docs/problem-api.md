@@ -104,6 +104,32 @@ GET /api/v1/problems/mine
 Authorization: Bearer {{userToken}}
 ```
 
+## Related problems
+
+Suggestions for somebody drafting a problem — published work that resembles
+what they are typing, so they can find the answer instead of writing the
+question. Public, and cheap enough to call between keystrokes.
+
+```http
+GET /api/v1/problems/related?q=flyway+checksum+mismatch&limit=5
+GET /api/v1/problems/related?q=flyway+checksum+mismatch&excludeId={{problemId}}
+```
+
+`q` is the draft title, or whichever field the author is editing. Pass
+`excludeId` when editing an existing problem so it cannot suggest itself.
+`limit` defaults to 5 and is capped at 20.
+
+Matching is trigram similarity, not substring search, so a paraphrase or a
+typo still finds the older problem. Text under four characters returns an
+empty list rather than matching most of the platform. Solved problems sort
+first — the response carries `solved` so the panel can badge them — followed
+by match quality, then view count.
+
+The frontend owns the pacing: debounce until typing stops, and abort the
+in-flight request before firing the next, or a slow response for an early
+prefix lands after a fast one for a later prefix and replaces good
+suggestions with stale ones.
+
 ## Attachments
 
 ```http
