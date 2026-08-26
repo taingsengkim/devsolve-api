@@ -22,6 +22,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Weakness;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -203,6 +204,7 @@ class ReportServiceImplTest {
                 new TriageReportRequest(
                         Severity.HIGH,
                         ReportState.VALID_CONFIRMED,
+                        null,
                         null
                 )
         );
@@ -211,6 +213,144 @@ class ReportServiceImplTest {
         assertEquals(Severity.HIGH, report.getSeverity());
         assertEquals(ReportState.VALID_CONFIRMED, report.getState());
         verify(disputeRepository, never()).save(any(Dispute.class));
+    }
+
+    /**
+     * The classification a reporter picks is a guess from a catalog they may
+     * not know well. Triage is where it gets settled.
+     */
+    @Test
+    void triageReclassifiesTheReport() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        Weakness reported = Weakness.builder()
+                .id(UUID.randomUUID())
+                .cweId("CWE-79")
+                .name("Cross-site Scripting (XSS)")
+                .isActive(true)
+                .build();
+        Weakness corrected = Weakness.builder()
+                .id(UUID.randomUUID())
+                .cweId("CWE-89")
+                .name("SQL Injection")
+                .isActive(true)
+                .build();
+        report.setWeakness(reported);
+
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(weaknessRepository.findByIdAndIsActiveTrue(corrected.getId()))
+                .thenReturn(Optional.of(corrected));
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        corrected.getId()
+                )
+        );
+
+        assertSame(corrected, report.getWeakness());
+    }
+
+    /**
+     * Re-triaging for a state change alone must not undo a classification
+     * somebody already corrected.
+     */
+    @Test
+    void triageWithoutAWeaknessKeepsTheOneTheReportHas() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        Weakness existing = Weakness.builder()
+                .id(UUID.randomUUID())
+                .cweId("CWE-89")
+                .name("SQL Injection")
+                .isActive(true)
+                .build();
+        report.setWeakness(existing);
+
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        null
+                )
+        );
+
+        assertSame(existing, report.getWeakness());
+        verify(weaknessRepository, never()).findByIdAndIsActiveTrue(any());
+    }
+
+    /**
+     * A retired class stays readable on the reports already filed under it,
+     * but nothing new can be classified into it.
+     */
+    @Test
+    void triageCannotReclassifyIntoARetiredWeakness() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        UUID retiredId = UUID.randomUUID();
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(weaknessRepository.findByIdAndIsActiveTrue(retiredId))
+                .thenReturn(Optional.empty());
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().triage(
+                        report.getId(),
+                        new TriageReportRequest(
+                                Severity.HIGH,
+                                ReportState.VALID_CONFIRMED,
+                                null,
+                                retiredId
+                        )
+                )
+        );
+
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
     }
 
     @Test
@@ -243,6 +383,7 @@ class ReportServiceImplTest {
                 new TriageReportRequest(
                         Severity.MEDIUM,
                         ReportState.VALID_CONFIRMED,
+                        null,
                         null
                 )
         );
@@ -303,6 +444,7 @@ class ReportServiceImplTest {
                 new TriageReportRequest(
                         Severity.LOW,
                         ReportState.RESOLVED,
+                        null,
                         null
                 )
         );
@@ -481,6 +623,7 @@ class ReportServiceImplTest {
                         new TriageReportRequest(
                                 Severity.MEDIUM,
                                 ReportState.VALID_CONFIRMED,
+                                null,
                                 null
                         )
                 )

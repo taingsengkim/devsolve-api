@@ -75,6 +75,14 @@ public interface ReportRepository
     );
 
 
+    /**
+     * Guards the deletion of a weakness from the catalog. Counts every report
+     * classified under it whatever its state, because each one holds the
+     * foreign key the delete would have to break.
+     */
+    long countByWeaknessId(UUID weaknessId);
+
+
     Page<Report> findByReporterIdAndStateAndDisclosureStatus(
             UUID reporterId,
             ReportState state,

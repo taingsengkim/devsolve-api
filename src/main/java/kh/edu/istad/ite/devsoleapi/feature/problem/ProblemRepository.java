@@ -14,6 +14,7 @@ import org.springframework.data.jpa.repository.Lock;
 import jakarta.persistence.LockModeType;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.Collection;
@@ -198,6 +199,84 @@ public interface ProblemRepository extends JpaRepository<Problem, UUID> {
             @Param("since") Instant since,
             @Param("voteType") VoteType voteType,
             Pageable pageable
+    );
+
+    /**
+     * The "has somebody already asked this?" panel that opens while a user is
+     * typing a new problem.
+     *
+     * <p>This cannot reuse the {@code LIKE} matching of {@link #findPublished}.
+     * That one filters — a row either contains the substring or it does not —
+     * and a draft title is a paraphrase of the older problem, not a substring
+     * of it. Trigram similarity is what survives the rewording and the typos,
+     * and it also ranks, which is the whole point of a suggestion list.
+     *
+     * <p>Title and description are matched by different operators on purpose.
+     * {@code similarity()} compares two whole strings and is penalised by a
+     * length gap: right for title against title, near useless for a short
+     * title against a paragraph. {@code %>} instead scores the needle against
+     * the best-matching extent of the haystack, so a title still matches a
+     * description that discusses it at length.
+     *
+     * <p>Neither predicate spells its own cutoff, because a bare
+     * {@code similarity(...) > x} cannot use a GIN index and would degrade
+     * into a sequential scan over every published problem. The cutoffs come
+     * from the session defaults — {@code pg_trgm.similarity_threshold} (0.3)
+     * and {@code pg_trgm.word_similarity_threshold} (0.6) — which is what
+     * keeps both predicates on the {@code idx_problems_*_trgm} indexes.
+     *
+     * <p>Solved problems sort first: somebody about to write a question is
+     * better served by an answer than by company. Everything returned already
+     * cleared the similarity threshold, so this reorders plausible matches
+     * rather than promoting irrelevant ones.
+     *
+     * @param query      already trimmed, lowercased and length-capped by the
+     *                   caller; the column side is lowercased here to match
+     *                   the indexed expression
+     * @param excludeId  the problem being edited, so it cannot suggest itself.
+     *                   Null when the draft has not been saved yet.
+     */
+    @Query(
+            value = """
+                    SELECT p.id AS id,
+                           p.title AS title,
+                           p.status AS status,
+                           p.view_count AS "viewCount",
+                           (
+                               SELECT COUNT(*)
+                               FROM public.solutions solution
+                               WHERE solution.problem_id = p.id
+                                 AND solution.current_published_revision_id
+                                     IS NOT NULL
+                                 AND solution.deleted_at IS NULL
+                           ) AS "solutionCount"
+                    FROM public.problems p
+                    WHERE p.deleted_at IS NULL
+                      AND p.status IN ('PUBLISHED', 'RESOLVED', 'CLOSED')
+                      AND (
+                          CAST(:excludeId AS uuid) IS NULL
+                          OR p.id <> CAST(:excludeId AS uuid)
+                      )
+                      AND (
+                          LOWER(p.title) % :query
+                          OR LOWER(p.description) %> :query
+                      )
+                    ORDER BY (p.status = 'RESOLVED') DESC,
+                             similarity(LOWER(p.title), :query) * 2
+                                 + word_similarity(
+                                       :query,
+                                       LOWER(p.description)
+                                   ) DESC,
+                             p.view_count DESC,
+                             p.id DESC
+                    LIMIT :maxResults
+                    """,
+            nativeQuery = true
+    )
+    List<RelatedProblemProjection> findRelated(
+            @Param("query") String query,
+            @Param("excludeId") UUID excludeId,
+            @Param("maxResults") int maxResults
     );
 
     Page<Problem> findAllByAuthorId(UUID authorId, Pageable pageable);
