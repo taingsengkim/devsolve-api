@@ -5,6 +5,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Push events stopped reaching Actions on one of the two remotes this repo is
+  # pushed to, which leaves no way to get a build out. Keep a manual trigger so
+  # a deploy never depends solely on the push hook firing.
+  workflow_dispatch:
 
 permissions:
   contents: read

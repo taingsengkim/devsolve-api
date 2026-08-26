@@ -15,7 +15,13 @@ concurrency:
 
 jobs:
   publish:
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    # A manually dispatched CI has to be able to reach production too, or the
+    # manual trigger is useless. Still excludes pull_request builds, which is
+    # what this condition was always for.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success'
+          && (github.event.workflow_run.event == 'push'
+              || github.event.workflow_run.event == 'workflow_dispatch') }}
 
     runs-on: ubuntu-latest
 
