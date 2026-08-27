@@ -47,6 +47,8 @@ public interface OrganizationService {
 
     void removeMember(UUID targetUserId);
 
+    List<PendingInvitationResponse> getMyInvitations();
+
     MemberResponse acceptInvitation(String token);
 
     OrganizationResponse approve(UUID id);

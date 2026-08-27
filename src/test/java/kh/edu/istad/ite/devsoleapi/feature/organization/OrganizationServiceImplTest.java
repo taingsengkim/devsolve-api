@@ -9,6 +9,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.RejectOrganizationRe
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
@@ -391,6 +392,73 @@ class OrganizationServiceImplTest {
 
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
         verify(userProfileRepository, never()).findByEmailIgnoreCase(any());
+    }
+
+    @Test
+    void myInvitationsListsOnlyTheOnesStillOpenSoonestToExpireFirst() {
+        UUID userId = UUID.randomUUID();
+        authenticateCompany(userId, "member@acme.com");
+
+        UserProfile invitee = new UserProfile();
+        invitee.setId(userId);
+        invitee.setEmail("member@acme.com");
+        invitee.setFullName("Acme Member");
+
+        OrganizationMember expiringSoon = invitation(
+                reviewOrganization(OrganizationStatus.ACTIVE),
+                invitee,
+                OrgRole.MANAGER,
+                LocalDateTime.now().minusDays(6)
+        );
+        OrganizationMember expiringLater = invitation(
+                reviewOrganization(OrganizationStatus.ACTIVE),
+                invitee,
+                OrgRole.MEMBER,
+                LocalDateTime.now().minusDays(1)
+        );
+        OrganizationMember expired = invitation(
+                reviewOrganization(OrganizationStatus.ACTIVE),
+                invitee,
+                OrgRole.MEMBER,
+                LocalDateTime.now().minusDays(8)
+        );
+        OrganizationMember intoSuspendedOrganization = invitation(
+                reviewOrganization(OrganizationStatus.PENDING),
+                invitee,
+                OrgRole.MEMBER,
+                LocalDateTime.now()
+        );
+
+        when(memberRepository.findPendingInvitations(
+                userId,
+                MembershipStatus.SUSPENDED
+        )).thenReturn(List.of(
+                expiringLater,
+                expired,
+                intoSuspendedOrganization,
+                expiringSoon
+        ));
+
+        List<PendingInvitationResponse> invitations = createService(
+                new WebsiteUrlServiceImpl()
+        ).getMyInvitations();
+
+        assertEquals(2, invitations.size());
+        assertEquals(
+                expiringSoon.getInvitationToken(),
+                invitations.get(0).invitationToken()
+        );
+        assertEquals(
+                expiringLater.getInvitationToken(),
+                invitations.get(1).invitationToken()
+        );
+        assertEquals(OrgRole.MANAGER, invitations.get(0).role());
+        assertEquals("Acme Security", invitations.get(0).organizationName());
+        assertEquals("Acme Owner", invitations.get(0).invitedByName());
+        assertEquals(
+                expiringSoon.getUpdatedAt().plusDays(7),
+                invitations.get(0).expiresAt()
+        );
     }
 
     @Test
@@ -780,6 +848,26 @@ class OrganizationServiceImplTest {
         organization.setCreatedAt(LocalDateTime.now().minusDays(1));
         organization.setUpdatedAt(LocalDateTime.now());
         return organization;
+    }
+
+    private OrganizationMember invitation(
+            Organization organization,
+            UserProfile invitee,
+            OrgRole role,
+            LocalDateTime issuedAt
+    ) {
+        OrganizationMember member = new OrganizationMember(
+                organization,
+                invitee,
+                role
+        );
+        member.setStatus(MembershipStatus.SUSPENDED);
+        member.setInvitedBy(organization.getOwner());
+        member.setInvitationEmail(invitee.getEmail());
+        member.setInvitationToken(UUID.randomUUID().toString());
+        member.setCreatedAt(issuedAt);
+        member.setUpdatedAt(issuedAt);
+        return member;
     }
 
     private void authenticate(String role) {
