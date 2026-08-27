@@ -427,6 +427,27 @@ BEGIN
 END
 $$^^^
 
+-- Where a researcher stands with one company. Only 'approved' can file a report.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'researcher_access_status_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.researcher_access_status_enum AS ENUM (
+            'pending',
+            'approved',
+            'rejected',
+            'revoked'
+        );
+    END IF;
+END
+$$^^^
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -1732,6 +1753,120 @@ BEGIN
         -- drafts one reporter can hold against a single program.
         CREATE INDEX IF NOT EXISTS idx_report_drafts_reporter_program
             ON public.report_drafts (reporter_id, program_id);
+    END IF;
+END
+$$^^^
+
+
+-- Which researchers a company has cleared to report against its programs. Held
+-- per organization rather than per program, one row per pair.
+--
+-- Created here rather than left to Hibernate because the VPS does not run with
+-- ddl-auto "update": without this block the entity ships with no table.
+DO $$
+BEGIN
+    IF to_regclass('public.organizations') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.organization_researchers (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            organization_id UUID NOT NULL
+                REFERENCES public.organizations (id) ON DELETE CASCADE,
+            user_id UUID NOT NULL
+                REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+            status public.researcher_access_status_enum NOT NULL
+                DEFAULT 'pending',
+            motivation TEXT,
+            review_note TEXT,
+            requested_at TIMESTAMP(6),
+            -- SET NULL, not CASCADE: a reviewer closing their account must not
+            -- take every decision they ever made with it.
+            reviewed_by UUID
+                REFERENCES public.user_profiles (id) ON DELETE SET NULL,
+            reviewed_at TIMESTAMP(6),
+            revision INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            CONSTRAINT uq_organization_researchers_org_user
+                UNIQUE (organization_id, user_id)
+        );
+    END IF;
+
+    IF to_regclass('public.organization_researchers') IS NOT NULL THEN
+        -- The CREATE above is skipped entirely on a database where Hibernate
+        -- built this table first, taking its column defaults with it. Setting
+        -- them here is what makes the two paths agree; the weakness catalog
+        -- lost a deploy to exactly this.
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN status
+            SET DEFAULT 'pending'::public.researcher_access_status_enum;
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN revision SET DEFAULT 1;
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        -- Needed whichever path built the table: the backfill below relies on
+        -- it to stay idempotent.
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'uq_organization_researchers_org_user'
+        ) THEN
+            ALTER TABLE public.organization_researchers
+                ADD CONSTRAINT uq_organization_researchers_org_user
+                UNIQUE (organization_id, user_id);
+        END IF;
+
+        -- The company's review queue, filtered by status.
+        CREATE INDEX IF NOT EXISTS idx_organization_researchers_org_status
+            ON public.organization_researchers (organization_id, status);
+
+        -- The researcher's own list of companies.
+        CREATE INDEX IF NOT EXISTS idx_organization_researchers_user
+            ON public.organization_researchers (user_id, updated_at DESC);
+    END IF;
+END
+$$^^^
+
+-- Approval is now required for every program, public ones included, which on an
+-- existing database would cut off every researcher mid-engagement. Anyone who
+-- has already reported to a company is therefore backfilled as approved; the
+-- company can revoke it. Only existing relationships are granted, and
+-- ON CONFLICT makes this a no-op on every boot after the first.
+DO $$
+BEGIN
+    IF to_regclass('public.organization_researchers') IS NOT NULL
+       AND to_regclass('public.reports') IS NOT NULL
+       AND to_regclass('public.programs') IS NOT NULL THEN
+        INSERT INTO public.organization_researchers (
+            organization_id,
+            user_id,
+            status,
+            review_note,
+            requested_at,
+            reviewed_at,
+            revision,
+            created_at,
+            updated_at
+        )
+        SELECT program.organization_id,
+               report.reporter_id,
+               'approved'::public.researcher_access_status_enum,
+               'Approved automatically: this researcher was already reporting '
+                   || 'to this organization before approval was required.',
+               MIN(report.submitted_at),
+               now(),
+               1,
+               now(),
+               now()
+        FROM public.reports report
+        JOIN public.programs program
+            ON program.id = report.program_id
+        GROUP BY program.organization_id, report.reporter_id
+        ON CONFLICT (organization_id, user_id) DO NOTHING;
     END IF;
 END
 $$^^^
