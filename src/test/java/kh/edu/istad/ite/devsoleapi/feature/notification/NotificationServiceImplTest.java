@@ -40,6 +40,9 @@ class NotificationServiceImplTest {
     private NotificationRepository notificationRepository;
 
     @Mock
+    private NotificationPreferenceRepository preferenceRepository;
+
+    @Mock
     private CommentRepository commentRepository;
 
     @Mock
@@ -63,7 +66,8 @@ class NotificationServiceImplTest {
 
         NotificationResponse response = new NotificationServiceImpl(
                 notificationRepository,
-                responseMapper()
+                responseMapper(),
+                preferenceRepository
         ).getMine(true, 0, 20).getContent().getFirst();
 
         assertEquals(notification.getId(), response.id());
@@ -82,7 +86,8 @@ class NotificationServiceImplTest {
 
         NotificationResponse response = new NotificationServiceImpl(
                 notificationRepository,
-                responseMapper()
+                responseMapper(),
+                preferenceRepository
         ).markRead(notification.getId());
 
         assertTrue(response.read());
@@ -122,7 +127,8 @@ class NotificationServiceImplTest {
 
         NotificationResponse response = new NotificationServiceImpl(
                 notificationRepository,
-                responseMapper()
+                responseMapper(),
+                preferenceRepository
         ).getMine(false, 0, 20).getContent().getFirst();
 
         assertEquals(authorId, response.authorId());
@@ -157,7 +163,8 @@ class NotificationServiceImplTest {
 
         NotificationResponse response = new NotificationServiceImpl(
                 notificationRepository,
-                responseMapper()
+                responseMapper(),
+                preferenceRepository
         ).getMine(false, 0, 20).getContent().getFirst();
 
         assertNull(response.authorId());
