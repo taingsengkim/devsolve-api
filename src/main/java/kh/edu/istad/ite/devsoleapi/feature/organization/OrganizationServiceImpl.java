@@ -16,6 +16,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHi
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.RejectOrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
@@ -392,7 +393,7 @@ public class OrganizationServiceImpl implements OrganizationService {
                         "User is already an active organization member"
                 );
             }
-            if (member.isInvitationPending() && !isInvitationExpired(member)) {
+            if (member.isInvitationPending() && !member.isInvitationExpired()) {
                 throw new ResponseStatusException(
                         HttpStatus.CONFLICT,
                         "A valid invitation has already been sent to this user"
@@ -420,12 +421,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         member.setJoinedAt(null);
 
         OrganizationMember savedMember = memberRepository.saveAndFlush(member);
-        LocalDateTime invitationDate = savedMember.getUpdatedAt() != null
-                ? savedMember.getUpdatedAt()
-                : LocalDateTime.now();
-        LocalDateTime expiresAt = invitationDate.plusDays(
-                INVITATION_VALID_DAYS
-        );
+        LocalDateTime expiresAt = savedMember.invitationExpiresAt();
 
         // Two channels for the same invitation: the in-app notification below
         // reaches whoever opens DevSolve, the email reaches everyone else.
@@ -533,6 +529,32 @@ public class OrganizationServiceImpl implements OrganizationService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<PendingInvitationResponse> getMyInvitations() {
+        UUID currentUserId = extractCurrentUserId(getCurrentJwt());
+        return memberRepository
+                .findPendingInvitations(
+                        currentUserId,
+                        MembershipStatus.SUSPENDED
+                )
+                .stream()
+                // Only what the caller could accept right now. An expired
+                // invitation, or one into an organization that is no longer
+                // active, is rejected by acceptInvitation — listing it would
+                // make this endpoint another log of things that once
+                // happened, which is the problem it exists to solve.
+                .filter(member -> !member.isInvitationExpired())
+                .filter(member -> member.getOrganization().getStatus()
+                        == OrganizationStatus.ACTIVE)
+                // Closest to expiring first: that is the one needing an answer.
+                .sorted(Comparator.comparing(
+                        OrganizationMember::invitationExpiresAt
+                ))
+                .map(organizationMapper::toPendingInvitation)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public MemberResponse acceptInvitation(String token) {
         UUID currentUserId = extractCurrentUserId(getCurrentJwt());
@@ -549,7 +571,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (!member.isInvitationPending()) {
             throw invalidInvitation(HttpStatus.CONFLICT);
         }
-        if (isInvitationExpired(member)) {
+        if (member.isInvitationExpired()) {
             throw new ResponseStatusException(
                     HttpStatus.GONE,
                     "Organization invitation has expired"
@@ -955,16 +977,6 @@ public class OrganizationServiceImpl implements OrganizationService {
         return new ResponseStatusException(
                 HttpStatus.FORBIDDEN,
                 "Only " + role + " accounts can perform this action"
-        );
-    }
-
-    private boolean isInvitationExpired(OrganizationMember member) {
-        LocalDateTime invitationDate = member.getUpdatedAt() != null
-                ? member.getUpdatedAt()
-                : member.getCreatedAt();
-        return invitationDate == null
-                || invitationDate.isBefore(
-                LocalDateTime.now().minusDays(INVITATION_VALID_DAYS)
         );
     }
 
