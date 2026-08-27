@@ -423,6 +423,24 @@ public class OrganizationServiceImpl implements OrganizationService {
         LocalDateTime invitationDate = savedMember.getUpdatedAt() != null
                 ? savedMember.getUpdatedAt()
                 : LocalDateTime.now();
+        LocalDateTime expiresAt = invitationDate.plusDays(
+                INVITATION_VALID_DAYS
+        );
+
+        // Two channels for the same invitation: the in-app notification below
+        // reaches whoever opens DevSolve, the email reaches everyone else.
+        // Both carry the token, and either one accepted makes the membership
+        // real.
+        eventPublisher.publishEvent(new OrganizationInvitationEmailEvent(
+                organization.getId(),
+                organization.getName(),
+                invitedBy.getFullName(),
+                savedMember.getInvitationEmail(),
+                invitedUser.getFullName(),
+                savedMember.getRole(),
+                savedMember.getInvitationToken(),
+                expiresAt
+        ));
 
         // The invitation token goes back to the inviter to pass on out of
         // band, so without this the invited user has no signal at all that
@@ -444,7 +462,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         return new InvitationResponse(
                 organizationMapper.toMemberResponse(savedMember),
                 savedMember.getInvitationToken(),
-                invitationDate.plusDays(INVITATION_VALID_DAYS)
+                expiresAt
         );
     }
 
