@@ -45,6 +45,9 @@ class NotificationEventTest {
     @Mock
     private UserProfileRepository userProfileRepository;
 
+    @Mock
+    private NotificationMailer notificationMailer;
+
     private final UUID alice = UUID.randomUUID();
     private final UUID bob = UUID.randomUUID();
 
@@ -55,7 +58,8 @@ class NotificationEventTest {
                 new NotificationResponseMapper(
                         commentRepository,
                         userProfileRepository
-                )
+                ),
+                notificationMailer
         );
     }
 
