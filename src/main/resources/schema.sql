@@ -1870,3 +1870,43 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- Notification email preferences ------------------------------------------
+--
+-- Only choices are stored. Someone who has never opened their settings has no
+-- row here and is served by NotificationType.emailedByDefault(), so account
+-- creation writes nothing and a new notification type takes its default from
+-- the enum instead of from whatever a migration guessed for it.
+DO $$
+BEGIN
+    IF to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.notification_preferences (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID NOT NULL
+                REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+            notifiable_type VARCHAR(20) NOT NULL,
+            email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            CONSTRAINT uq_notification_preferences_user_type
+                UNIQUE (user_id, notifiable_type)
+        );
+    END IF;
+
+    IF to_regclass('public.notification_preferences') IS NOT NULL THEN
+        -- The CREATE above is skipped on a database where Hibernate built this
+        -- table first, taking its column defaults with it. Setting them here is
+        -- what makes the two paths agree.
+        ALTER TABLE public.notification_preferences
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.notification_preferences
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.notification_preferences
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        -- The settings screen and every email decision read one user's rows.
+        CREATE INDEX IF NOT EXISTS idx_notification_preferences_user
+            ON public.notification_preferences (user_id);
+    END IF;
+END
+$$^^^

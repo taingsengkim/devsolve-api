@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -21,6 +23,7 @@ public class NotificationDispatcher {
     private final NotificationRepository notificationRepository;
     private final SseEmitterService sseEmitterService;
     private final NotificationResponseMapper notificationResponseMapper;
+    private final NotificationMailer notificationMailer;
 
     /**
      * Delivering the same event twice is a no-op, not a failure. The
@@ -57,6 +60,7 @@ public class NotificationDispatcher {
                 notification
         );
         sseEmitterService.push(userId, response);
+        emailAfterCommit(notification);
 
         return notification;
     }
@@ -107,6 +111,34 @@ public class NotificationDispatcher {
                     savedNotifications.get(index).getUserId(),
                     responses.get(index)
             );
+            emailAfterCommit(savedNotifications.get(index));
         }
+    }
+
+    /**
+     * Hands one notification to the mail pool once this transaction commits.
+     *
+     * <p>Both entry points funnel through here, after the duplicate check, so
+     * exactly the notifications that were newly stored are the ones emailed —
+     * a redelivered event stays silent in both channels rather than only one.
+     *
+     * <p>After commit rather than inline: an email is the one part of a
+     * delivery that cannot be taken back, and sending it for a notification
+     * whose insert then rolled back would tell somebody about a thing that
+     * did not happen.
+     */
+    private void emailAfterCommit(Notification notification) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            notificationMailer.email(notification);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        notificationMailer.email(notification);
+                    }
+                }
+        );
     }
 }
