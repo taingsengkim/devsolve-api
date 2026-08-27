@@ -58,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -346,6 +347,23 @@ class OrganizationServiceImplTest {
         assertTrue(response.member().invitationPending());
         assertNotNull(response.invitationToken());
         assertNotNull(response.expiresAt());
+
+        ArgumentCaptor<Object> eventCaptor =
+                ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        OrganizationInvitationEmailEvent emailEvent = eventCaptor
+                .getAllValues()
+                .stream()
+                .filter(OrganizationInvitationEmailEvent.class::isInstance)
+                .map(OrganizationInvitationEmailEvent.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("member@acme.com", emailEvent.recipientEmail());
+        assertEquals("Acme Member", emailEvent.recipientName());
+        assertEquals("Acme Owner", emailEvent.inviterName());
+        assertEquals(OrgRole.MEMBER, emailEvent.role());
+        assertEquals(response.invitationToken(), emailEvent.invitationToken());
+        assertEquals(response.expiresAt(), emailEvent.expiresAt());
     }
 
     @Test
