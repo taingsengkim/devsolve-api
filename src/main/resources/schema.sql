@@ -427,6 +427,27 @@ BEGIN
 END
 $$^^^
 
+-- Where a researcher stands with one company. Only 'approved' can file a report.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'researcher_access_status_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.researcher_access_status_enum AS ENUM (
+            'pending',
+            'approved',
+            'rejected',
+            'revoked'
+        );
+    END IF;
+END
+$$^^^
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -1488,6 +1509,27 @@ CREATE TABLE IF NOT EXISTS public.weaknesses (
 )^^^
 
 
+-- "IF NOT EXISTS" above means the defaults it declares only ever land on a
+-- database that did not already have this table. Where Hibernate built it on
+-- an earlier boot the columns are NOT NULL with no default, because
+-- @GeneratedValue, @CreationTimestamp and @Builder.Default all produce their
+-- values in Java. The seed below supplies only cwe_id, name and description
+-- and leaves the rest to the database, so without these it fails NOT NULL on
+-- id, then created_at, then is_active, and takes startup down with it.
+DO $$
+BEGIN
+    IF to_regclass('public.weaknesses') IS NOT NULL THEN
+        ALTER TABLE public.weaknesses
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.weaknesses
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.weaknesses
+            ALTER COLUMN is_active SET DEFAULT TRUE;
+    END IF;
+END
+$$^^^
+
+
 -- Named explicitly rather than left as an inline UNIQUE, so the seed below
 -- can rely on ON CONFLICT (cwe_id) resolving to it whether the table was
 -- created by the statement above or by Hibernate on an earlier boot.
@@ -1642,3 +1684,189 @@ VALUES
     ('CWE-476', 'NULL Pointer Dereference',
      'A null pointer is dereferenced and the process crashes.')
 ON CONFLICT (cwe_id) DO NOTHING^^^
+
+
+-- Reports a reporter has started and not filed.
+--
+-- A table of its own rather than a DRAFT value on reports: title,
+-- vulnerability_information and reported_severity are NOT NULL there, and a
+-- half-written draft has none of them. Holding drafts on the reports table
+-- would mean dropping those three constraints for every real report, and
+-- teaching every query, trigger and notification path to skip a state none of
+-- them were written to expect — where one miss puts a draft in a triage queue.
+--
+-- Last in this file because it needs both severity_enum and
+-- report_environment_enum, and both are created above.
+DO $$
+BEGIN
+    IF to_regclass('public.programs') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.report_drafts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            program_id UUID NOT NULL
+                REFERENCES public.programs (id) ON DELETE CASCADE,
+            reporter_id UUID NOT NULL
+                REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+            title VARCHAR(255),
+            vulnerability_information TEXT,
+            impact TEXT,
+            steps_to_reproduce TEXT,
+            proof_of_concept TEXT,
+            remediation_recommendation TEXT,
+            target_endpoint VARCHAR(1000),
+            environment public.report_environment_enum,
+            discovered_at TIMESTAMP(6),
+            reference_links JSONB,
+            reported_severity public.severity_enum,
+            cvss_vector VARCHAR(255),
+            cvss_score NUMERIC(3, 1),
+            -- Deliberately not foreign keys. A draft outlives a weakness being
+            -- retired or an asset leaving scope, and a constraint here would
+            -- either block that or take the draft with it. Nothing reads these
+            -- until submit, which resolves both and reports a stale one as an
+            -- error the reporter can act on.
+            weakness_id UUID,
+            asset_id UUID,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now()
+        );
+    END IF;
+
+    IF to_regclass('public.report_drafts') IS NOT NULL THEN
+        -- The CREATE above is skipped entirely on a database where Hibernate
+        -- built this table first, taking its column defaults with it. Setting
+        -- them here is what makes the two paths agree; the weakness catalog
+        -- lost a deploy to exactly this.
+        ALTER TABLE public.report_drafts
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.report_drafts
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.report_drafts
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        -- The "continue where you left off" list: one reporter's drafts,
+        -- most recently edited first.
+        CREATE INDEX IF NOT EXISTS idx_report_drafts_reporter_updated
+            ON public.report_drafts (reporter_id, updated_at DESC);
+
+        -- Backs both the per-program listing and the count that caps how many
+        -- drafts one reporter can hold against a single program.
+        CREATE INDEX IF NOT EXISTS idx_report_drafts_reporter_program
+            ON public.report_drafts (reporter_id, program_id);
+    END IF;
+END
+$$^^^
+
+
+-- Which researchers a company has cleared to report against its programs. Held
+-- per organization rather than per program, one row per pair.
+--
+-- Created here rather than left to Hibernate because the VPS does not run with
+-- ddl-auto "update": without this block the entity ships with no table.
+DO $$
+BEGIN
+    IF to_regclass('public.organizations') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.organization_researchers (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            organization_id UUID NOT NULL
+                REFERENCES public.organizations (id) ON DELETE CASCADE,
+            user_id UUID NOT NULL
+                REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+            status public.researcher_access_status_enum NOT NULL
+                DEFAULT 'pending',
+            motivation TEXT,
+            review_note TEXT,
+            requested_at TIMESTAMP(6),
+            -- SET NULL, not CASCADE: a reviewer closing their account must not
+            -- take every decision they ever made with it.
+            reviewed_by UUID
+                REFERENCES public.user_profiles (id) ON DELETE SET NULL,
+            reviewed_at TIMESTAMP(6),
+            revision INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            CONSTRAINT uq_organization_researchers_org_user
+                UNIQUE (organization_id, user_id)
+        );
+    END IF;
+
+    IF to_regclass('public.organization_researchers') IS NOT NULL THEN
+        -- The CREATE above is skipped entirely on a database where Hibernate
+        -- built this table first, taking its column defaults with it. Setting
+        -- them here is what makes the two paths agree; the weakness catalog
+        -- lost a deploy to exactly this.
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN status
+            SET DEFAULT 'pending'::public.researcher_access_status_enum;
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN revision SET DEFAULT 1;
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.organization_researchers
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        -- Needed whichever path built the table: the backfill below relies on
+        -- it to stay idempotent.
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'uq_organization_researchers_org_user'
+        ) THEN
+            ALTER TABLE public.organization_researchers
+                ADD CONSTRAINT uq_organization_researchers_org_user
+                UNIQUE (organization_id, user_id);
+        END IF;
+
+        -- The company's review queue, filtered by status.
+        CREATE INDEX IF NOT EXISTS idx_organization_researchers_org_status
+            ON public.organization_researchers (organization_id, status);
+
+        -- The researcher's own list of companies.
+        CREATE INDEX IF NOT EXISTS idx_organization_researchers_user
+            ON public.organization_researchers (user_id, updated_at DESC);
+    END IF;
+END
+$$^^^
+
+-- Approval is now required for every program, public ones included, which on an
+-- existing database would cut off every researcher mid-engagement. Anyone who
+-- has already reported to a company is therefore backfilled as approved; the
+-- company can revoke it. Only existing relationships are granted, and
+-- ON CONFLICT makes this a no-op on every boot after the first.
+DO $$
+BEGIN
+    IF to_regclass('public.organization_researchers') IS NOT NULL
+       AND to_regclass('public.reports') IS NOT NULL
+       AND to_regclass('public.programs') IS NOT NULL THEN
+        INSERT INTO public.organization_researchers (
+            organization_id,
+            user_id,
+            status,
+            review_note,
+            requested_at,
+            reviewed_at,
+            revision,
+            created_at,
+            updated_at
+        )
+        SELECT program.organization_id,
+               report.reporter_id,
+               'approved'::public.researcher_access_status_enum,
+               'Approved automatically: this researcher was already reporting '
+                   || 'to this organization before approval was required.',
+               MIN(report.submitted_at),
+               now(),
+               1,
+               now(),
+               now()
+        FROM public.reports report
+        JOIN public.programs program
+            ON program.id = report.program_id
+        GROUP BY program.organization_id, report.reporter_id
+        ON CONFLICT (organization_id, user_id) DO NOTHING;
+    END IF;
+END
+$$^^^

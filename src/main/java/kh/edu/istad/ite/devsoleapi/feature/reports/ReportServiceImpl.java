@@ -11,6 +11,7 @@ import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.CompanyIdentityService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.ResearcherAccessService;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
@@ -107,6 +108,7 @@ public class ReportServiceImpl implements ReportService {
     private final ProgramRepository programRepository;
     private final UserProfileRepository userProfileRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final ResearcherAccessService researcherAccessService;
     private final CompanyIdentityService companyIdentityService;
     private final ReportMapper reportMapper;
     private final FollowNotificationService followNotificationService;
@@ -124,6 +126,15 @@ public class ReportServiceImpl implements ReportService {
         UUID reporterId = currentUserId();
         UserProfile reporter = findUserProfile(reporterId);
         Program program = findReportableProgram(programId);
+
+        // Clearance is held against the organization, so it covers every
+        // program that organization runs. Checked here rather than at the
+        // controller because a draft being filed reaches this same method.
+        researcherAccessService.requireApprovedReporter(
+                program.getOrganizationId(),
+                reporterId
+        );
+
         ProgramAsset asset = findReportableAsset(
                 program,
                 request.assetId()

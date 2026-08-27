@@ -12,7 +12,8 @@ public enum OrganizationPermission {
     VIEW_REPORTS,
     TRIAGE_REPORTS,
     MANAGE_DISCLOSURE,
-    AWARD_REWARDS;
+    AWARD_REWARDS,
+    MANAGE_RESEARCHERS;
 
     public static Set<OrganizationPermission> defaultsFor(OrgRole role) {
         return switch (role) {

@@ -9,6 +9,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.ResearcherAccessService;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
@@ -64,6 +65,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -116,6 +118,9 @@ class ReportServiceImplTest {
     @Mock
     private CompanyIdentityService companyIdentityService;
 
+    @Mock
+    private ResearcherAccessService researcherAccessService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
@@ -152,6 +157,69 @@ class ReportServiceImplTest {
         assertNull(report.getTriageSeverity());
         assertNull(report.getSeverity());
         assertEquals(ReportState.NEW, report.getState());
+    }
+
+    @Test
+    void hackerCannotCreateReportWithoutCompanyApproval() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        doThrow(new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "Acme has not reviewed your access request yet."
+        )).when(researcherAccessService).requireApprovedReporter(
+                program.getOrganizationId(),
+                hackerId
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().create(
+                        program.getId(),
+                        reportRequest(
+                                Severity.HIGH,
+                                program.getAssets().getFirst().getId()
+                        )
+                )
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void approvedHackerPassesTheCompanyGateOnTheOwningOrganization() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().create(
+                program.getId(),
+                reportRequest(
+                        Severity.HIGH,
+                        program.getAssets().getFirst().getId()
+                )
+        );
+
+        verify(researcherAccessService).requireApprovedReporter(
+                program.getOrganizationId(),
+                hackerId
+        );
     }
 
     @Test
@@ -869,6 +937,7 @@ class ReportServiceImplTest {
                         organizationRepository,
                         organizationMemberRepository
                 ),
+                researcherAccessService,
                 companyIdentityService,
                 reportMapper,
                 followNotificationService,
