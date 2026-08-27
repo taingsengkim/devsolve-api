@@ -8,6 +8,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewRe
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -169,6 +170,24 @@ public class OrganizationMapper {
                 .invitationPending(member.isInvitationPending())
                 .joinedAt(member.getJoinedAt())
                 .build();
+    }
+
+    public PendingInvitationResponse toPendingInvitation(
+            OrganizationMember member
+    ) {
+        Organization organization = member.getOrganization();
+        UserProfile invitedBy = member.getInvitedBy();
+        return new PendingInvitationResponse(
+                member.getInvitationToken(),
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug(),
+                organization.getLogoUrl(),
+                member.getRole(),
+                invitedBy == null ? null : invitedBy.getFullName(),
+                member.getUpdatedAt(),
+                member.invitationExpiresAt()
+        );
     }
 
     private String trimToNull(String value) {
