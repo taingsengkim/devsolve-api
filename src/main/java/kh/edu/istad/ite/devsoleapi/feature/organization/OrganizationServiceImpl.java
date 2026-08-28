@@ -35,6 +35,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRewardRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UsernameAllocator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -69,6 +70,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationUserProfileRepository userProfileRepository;
     private final OrganizationMapper organizationMapper;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final UsernameAllocator usernameAllocator;
     private final WebsiteUrlService websiteUrlService;
     private final ImageStorageService imageStorageService;
     private final CompanyIdentityService companyIdentityService;
@@ -123,6 +125,13 @@ public class OrganizationServiceImpl implements OrganizationService {
         try {
             UserProfile owner = new UserProfile();
             owner.setId(registeredCompany.id());
+            // Company registration never asks for a handle, but a profile
+            // saved without one is rejected at flush — so one is minted from
+            // the business email the same way a social login's is.
+            owner.setUsername(usernameAllocator.allocate(
+                    null,
+                    registeredCompany.email()
+            ));
             owner.setEmail(registeredCompany.email());
             owner.setFullName(registeredCompany.fullName());
             owner.setStatus(UserStatus.ACTIVE);

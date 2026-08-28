@@ -64,9 +64,18 @@ class FollowerBroadcastIntegrationTest {
     private UserProfile persistedUser(String name) {
         UserProfile user = new UserProfile();
         user.setId(UUID.randomUUID());
+        user.setUsername(uniqueUsername());
         user.setEmail(UUID.randomUUID() + "@example.com");
         user.setFullName(name);
         return userProfileRepository.saveAndFlush(user);
+    }
+
+    /** Unique, and inside the 30 characters a username may occupy. */
+    private String uniqueUsername() {
+        return "u" + UUID.randomUUID()
+                .toString()
+                .replace("-", "")
+                .substring(0, 20);
     }
 
     @Test
