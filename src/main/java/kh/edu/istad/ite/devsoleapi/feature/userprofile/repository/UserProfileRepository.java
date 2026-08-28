@@ -60,6 +60,13 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             UserStatus status
     );
 
+    java.util.Optional<UserProfile> findByUsernameIgnoreCaseAndStatus(
+            String username,
+            UserStatus status
+    );
+
+    boolean existsByUsernameIgnoreCase(String username);
+
 
     @Query("""
             select count(profile) as totalUsers,

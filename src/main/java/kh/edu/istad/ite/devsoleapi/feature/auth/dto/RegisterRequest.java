@@ -9,9 +9,15 @@ import jakarta.validation.constraints.Size;
 
 
 public record RegisterRequest(
+        // Matches UsernamePolicy: the handle minted here is the one that ends
+        // up in profile URLs, so registration cannot accept a shape the rest
+        // of the platform would later refuse.
         @NotBlank(message = "Username is required")
-        @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
-        @Pattern(regexp = "^[a-zA-Z0-9._-]+$", message = "Username can only contain letters, numbers, dots, underscores, and hyphens")
+        @Size(min = 3, max = 30, message = "Username must be between 3 and 30 characters")
+        @Pattern(
+                regexp = "^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{1,28}[a-zA-Z0-9])?$",
+                message = "Username must start and end with a letter or number, and may contain dots, underscores, and hyphens between"
+        )
         String username,
 
         @NotBlank(message = "Password is required")

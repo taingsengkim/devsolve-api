@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.userprofile.mapper;
 
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UsernamePolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.SocialLinkResponse;
@@ -11,6 +12,7 @@ import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 
@@ -18,6 +20,10 @@ import java.util.List;
 public abstract class UserProfileMapper {
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "id", ignore = true)
+    // Taking a username has to be checked for uniqueness, reservation and the
+    // change cooldown, none of which a field copy can do.
+    @Mapping(target = "username", ignore = true)
+    @Mapping(target = "usernameChangedAt", ignore = true)
     @Mapping(target = "email", ignore = true)
     @Mapping(target = "fullName", ignore = true)
     @Mapping(target = "status", ignore = true)
@@ -41,6 +47,8 @@ public abstract class UserProfileMapper {
     ) {
         return UserProfileResponse.builder()
                 .id(userProfile.getId())
+                .username(userProfile.getUsername())
+                .usernameChangeableAt(usernameChangeableAt(userProfile))
                 .firstName(keycloakUser.getFirstName())
                 .lastName(keycloakUser.getLastName())
                 .fullName(userProfile.getFullName())
@@ -62,6 +70,22 @@ public abstract class UserProfileMapper {
                 .createdAt(userProfile.getCreatedAt())
                 .updatedAt(userProfile.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * When the handle may next move, or null when it may move now. A profile
+     * that has never changed its username is free to, so the null on
+     * {@code usernameChangedAt} passes straight through.
+     */
+    public LocalDateTime usernameChangeableAt(UserProfile userProfile) {
+        LocalDateTime changedAt = userProfile.getUsernameChangedAt();
+        if (changedAt == null) {
+            return null;
+        }
+        LocalDateTime nextChange = changedAt.plusDays(
+                UsernamePolicy.CHANGE_COOLDOWN_DAYS
+        );
+        return nextChange.isAfter(LocalDateTime.now()) ? nextChange : null;
     }
 
     public List<SocialLinkResponse> toSocialLinkResponses(

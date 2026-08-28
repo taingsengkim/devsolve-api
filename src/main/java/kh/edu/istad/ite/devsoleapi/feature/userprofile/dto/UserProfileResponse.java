@@ -12,6 +12,13 @@ import java.util.List;
 @Builder
 public record UserProfileResponse(
         UUID id,
+        String username,
+        /**
+         * When the handle may next be changed, or null when it may be changed
+         * now. Sent so an edit form can disable the field and say why, rather
+         * than letting someone type a new handle and be refused on submit.
+         */
+        LocalDateTime usernameChangeableAt,
         String email,
         String firstName,
         String lastName,

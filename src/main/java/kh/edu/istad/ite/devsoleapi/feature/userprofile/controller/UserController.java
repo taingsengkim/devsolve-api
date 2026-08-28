@@ -4,6 +4,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.controller;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UsernameAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserProfileService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -56,9 +57,33 @@ public class UserController {
         return userProfileService.getPublicProfile(userId);
     }
 
+    /**
+     * The same profile as /{userId}, addressed the way a person shares it.
+     * Kept on its own path rather than overloading /{userId}: a handle and a
+     * UUID in one segment means a non-UUID either 400s before any lookup or
+     * silently resolves to somebody else.
+     */
+    @GetMapping("/by-username/{username}")
+    public PublicUserProfileResponse getPublicProfileByUsername(
+            @PathVariable String username
+    ) {
+        return userProfileService.getPublicProfileByUsername(username);
+    }
+
     @GetMapping("/me")
     public UserProfileResponse me(){
         return userProfileService.me();
+    }
+
+    /**
+     * Answers while the user is still typing, so a taken or reserved handle is
+     * refused beside the field instead of on submit.
+     */
+    @GetMapping("/me/username-available")
+    public UsernameAvailabilityResponse checkUsernameAvailability(
+            @RequestParam String username
+    ) {
+        return userProfileService.checkUsernameAvailability(username);
     }
 
     @PatchMapping("/me")

@@ -9,8 +9,11 @@ import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
@@ -296,6 +299,49 @@ class ProgramServiceImplTest {
         );
 
         assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+    }
+
+    /**
+     * An invited member's programs come from the membership row, not from
+     * ownership and not from the realm role. The caller here owns nothing and
+     * holds a plain USER token — the same token a researcher carries — which
+     * is exactly what an accepted invitation leaves someone holding.
+     */
+    @Test
+    void myProgramsAreListedForAnAcceptedMemberWhoOwnsNoOrganization() {
+        UUID memberId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = validProgram(organization.getId());
+        PageRequest pageable = PageRequest.of(0, 20);
+        authenticate(memberId, "USER");
+
+        UserProfile member = new UserProfile();
+        member.setId(memberId);
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(memberId))
+                .thenReturn(Optional.empty());
+        when(organizationMemberRepository.findByUserIdAndStatus(
+                memberId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(new OrganizationMember(
+                organization,
+                member,
+                OrgRole.MEMBER
+        )));
+        when(programRepository.findAll(
+                org.mockito.ArgumentMatchers
+                        .<Specification<Program>>any(),
+                eq(pageable)
+        )).thenReturn(new PageImpl<>(List.of(program), pageable, 1));
+        when(programAssetRepository.findByProgramIds(Set.of(program.getId())))
+                .thenReturn(List.of());
+
+        var programs = service(new ProgramMapper())
+                .getMyPrograms(pageable)
+                .getContent();
+
+        assertEquals(1, programs.size());
+        assertEquals(program.getId(), programs.getFirst().id());
     }
 
     @Test

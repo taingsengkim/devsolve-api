@@ -32,6 +32,7 @@ class UserProfileMapperTest {
         profile.setReputation(40);
 
         UpdateUserProfileRequest request = new UpdateUserProfileRequest(
+                null,
                 "Updated",
                 "Name",
                 "Security researcher",
@@ -66,6 +67,7 @@ class UserProfileMapperTest {
 
         mapper.mapUpdateUserProfileRequestToUserProfile(
                 new UpdateUserProfileRequest(
+                        null,
                         null,
                         null,
                         null,

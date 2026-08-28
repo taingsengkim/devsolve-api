@@ -8,11 +8,13 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserSocialLink;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UsernamePolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.SocialLinkRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UsernameAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.mapper.UserProfileMapper;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserProfileService;
@@ -31,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.Locale;
 import java.util.EnumMap;
@@ -62,6 +65,9 @@ public class UserProfileServiceImpl implements UserProfileService {
         UserProfile userProfile = findUserProfile(userId);
 
         userProfileMapper.mapUpdateUserProfileRequestToUserProfile(request, userProfile);
+        if (request.username() != null) {
+            applyUsernameChange(userProfile, request.username());
+        }
         if (request.socialLinks() != null) {
             replaceSocialLinks(userProfile, request.socialLinks());
         }
@@ -300,11 +306,104 @@ public class UserProfileServiceImpl implements UserProfileService {
         );
     }
 
+    /**
+     * Applies a requested handle, or explains why it cannot have it.
+     *
+     * <p>Asking for the handle already held is a no-op rather than an error:
+     * a client that PATCHes the whole form back would otherwise start the
+     * cooldown, or trip over it, without anything having changed.
+     */
+    private void applyUsernameChange(
+            UserProfile profile,
+            String requested
+    ) {
+        String username = requested.trim();
+        if (username.equalsIgnoreCase(profile.getUsername())) {
+            return;
+        }
+
+        LocalDateTime changeableAt =
+                userProfileMapper.usernameChangeableAt(profile);
+        if (changeableAt != null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Username was changed recently and can be changed again "
+                            + "after " + changeableAt
+            );
+        }
+
+        UsernameAvailabilityResponse availability = checkUsername(username);
+        if (!availability.available()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    availability.reason()
+            );
+        }
+
+        profile.setUsername(username);
+        profile.setUsernameChangedAt(LocalDateTime.now());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PublicUserProfileResponse getPublicProfileByUsername(
+            String username
+    ) {
+        return userProfileRepository.findByUsernameIgnoreCaseAndStatus(
+                        username == null ? "" : username.trim(),
+                        UserStatus.ACTIVE
+                )
+                .map(this::toPublicProfile)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Public user profile not found"
+                ));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UsernameAvailabilityResponse checkUsernameAvailability(
+            String username
+    ) {
+        return checkUsername(username == null ? "" : username.trim());
+    }
+
+    /**
+     * The four ways a handle can be refused, each answered in the words the
+     * person typing it needs. Collapsing them into one "unavailable" is what
+     * makes a user try the same reserved name three times.
+     */
+    private UsernameAvailabilityResponse checkUsername(String username) {
+        if (!UsernamePolicy.isValid(username)) {
+            return UsernameAvailabilityResponse.unavailable(
+                    username,
+                    "Username must be "
+                            + UsernamePolicy.MIN_LENGTH + " to "
+                            + UsernamePolicy.MAX_LENGTH + " characters, start "
+                            + "and end with a letter or number, and may "
+                            + "contain dots, underscores and hyphens between"
+            );
+        }
+        if (UsernamePolicy.isReserved(username)) {
+            return UsernameAvailabilityResponse.unavailable(
+                    username,
+                    "That username is reserved"
+            );
+        }
+        if (userProfileRepository.existsByUsernameIgnoreCase(username)) {
+            return UsernameAvailabilityResponse.unavailable(
+                    username,
+                    "That username is already taken"
+            );
+        }
+        return UsernameAvailabilityResponse.available(username);
+    }
+
     private PublicUserProfileResponse toPublicProfile(
             UserProfile profile
     ) {
         return new PublicUserProfileResponse(
                 profile.getId(),
+                profile.getUsername(),
                 profile.getFullName(),
                 profile.getBiography(),
                 profile.getAvatarUrl(),

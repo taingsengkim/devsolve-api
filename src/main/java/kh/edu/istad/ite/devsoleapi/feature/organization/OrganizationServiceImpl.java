@@ -21,6 +21,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationRes
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationReviewDecision;
@@ -67,6 +68,7 @@ public class OrganizationServiceImpl implements OrganizationService {
     private final OrganizationMemberRepository memberRepository;
     private final OrganizationUserProfileRepository userProfileRepository;
     private final OrganizationMapper organizationMapper;
+    private final OrganizationAuthorizationService organizationAuthorization;
     private final WebsiteUrlService websiteUrlService;
     private final ImageStorageService imageStorageService;
     private final CompanyIdentityService companyIdentityService;
@@ -347,24 +349,47 @@ public class OrganizationServiceImpl implements OrganizationService {
         );
     }
 
+    /**
+     * The whole team, owner included, for anybody on it.
+     *
+     * <p>Readable by any active member rather than the owner alone: a triager
+     * works alongside colleagues, and a roster they cannot open is a roster
+     * they cannot hand a report to. Managing the team still needs
+     * {@code MANAGE_MEMBERS} — seeing who is here and deciding who is here are
+     * different questions.
+     *
+     * <p>The owner leads the list and is synthesised rather than read, since
+     * ownership is not a membership row.
+     */
     @Override
     @Transactional(readOnly = true)
     public List<MemberResponse> getMyMembers() {
-        Organization organization = findMyActiveOrganization();
-        return memberRepository
+        UUID callerId = extractCurrentUserId(getCurrentJwt());
+        Organization organization = findMyTeamOrganization(callerId);
+
+        List<MemberResponse> roster = new ArrayList<>();
+        roster.add(organizationMapper.toOwnerMemberResponse(
+                organization,
+                callerId
+        ));
+        memberRepository
                 .findByOrganizationIdAndStatusNot(
                         organization.getId(),
                         MembershipStatus.REMOVED
                 )
                 .stream()
-                .map(organizationMapper::toMemberResponse)
-                .toList();
+                .map(member -> organizationMapper.toMemberResponse(
+                        member,
+                        callerId
+                ))
+                .forEach(roster::add);
+        return List.copyOf(roster);
     }
 
     @Override
     @Transactional
     public InvitationResponse inviteMember(InviteMemberRequest request) {
-        Organization organization = findMyActiveOrganization();
+        Organization organization = findManageableOrganization();
         UserProfile invitedBy = organization.getOwner();
         UserProfile invitedUser = userProfileRepository
                 .findByEmailIgnoreCase(request.email().trim())
@@ -457,7 +482,10 @@ public class OrganizationServiceImpl implements OrganizationService {
         ));
 
         return new InvitationResponse(
-                organizationMapper.toMemberResponse(savedMember),
+                organizationMapper.toMemberResponse(
+                        savedMember,
+                        extractCurrentUserId(getCurrentJwt())
+                ),
                 savedMember.getInvitationToken(),
                 expiresAt
         );
@@ -469,22 +497,18 @@ public class OrganizationServiceImpl implements OrganizationService {
             UUID targetUserId,
             UpdateMemberRoleRequest request
     ) {
-        Organization organization = findMyActiveOrganization();
-        OrganizationMember member = findMembership(
-                organization.getId(),
+        Organization organization = findManageableOrganization();
+        OrganizationMember member = findManageableMembership(
+                organization,
                 targetUserId
         );
 
-        if (member.getStatus() == MembershipStatus.REMOVED) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "A removed membership cannot be updated"
-            );
-        }
-
         member.setRole(request.role());
         member.applyRoleDefaults();
-        return organizationMapper.toMemberResponse(member);
+        return organizationMapper.toMemberResponse(
+                member,
+                extractCurrentUserId(getCurrentJwt())
+        );
     }
 
     @Override
@@ -493,38 +517,27 @@ public class OrganizationServiceImpl implements OrganizationService {
             UUID targetUserId,
             UpdateMemberPermissionsRequest request
     ) {
-        Organization organization = findMyActiveOrganization();
-        OrganizationMember member = findMembership(
-                organization.getId(),
+        Organization organization = findManageableOrganization();
+        OrganizationMember member = findManageableMembership(
+                organization,
                 targetUserId
         );
 
-        if (member.getStatus() == MembershipStatus.REMOVED) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "A removed membership cannot be updated"
-            );
-        }
-
         member.setPermissions(request.permissions());
-        return organizationMapper.toMemberResponse(member);
+        return organizationMapper.toMemberResponse(
+                member,
+                extractCurrentUserId(getCurrentJwt())
+        );
     }
 
     @Override
     @Transactional
     public void removeMember(UUID targetUserId) {
-        Organization organization = findMyActiveOrganization();
-        OrganizationMember member = findMembership(
-                organization.getId(),
+        Organization organization = findManageableOrganization();
+        OrganizationMember member = findManageableMembership(
+                organization,
                 targetUserId
         );
-
-        if (member.getStatus() == MembershipStatus.REMOVED) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Organization member has already been removed"
-            );
-        }
 
         member.markAsRemoved();
     }
@@ -631,7 +644,7 @@ public class OrganizationServiceImpl implements OrganizationService {
         requireActiveOrganization(member.getOrganization());
 
         member.accept();
-        return organizationMapper.toMemberResponse(member);
+        return organizationMapper.toMemberResponse(member, currentUserId);
     }
 
     @Override
@@ -972,6 +985,84 @@ public class OrganizationServiceImpl implements OrganizationService {
                         HttpStatus.NOT_FOUND,
                         "Organization membership has not been found"
                 ));
+    }
+
+    /**
+     * The organization whose team the caller may look at.
+     *
+     * <p>An owner sees their own team at any status: a company still under
+     * review has a team screen too, and its own roster is not something the
+     * review withholds from them. Everyone else is resolved through
+     * membership, which only an active organization can grant.
+     */
+    private Organization findMyTeamOrganization(UUID callerId) {
+        return organizationRepository
+                .findByOwnerIdAndDeletedAtIsNull(callerId)
+                .orElseGet(() -> organizationAuthorization
+                        .findSingleAccessibleOrganization(callerId));
+    }
+
+    /**
+     * The organization whose team the caller may change. Ownership still
+     * carries every permission, so an owner reaches this without a membership
+     * row; a manager reaches it through {@code MANAGE_MEMBERS}, which is what
+     * lets a company grow its team without going back to whoever registered it.
+     *
+     * <p>An owner is checked for approval first so that a company still under
+     * review is told that is the reason. Resolving by permission alone would
+     * answer "you do not have MANAGE_MEMBERS" to the one person who does, and
+     * a client cannot act on that.
+     */
+    private Organization findManageableOrganization() {
+        UUID callerId = extractCurrentUserId(getCurrentJwt());
+        organizationRepository
+                .findByOwnerIdAndDeletedAtIsNull(callerId)
+                .ifPresent(this::requireActiveOrganization);
+
+        return organizationAuthorization.findSingleAccessibleOrganization(
+                callerId,
+                OrganizationPermission.MANAGE_MEMBERS
+        );
+    }
+
+    /**
+     * A membership the caller is allowed to act on.
+     *
+     * <p>Two targets are refused outright rather than left to fail further in.
+     * The owner has no membership row at all, so acting on them used to answer
+     * "not found" — true of the row and misleading about the person, now that
+     * the roster shows them. And nobody may act on themselves: a manager who
+     * can demote or remove themselves can lock a company out of its own team
+     * screen, and the client should not be offering it either.
+     */
+    private OrganizationMember findManageableMembership(
+            Organization organization,
+            UUID targetUserId
+    ) {
+        if (organization.getOwner().getId().equals(targetUserId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "The organization owner's membership cannot be changed"
+            );
+        }
+        if (extractCurrentUserId(getCurrentJwt()).equals(targetUserId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You cannot change your own organization membership"
+            );
+        }
+
+        OrganizationMember member = findMembership(
+                organization.getId(),
+                targetUserId
+        );
+        if (member.getStatus() == MembershipStatus.REMOVED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "A removed membership cannot be updated"
+            );
+        }
+        return member;
     }
 
     private Jwt getCurrentJwt() {
