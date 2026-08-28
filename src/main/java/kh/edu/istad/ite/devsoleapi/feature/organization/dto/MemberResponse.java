@@ -23,6 +23,8 @@ import java.util.UUID;
 @Builder
 public record MemberResponse(
         UUID userId,
+        /** The handle their profile is reachable at, for linking out. */
+        String username,
         String name,
         String email,
         OrgRole role,

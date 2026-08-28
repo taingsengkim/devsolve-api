@@ -6,6 +6,7 @@ import java.util.List;
 
 public record PublicUserProfileResponse(
         UUID id,
+        String username,
         String fullName,
         String biography,
         String avatarUrl,

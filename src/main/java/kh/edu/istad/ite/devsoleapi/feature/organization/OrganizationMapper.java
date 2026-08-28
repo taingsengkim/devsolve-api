@@ -171,6 +171,7 @@ public class OrganizationMapper {
         UserProfile user = member.getUser();
         return MemberResponse.builder()
                 .userId(user.getId())
+                .username(user.getUsername())
                 .name(user.getFullName())
                 .email(user.getEmail())
                 .role(member.getRole())
@@ -199,6 +200,7 @@ public class OrganizationMapper {
         UserProfile owner = organization.getOwner();
         return MemberResponse.builder()
                 .userId(owner.getId())
+                .username(owner.getUsername())
                 .name(owner.getFullName())
                 .email(owner.getEmail())
                 .role(null)

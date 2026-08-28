@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterRequest;
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.RegisterResponse;
 import kh.edu.istad.ite.devsoleapi.feature.auth.dto.SocialSyncResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UsernamePolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UserProfileService;
@@ -58,9 +59,25 @@ public class AuthServiceImpl implements AuthService {
             );
         }
 
+        // Checked before the identity is created, so a taken handle fails
+        // without leaving a Keycloak user behind to roll back.
+        String username = registerRequest.username().trim();
+        if (UsernamePolicy.isReserved(username)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "That username is reserved"
+            );
+        }
+        if (userProfileRepository.existsByUsernameIgnoreCase(username)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "That username is already taken"
+            );
+        }
+
         UsersResource usersResource = keycloak.realm(props.getTargetRealm()).users();
         UserRepresentation userRepresentation = new UserRepresentation();
-        userRepresentation.setUsername(registerRequest.username());
+        userRepresentation.setUsername(username);
         userRepresentation.setEmail(registerRequest.email());
         userRepresentation.setFirstName(registerRequest.firstName());
         userRepresentation.setLastName(registerRequest.lastName());
@@ -103,6 +120,7 @@ public class AuthServiceImpl implements AuthService {
 
                 UserProfile userProfile = new UserProfile();
                 userProfile.setId(UUID.fromString(createdUserId));
+                userProfile.setUsername(username);
                 userProfile.setEmail(registerRequest.email());
                 userProfile.setPhone(registerRequest.phone());
                 userProfile.setFullName(
