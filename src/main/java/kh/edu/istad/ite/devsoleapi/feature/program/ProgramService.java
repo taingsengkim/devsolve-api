@@ -42,16 +42,21 @@ public interface ProgramService {
     ProgramViewCountResponseDto incrementViewCount(UUID id);
 
     Page<ProgramManagementSummaryResponseDto> getMyPrograms(
+            UUID organizationId,
             Pageable pageable
     );
 
     Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            UUID organizationId,
             Pageable pageable
     );
 
     ProgramResponseDto getMyProgram(UUID id);
 
-    ProgramResponseDto createProgram(ProgramRequestDto request);
+    ProgramResponseDto createProgram(
+            UUID organizationId,
+            ProgramRequestDto request
+    );
 
     ProgramResponseDto updateProgram(
             UUID id,

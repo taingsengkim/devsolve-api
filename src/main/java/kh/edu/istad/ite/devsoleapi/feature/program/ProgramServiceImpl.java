@@ -227,9 +227,11 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProgramManagementSummaryResponseDto> getMyPrograms(
+            UUID organizationId,
             Pageable pageable
     ) {
         Organization organization = findAccessibleOrganization(
+                organizationId,
                 OrganizationPermission.VIEW_PROGRAMS
         );
         Pageable validatedPageable = PageableValidator.requireAllowedSort(
@@ -254,9 +256,11 @@ public class ProgramServiceImpl implements ProgramService {
     @Override
     @Transactional(readOnly = true)
     public Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            UUID organizationId,
             Pageable pageable
     ) {
         Organization organization = findAccessibleOrganization(
+                organizationId,
                 OrganizationPermission.VIEW_PROGRAMS
         );
         Pageable validatedPageable = PageableValidator.requireAllowedSort(
@@ -290,8 +294,12 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
-    public ProgramResponseDto createProgram(ProgramRequestDto request) {
+    public ProgramResponseDto createProgram(
+            UUID organizationId,
+            ProgramRequestDto request
+    ) {
         Organization organization = findAccessibleOrganization(
+                organizationId,
                 OrganizationPermission.CREATE_PROGRAM
         );
         requireUniqueHandle(request.handle(), null);
@@ -808,10 +816,12 @@ public class ProgramServiceImpl implements ProgramService {
     }
 
     private Organization findAccessibleOrganization(
+            UUID organizationId,
             OrganizationPermission permission
     ) {
-        return organizationAuthorization.findSingleAccessibleOrganization(
+        return organizationAuthorization.findAccessibleOrganization(
                 extractCurrentUserId(),
+                organizationId,
                 permission
         );
     }

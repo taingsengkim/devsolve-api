@@ -100,18 +100,18 @@ public class GlobalExceptionHandler {
 
     /**
      * More specific than the {@link ResponseStatusException} handler below,
-     * which Spring resolves in its favour, so the permission name survives
-     * instead of being flattened into an anonymous 403.
+     * which Spring resolves in its favour, so the details survive instead of
+     * being flattened into a status and a sentence.
      */
-    @ExceptionHandler(MissingPermissionException.class)
-    public ResponseEntity<RestErrorResponse> handleMissingPermission(
-            MissingPermissionException exception,
+    @ExceptionHandler(DetailedApiException.class)
+    public ResponseEntity<RestErrorResponse> handleDetailedApiFailure(
+            DetailedApiException exception,
             HttpServletRequest request
     ) {
         return respond(
-                HttpStatus.FORBIDDEN,
+                exception.getStatusCode(),
                 exception.getReason(),
-                Map.of("requiredPermission", exception.getRequiredPermission()),
+                exception.getErrorDetails(),
                 request
         );
     }

@@ -13,7 +13,9 @@ public interface OrganizationService {
 
     OrganizationResponse register(OrganizationRequest request);
 
-    OrganizationResponse me();
+    OrganizationResponse me(UUID organizationId);
+
+    List<OrganizationRoleResponse> getRoles();
 
     OrganizationVerificationResponse getVerificationStatus();
 
@@ -31,21 +33,26 @@ public interface OrganizationService {
 
     OrganizationResponse getBySlug(String slug);
 
-    List<MemberResponse> getMyMembers();
+    List<MemberResponse> getMyMembers(UUID organizationId);
 
-    InvitationResponse inviteMember(InviteMemberRequest request);
+    InvitationResponse inviteMember(
+            UUID organizationId,
+            InviteMemberRequest request
+    );
 
     MemberResponse updateMemberRole(
+            UUID organizationId,
             UUID targetUserId,
             UpdateMemberRoleRequest request
     );
 
     MemberResponse updateMemberPermissions(
+            UUID organizationId,
             UUID targetUserId,
             UpdateMemberPermissionsRequest request
     );
 
-    void removeMember(UUID targetUserId);
+    void removeMember(UUID organizationId, UUID targetUserId);
 
     List<OrganizationMembershipResponse> getMyMemberships();
 

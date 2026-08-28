@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
+import kh.edu.istad.ite.devsoleapi.common.exception.DetailedApiException;
 import kh.edu.istad.ite.devsoleapi.common.exception.MissingPermissionException;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
@@ -12,7 +13,10 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerifica
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationMembershipResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRoleResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
@@ -55,6 +59,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -350,6 +355,7 @@ class OrganizationServiceImplTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         InvitationResponse response = service.inviteMember(
+                null,
                 new InviteMemberRequest("member@acme.com", OrgRole.MEMBER)
         );
 
@@ -393,7 +399,7 @@ class OrganizationServiceImplTest {
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
                 () -> createService(new WebsiteUrlServiceImpl())
-                        .inviteMember(new InviteMemberRequest(
+                        .inviteMember(null, new InviteMemberRequest(
                                 "member@acme.com",
                                 OrgRole.MEMBER
                         ))
@@ -519,7 +525,7 @@ class OrganizationServiceImplTest {
 
         List<MemberResponse> roster = createService(
                 new WebsiteUrlServiceImpl()
-        ).getMyMembers();
+        ).getMyMembers(null);
 
         assertEquals(3, roster.size());
 
@@ -557,7 +563,7 @@ class OrganizationServiceImplTest {
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
                 () -> createService(new WebsiteUrlServiceImpl())
-                        .getMyMembers()
+                        .getMyMembers(null)
         );
 
         assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
@@ -591,7 +597,7 @@ class OrganizationServiceImplTest {
         MissingPermissionException exception = assertThrows(
                 MissingPermissionException.class,
                 () -> createService(new WebsiteUrlServiceImpl())
-                        .removeMember(UUID.randomUUID())
+                        .removeMember(null, UUID.randomUUID())
         );
 
         assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
@@ -639,7 +645,7 @@ class OrganizationServiceImplTest {
                 HttpStatus.FORBIDDEN,
                 assertThrows(
                         ResponseStatusException.class,
-                        () -> service.removeMember(managerId)
+                        () -> service.removeMember(null, managerId)
                 ).getStatusCode()
         );
         assertEquals(
@@ -647,12 +653,331 @@ class OrganizationServiceImplTest {
                 assertThrows(
                         ResponseStatusException.class,
                         () -> service.removeMember(
+                                null,
                                 organization.getOwner().getId()
                         )
                 ).getStatusCode()
         );
         verify(memberRepository, never())
                 .findByOrganizationIdAndUserId(any(), any());
+    }
+
+    /**
+     * Role and permissions used to be independent, so a VIEWER could hold
+     * CREATE_PROGRAM and create programs under a badge reading "Viewer".
+     */
+    @Test
+    void aRoleWillNotHoldPermissionsBeyondWhatItAllows() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        authenticateCompany(ownerId, "owner@acme.com");
+
+        UserProfile viewer = new UserProfile();
+        viewer.setId(UUID.randomUUID());
+        viewer.setEmail("viewer@acme.com");
+        viewer.setFullName("Acme Viewer");
+        OrganizationMember member = membership(
+                organization,
+                viewer,
+                OrgRole.VIEWER,
+                LocalDateTime.now()
+        );
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(memberRepository.findByOrganizationIdAndUserId(
+                organization.getId(),
+                viewer.getId()
+        )).thenReturn(Optional.of(member));
+
+        DetailedApiException exception = assertThrows(
+                DetailedApiException.class,
+                () -> createService(new WebsiteUrlServiceImpl())
+                        .updateMemberPermissions(
+                                null,
+                                viewer.getId(),
+                                new UpdateMemberPermissionsRequest(EnumSet.of(
+                                        OrganizationPermission.VIEW_PROGRAMS,
+                                        OrganizationPermission.CREATE_PROGRAM,
+                                        OrganizationPermission.MANAGE_MEMBERS
+                                ))
+                        )
+        );
+
+        assertEquals(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                exception.getStatusCode()
+        );
+        Map<?, ?> details = (Map<?, ?>) exception.getErrorDetails();
+        assertEquals(OrgRole.VIEWER.name(), details.get("role"));
+        assertEquals(
+                List.of(
+                        OrganizationPermission.CREATE_PROGRAM.name(),
+                        OrganizationPermission.MANAGE_MEMBERS.name()
+                ),
+                details.get("deniedPermissions")
+        );
+        // The whole request is refused, so nothing is half-applied.
+        assertEquals(
+                OrganizationPermission.defaultsFor(OrgRole.VIEWER),
+                member.getPermissions()
+        );
+    }
+
+    @Test
+    void aRoleHoldsAnythingItsCeilingAllows() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        authenticateCompany(ownerId, "owner@acme.com");
+
+        UserProfile teammate = new UserProfile();
+        teammate.setId(UUID.randomUUID());
+        teammate.setEmail("member@acme.com");
+        teammate.setFullName("Acme Member");
+        OrganizationMember member = membership(
+                organization,
+                teammate,
+                OrgRole.MEMBER,
+                LocalDateTime.now()
+        );
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(memberRepository.findByOrganizationIdAndUserId(
+                organization.getId(),
+                teammate.getId()
+        )).thenReturn(Optional.of(member));
+
+        // CREATE_PROGRAM is not a MEMBER default but is within its ceiling.
+        Set<OrganizationPermission> requested = EnumSet.of(
+                OrganizationPermission.VIEW_PROGRAMS,
+                OrganizationPermission.CREATE_PROGRAM
+        );
+
+        MemberResponse response = createService(new WebsiteUrlServiceImpl())
+                .updateMemberPermissions(
+                        null,
+                        teammate.getId(),
+                        new UpdateMemberPermissionsRequest(requested)
+                );
+
+        assertEquals(requested, response.permissions());
+    }
+
+    /**
+     * Leaving the old set in place made a demotion cosmetic: a MANAGER moved
+     * to VIEWER who kept MANAGE_MEMBERS is still a manager in every way that
+     * matters.
+     */
+    @Test
+    void changingARoleResetsThePermissionsToThatRolesDefaults() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        authenticateCompany(ownerId, "owner@acme.com");
+
+        UserProfile manager = new UserProfile();
+        manager.setId(UUID.randomUUID());
+        manager.setEmail("manager@acme.com");
+        manager.setFullName("Acme Manager");
+        OrganizationMember member = membership(
+                organization,
+                manager,
+                OrgRole.MANAGER,
+                LocalDateTime.now()
+        );
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(memberRepository.findByOrganizationIdAndUserId(
+                organization.getId(),
+                manager.getId()
+        )).thenReturn(Optional.of(member));
+
+        MemberResponse response = createService(new WebsiteUrlServiceImpl())
+                .updateMemberRole(
+                        null,
+                        manager.getId(),
+                        new UpdateMemberRoleRequest(OrgRole.VIEWER)
+                );
+
+        assertEquals(OrgRole.VIEWER, response.role());
+        assertEquals(
+                OrganizationPermission.defaultsFor(OrgRole.VIEWER),
+                response.permissions()
+        );
+        assertEquals(false, member.hasPermission(
+                OrganizationPermission.MANAGE_MEMBERS
+        ));
+    }
+
+    /**
+     * Answering with either organization would be a guess and answering with
+     * the first would quietly hide the other, so the caller is asked — and
+     * handed the ids it needs to ask with.
+     */
+    @Test
+    void anAccountAtTwoCompaniesIsAskedWhichOneAndCanNameIt() {
+        UUID memberId = UUID.randomUUID();
+        authenticateCompany(memberId, "member@acme.com");
+
+        UserProfile caller = new UserProfile();
+        caller.setId(memberId);
+        caller.setEmail("member@acme.com");
+        caller.setFullName("Acme Member");
+
+        Organization first = reviewOrganization(OrganizationStatus.ACTIVE);
+        Organization second = reviewOrganization(OrganizationStatus.ACTIVE);
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(memberId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                memberId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(
+                membership(
+                        first,
+                        caller,
+                        OrgRole.VIEWER,
+                        LocalDateTime.now().minusDays(2)
+                ),
+                membership(
+                        second,
+                        caller,
+                        OrgRole.MEMBER,
+                        LocalDateTime.now().minusDays(1)
+                )
+        ));
+
+        OrganizationServiceImpl service = createService(
+                new WebsiteUrlServiceImpl()
+        );
+
+        DetailedApiException exception = assertThrows(
+                DetailedApiException.class,
+                () -> service.getMyMembers(null)
+        );
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        Map<?, ?> details = (Map<?, ?>) exception.getErrorDetails();
+        assertEquals("organizationId", details.get("parameter"));
+        assertEquals(
+                List.of(first.getId().toString(), second.getId().toString()),
+                details.get("organizationIds")
+        );
+
+        when(memberRepository.findByOrganizationIdAndStatusNot(
+                second.getId(),
+                MembershipStatus.REMOVED
+        )).thenReturn(List.of());
+
+        List<MemberResponse> roster = service.getMyMembers(second.getId());
+
+        assertEquals(1, roster.size());
+        assertEquals(second.getOwner().getId(), roster.getFirst().userId());
+    }
+
+    @Test
+    void namingAnOrganizationTheCallerIsNotAtIsRefused() {
+        UUID memberId = UUID.randomUUID();
+        authenticateCompany(memberId, "member@acme.com");
+
+        UserProfile caller = new UserProfile();
+        caller.setId(memberId);
+        caller.setEmail("member@acme.com");
+        caller.setFullName("Acme Member");
+
+        Organization theirs = reviewOrganization(OrganizationStatus.ACTIVE);
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(memberId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                memberId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(membership(
+                theirs,
+                caller,
+                OrgRole.VIEWER,
+                LocalDateTime.now()
+        )));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> createService(new WebsiteUrlServiceImpl())
+                        .getMyMembers(UUID.randomUUID())
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+    }
+
+    /**
+     * A member who accepted an invitation works at the company too, and used
+     * to be told "you do not own an organization" by every screen built on
+     * this endpoint.
+     */
+    @Test
+    void theWorkspaceOpensForAMemberAndNotOnlyTheOwner() {
+        UUID memberId = UUID.randomUUID();
+        authenticateCompany(memberId, "member@acme.com");
+
+        UserProfile caller = new UserProfile();
+        caller.setId(memberId);
+        caller.setEmail("member@acme.com");
+        caller.setFullName("Acme Member");
+
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(memberId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                memberId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(membership(
+                organization,
+                caller,
+                OrgRole.VIEWER,
+                LocalDateTime.now()
+        )));
+        when(reportRewardRepository.findOrganizationPayouts(
+                organization.getId()
+        )).thenReturn(payouts("0", "0"));
+
+        assertEquals(
+                organization.getId(),
+                createService(new WebsiteUrlServiceImpl()).me(null).id()
+        );
+    }
+
+    @Test
+    void thePublishedRoleTableMatchesWhatTheApiEnforces() {
+        List<OrganizationRoleResponse> roles = createService(
+                new WebsiteUrlServiceImpl()
+        ).getRoles();
+
+        assertEquals(OrgRole.values().length, roles.size());
+        roles.forEach(role -> {
+            assertEquals(
+                    OrganizationPermission.defaultsFor(role.role()),
+                    role.defaultPermissions()
+            );
+            assertEquals(
+                    OrganizationPermission.ceilingFor(role.role()),
+                    role.allowedPermissions()
+            );
+            // A member starts inside their own ceiling, or the API would
+            // refuse a set it had just handed out.
+            assertTrue(role.allowedPermissions()
+                    .containsAll(role.defaultPermissions()));
+        });
     }
 
     @Test
@@ -1306,7 +1631,7 @@ class OrganizationServiceImplTest {
 
         OrganizationStatsResponse stats = createService(
                 new WebsiteUrlServiceImpl()
-        ).me().stats();
+        ).me(null).stats();
 
         assertEquals(7L, stats.activePrograms());
         verify(programRepository, never())

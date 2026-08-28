@@ -130,7 +130,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(ProgramRequestDto.builder()
+        service().createProgram(null, ProgramRequestDto.builder()
                 .handle("acme-security")
                 .name("Acme Security Program")
                 .engagementType(EngagementType.BOUNTY)
@@ -164,7 +164,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(ProgramRequestDto.builder()
+        service().createProgram(null, ProgramRequestDto.builder()
                 .handle("acme-security")
                 .name("Acme Security Program")
                 .engagementType(EngagementType.BOUNTY)
@@ -197,7 +197,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(ProgramRequestDto.builder()
+        service().createProgram(null, ProgramRequestDto.builder()
                 .handle("acme-security")
                 .name("Acme Security Program")
                 .engagementType(EngagementType.BOUNTY)
@@ -227,7 +227,7 @@ class ProgramServiceImplTest {
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> service().createProgram(ProgramRequestDto.builder()
+                () -> service().createProgram(null, ProgramRequestDto.builder()
                         .handle("acme-security")
                         .name("Acme Security Program")
                         .engagementType(EngagementType.BOUNTY)
@@ -337,7 +337,7 @@ class ProgramServiceImplTest {
                 .thenReturn(List.of());
 
         var programs = service(new ProgramMapper())
-                .getMyPrograms(pageable)
+                .getMyPrograms(null, pageable)
                 .getContent();
 
         assertEquals(1, programs.size());
@@ -372,7 +372,7 @@ class ProgramServiceImplTest {
                 .thenReturn(List.of(inScope, outOfScope));
 
         var response = service(new ProgramMapper())
-                .getMyPrograms(pageable)
+                .getMyPrograms(null, pageable)
                 .getContent()
                 .getFirst();
 
@@ -405,7 +405,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(ProgramRequestDto.builder()
+        service().createProgram(null, ProgramRequestDto.builder()
                 .handle("public-before-approval")
                 .name("Public Program Awaiting Approval")
                 .engagementType(EngagementType.BOUNTY)
@@ -992,7 +992,7 @@ class ProgramServiceImplTest {
                 any(PageRequest.class)
         )).thenReturn(new PageImpl<>(List.of(program)));
 
-        service().getMyDeletedPrograms(PageRequest.of(
+        service().getMyDeletedPrograms(null, PageRequest.of(
                 0,
                 20,
                 Sort.by(Sort.Direction.DESC, "deletedAt")

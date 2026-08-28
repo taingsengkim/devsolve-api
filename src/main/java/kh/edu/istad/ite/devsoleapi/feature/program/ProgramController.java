@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Size;
@@ -39,6 +40,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+
+import static kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService.ORGANIZATION_PARAMETER_DESCRIPTION;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -128,6 +131,8 @@ public class ProgramController {
 
     @GetMapping("/organizations/me/programs")
     public Page<ProgramManagementSummaryResponseDto> getMyPrograms(
+            @Parameter(description = ORGANIZATION_PARAMETER_DESCRIPTION)
+            @RequestParam(required = false) UUID organizationId,
             @PageableDefault(
                     size = 20,
                     sort = "updatedAt",
@@ -136,7 +141,7 @@ public class ProgramController {
             @ParameterObject
             Pageable pageable
     ) {
-        return programService.getMyPrograms(pageable);
+        return programService.getMyPrograms(organizationId, pageable);
     }
 
     /**
@@ -144,9 +149,10 @@ public class ProgramController {
      * literal segment wins over the variable, so "deleted" never reaches the
      * UUID converter.
      */
-
     @GetMapping("/organizations/me/programs/deleted")
     public Page<ProgramManagementSummaryResponseDto> getMyDeletedPrograms(
+            @Parameter(description = ORGANIZATION_PARAMETER_DESCRIPTION)
+            @RequestParam(required = false) UUID organizationId,
             @PageableDefault(
                     size = 20,
                     sort = "deletedAt",
@@ -155,9 +161,14 @@ public class ProgramController {
             @ParameterObject
             Pageable pageable
     ) {
-        return programService.getMyDeletedPrograms(pageable);
+        return programService.getMyDeletedPrograms(organizationId, pageable);
     }
 
+    /**
+     * Takes no organization: the program id already names one, and the caller
+     * is checked for VIEW_PROGRAMS at that organization rather than at
+     * whichever one they happen to be resolved to.
+     */
     @GetMapping("/organizations/me/programs/{id}")
     public ProgramResponseDto getMyProgram(@PathVariable UUID id) {
         return programService.getMyProgram(id);
@@ -166,9 +177,11 @@ public class ProgramController {
     @PostMapping("/organizations/me/programs")
     @ResponseStatus(HttpStatus.CREATED)
     public ProgramResponseDto createProgram(
+            @Parameter(description = ORGANIZATION_PARAMETER_DESCRIPTION)
+            @RequestParam(required = false) UUID organizationId,
             @Valid @RequestBody ProgramRequestDto request
     ) {
-        return programService.createProgram(request);
+        return programService.createProgram(organizationId, request);
     }
 
     @PatchMapping({

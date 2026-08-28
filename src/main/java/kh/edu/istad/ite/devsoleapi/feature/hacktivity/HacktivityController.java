@@ -1,9 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.hacktivity;
 
-import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import io.swagger.v3.oas.annotations.Parameter;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.dto.HacktivityResponse;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -15,10 +14,12 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-
 import java.util.UUID;
+
+import static kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService.ORGANIZATION_PARAMETER_DESCRIPTION;
 
 @RestController
 @RequiredArgsConstructor
@@ -26,7 +27,7 @@ import java.util.UUID;
 public class HacktivityController {
 
     private final HacktivityService hacktivityService;
-    private final OrganizationMemberRepository organizationMemberRepository;
+    private final OrganizationAuthorizationService organizationAuthorization;
 
 
     @GetMapping("/hacktivity")
@@ -100,11 +101,18 @@ public class HacktivityController {
     }
 
 
+    /**
+     * Resolved through the shared organization lookup rather than a membership
+     * row of its own, so an owner — who has no such row — reaches their own
+     * company's hacktivity, and an account at two companies is asked which one
+     * instead of failing on a lookup that expects exactly one.
+     */
     @GetMapping("/organizations/me/hacktivity")
     @PreAuthorize("hasAnyRole('MEMBER', 'ADMIN')")
     public Page<HacktivityResponse> getMyOrganizationHacktivity(
             @AuthenticationPrincipal Jwt jwt,
-
+            @Parameter(description = ORGANIZATION_PARAMETER_DESCRIPTION)
+            @RequestParam(required = false) UUID organizationId,
             @PageableDefault(
                     size = 10,
                     sort = "createdAt",
@@ -112,23 +120,12 @@ public class HacktivityController {
             )
             Pageable pageable
     ) {
-
         UUID userId = UUID.fromString(jwt.getSubject());
 
-        OrganizationMember membership =
-                organizationMemberRepository
-                        .findByUserId(userId)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "User is not a member of any organization: "
-                                                + userId
-                                )
-                        );
-
-        UUID organizationId = membership.getOrganization().getId();
-
         return hacktivityService.getOrganizationHacktivity(
-                organizationId,
+                organizationAuthorization
+                        .findAccessibleOrganization(userId, organizationId)
+                        .getId(),
                 pageable
         );
     }

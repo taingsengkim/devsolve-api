@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
@@ -27,9 +28,24 @@ public record MemberResponse(
         String username,
         String name,
         String email,
+
+        @Schema(
+                nullable = true,
+                description = "Null for the owner, who holds every permission "
+                        + "without holding a role. Constrains permissions: a "
+                        + "member may not be granted more than the role allows."
+        )
         OrgRole role,
+
         Set<OrganizationPermission> permissions,
+
+        @Schema(
+                description = "ACTIVE for somebody on the team, SUSPENDED for "
+                        + "an invitation not yet accepted. REMOVED members are "
+                        + "not listed at all."
+        )
         MembershipStatus status,
+
         boolean invitationPending,
         boolean self,
         boolean owner,
