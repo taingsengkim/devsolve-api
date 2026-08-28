@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -18,7 +19,13 @@ public record InviteMemberRequest(
 
         // Uncapped for the same reason as UpdateMemberPermissionsRequest: a
         // Set of an enum is already bounded by the enum, and a number here
-        // only goes stale. Null means "use the role's defaults".
+        // only goes stale.
+        @Schema(
+                nullable = true,
+                description = "Omit to grant the role's defaults, which "
+                        + "GET /api/v1/organizations/roles publishes. Anything "
+                        + "outside the role's allowed set is refused with 422."
+        )
         Set<OrganizationPermission> permissions
 ) {
     public InviteMemberRequest(String email, OrgRole role) {

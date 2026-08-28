@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserSocialLink;
@@ -71,6 +72,8 @@ class UserProfileServiceImplTest {
     private UserResource userResource;
     @Mock
     private ImageStorageService imageStorageService;
+    @Mock
+    private OrganizationAuthorizationService organizationAuthorization;
 
     @AfterEach
     void clearSecurityContext() {
@@ -266,6 +269,62 @@ class UserProfileServiceImplTest {
         assertEquals(profile.getCountry(), response.country());
     }
 
+    /**
+     * The roster already shows a colleague this address, so a profile page
+     * hiding it from the same viewer was inconsistent rather than protective.
+     */
+    @Test
+    void aColleagueSeesTheEmailOnAProfile() {
+        UserProfile profile = profile();
+        UUID viewerId = UUID.randomUUID();
+        authenticate(viewerId, "MEMBER");
+        when(userProfileRepository.findByIdAndStatus(
+                profile.getId(),
+                UserStatus.ACTIVE
+        )).thenReturn(Optional.of(profile));
+        when(organizationAuthorization.shareOrganization(
+                viewerId,
+                profile.getId()
+        )).thenReturn(true);
+
+        assertEquals(
+                profile.getEmail(),
+                service().getPublicProfile(profile.getId()).email()
+        );
+    }
+
+    @Test
+    void anAnonymousOrUnrelatedReaderDoesNotSeeTheEmail() {
+        UserProfile profile = profile();
+        when(userProfileRepository.findByIdAndStatus(
+                profile.getId(),
+                UserStatus.ACTIVE
+        )).thenReturn(Optional.of(profile));
+
+        assertNull(service().getPublicProfile(profile.getId()).email());
+        verify(organizationAuthorization, never())
+                .shareOrganization(any(), any());
+    }
+
+    /**
+     * A directory would otherwise pay two organization lookups per row for a
+     * column it does not show.
+     */
+    @Test
+    void theDirectoryNeverPaysForTheEmailCheck() {
+        when(userProfileRepository.findAllByStatus(
+                eq(UserStatus.ACTIVE),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(profile())));
+
+        Page<PublicUserProfileResponse> result = service()
+                .getPublicProfiles(null, 0, 20);
+
+        assertNull(result.getContent().getFirst().email());
+        verify(organizationAuthorization, never())
+                .shareOrganization(any(), any());
+    }
+
     @Test
     void unavailableOrSuspendedProfileIsNotPubliclyDiscoverable() {
         UUID userId = UUID.randomUUID();
@@ -413,7 +472,8 @@ class UserProfileServiceImplTest {
                 userProfileRepository,
                 userProfileMapper,
                 new SocialLinkValidator(),
-                imageStorageService
+                imageStorageService,
+                organizationAuthorization
         );
     }
 

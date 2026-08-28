@@ -1,7 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.common.exception;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Map;
 
 /**
  * A refusal that names the permission the caller was missing.
@@ -12,12 +13,8 @@ import org.springframework.web.server.ResponseStatusException;
  * honest one. The permission travels in {@code errorDetails.requiredPermission}
  * so the caller can hide the entry rather than offer an action the API then
  * rejects.
- *
- * <p>Extends {@link ResponseStatusException} so that callers already catching
- * it — {@code OrganizationAuthorizationService.hasPermission} turns a refusal
- * into a boolean — keep working unchanged.
  */
-public class MissingPermissionException extends ResponseStatusException {
+public class MissingPermissionException extends DetailedApiException {
 
     private final String requiredPermission;
 
@@ -25,7 +22,11 @@ public class MissingPermissionException extends ResponseStatusException {
             String requiredPermission,
             String reason
     ) {
-        super(HttpStatus.FORBIDDEN, reason);
+        super(
+                HttpStatus.FORBIDDEN,
+                reason,
+                Map.of("requiredPermission", requiredPermission)
+        );
         this.requiredPermission = requiredPermission;
     }
 

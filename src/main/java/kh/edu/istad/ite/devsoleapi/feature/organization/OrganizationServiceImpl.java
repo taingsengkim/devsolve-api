@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.common.exception.DetailedApiException;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
@@ -16,11 +17,13 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSu
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.RejectOrganizationRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRoleResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
@@ -161,14 +164,37 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
     }
 
+    /**
+     * The organization behind the caller's company workspace.
+     *
+     * <p>Resolved the same way the rest of the workspace is — owned first,
+     * then joined — rather than by ownership alone. A member who accepted an
+     * invitation works at the company too, and answering them "you do not own
+     * an organization" left every screen built on this endpoint blank for
+     * everyone but whoever registered it.
+     */
     @Override
     @Transactional(readOnly = true)
-    public OrganizationResponse me() {
-        Organization organization = findMyOrganization();
+    public OrganizationResponse me(UUID organizationId) {
+        Organization organization = findMyTeamOrganization(
+                extractCurrentUserId(getCurrentJwt()),
+                organizationId
+        );
         return organizationMapper.toOrganizationResponse(
                 organization,
                 statsFor(organization, true)
         );
+    }
+
+    @Override
+    public List<OrganizationRoleResponse> getRoles() {
+        return Arrays.stream(OrgRole.values())
+                .map(role -> new OrganizationRoleResponse(
+                        role,
+                        OrganizationPermission.defaultsFor(role),
+                        OrganizationPermission.ceilingFor(role)
+                ))
+                .toList();
     }
 
     @Override
@@ -372,9 +398,12 @@ public class OrganizationServiceImpl implements OrganizationService {
      */
     @Override
     @Transactional(readOnly = true)
-    public List<MemberResponse> getMyMembers() {
+    public List<MemberResponse> getMyMembers(UUID organizationId) {
         UUID callerId = extractCurrentUserId(getCurrentJwt());
-        Organization organization = findMyTeamOrganization(callerId);
+        Organization organization = findMyTeamOrganization(
+                callerId,
+                organizationId
+        );
 
         List<MemberResponse> roster = new ArrayList<>();
         roster.add(organizationMapper.toOwnerMemberResponse(
@@ -397,8 +426,11 @@ public class OrganizationServiceImpl implements OrganizationService {
 
     @Override
     @Transactional
-    public InvitationResponse inviteMember(InviteMemberRequest request) {
-        Organization organization = findManageableOrganization();
+    public InvitationResponse inviteMember(
+            UUID organizationId,
+            InviteMemberRequest request
+    ) {
+        Organization organization = findManageableOrganization(organizationId);
         UserProfile invitedBy = organization.getOwner();
         UserProfile invitedUser = userProfileRepository
                 .findByEmailIgnoreCase(request.email().trim())
@@ -447,7 +479,10 @@ public class OrganizationServiceImpl implements OrganizationService {
         if (request.permissions() == null) {
             member.applyRoleDefaults();
         } else {
-            member.setPermissions(request.permissions());
+            member.setPermissions(withinRoleCeiling(
+                    request.role(),
+                    request.permissions()
+            ));
         }
         member.setStatus(MembershipStatus.SUSPENDED);
         member.setInvitedBy(invitedBy);
@@ -500,13 +535,20 @@ public class OrganizationServiceImpl implements OrganizationService {
         );
     }
 
+    /**
+     * A role change resets the permission set to that role's defaults rather
+     * than leaving the old one in place. Keeping it would let a demotion be
+     * cosmetic — a MANAGER moved to VIEWER who still held MANAGE_MEMBERS is
+     * still a manager in every way that matters.
+     */
     @Override
     @Transactional
     public MemberResponse updateMemberRole(
+            UUID organizationId,
             UUID targetUserId,
             UpdateMemberRoleRequest request
     ) {
-        Organization organization = findManageableOrganization();
+        Organization organization = findManageableOrganization(organizationId);
         OrganizationMember member = findManageableMembership(
                 organization,
                 targetUserId
@@ -523,16 +565,20 @@ public class OrganizationServiceImpl implements OrganizationService {
     @Override
     @Transactional
     public MemberResponse updateMemberPermissions(
+            UUID organizationId,
             UUID targetUserId,
             UpdateMemberPermissionsRequest request
     ) {
-        Organization organization = findManageableOrganization();
+        Organization organization = findManageableOrganization(organizationId);
         OrganizationMember member = findManageableMembership(
                 organization,
                 targetUserId
         );
 
-        member.setPermissions(request.permissions());
+        member.setPermissions(withinRoleCeiling(
+                member.getRole(),
+                request.permissions()
+        ));
         return organizationMapper.toMemberResponse(
                 member,
                 extractCurrentUserId(getCurrentJwt())
@@ -541,14 +587,55 @@ public class OrganizationServiceImpl implements OrganizationService {
 
     @Override
     @Transactional
-    public void removeMember(UUID targetUserId) {
-        Organization organization = findManageableOrganization();
+    public void removeMember(UUID organizationId, UUID targetUserId) {
+        Organization organization = findManageableOrganization(organizationId);
         OrganizationMember member = findManageableMembership(
                 organization,
                 targetUserId
         );
 
         member.markAsRemoved();
+    }
+
+    /**
+     * The permissions as asked for, once the role is known to allow them.
+     *
+     * <p>Role and permissions were independent, so a VIEWER could be granted
+     * CREATE_PROGRAM and the API took it — leaving a client that gates on
+     * permissions letting that person create programs under a badge reading
+     * "Viewer". The refusal names the offending values so the client can point
+     * at them instead of rejecting the whole form.
+     */
+    private Set<OrganizationPermission> withinRoleCeiling(
+            OrgRole role,
+            Set<OrganizationPermission> permissions
+    ) {
+        Set<OrganizationPermission> allowed =
+                OrganizationPermission.ceilingFor(role);
+
+        EnumSet<OrganizationPermission> denied =
+                EnumSet.noneOf(OrganizationPermission.class);
+        denied.addAll(permissions);
+        denied.removeAll(allowed);
+
+        if (!denied.isEmpty()) {
+            throw new DetailedApiException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "The " + role + " role may not hold " + denied,
+                    Map.of(
+                            "role", role.name(),
+                            "deniedPermissions", names(denied),
+                            "allowedPermissions", names(allowed)
+                    )
+            );
+        }
+        return permissions;
+    }
+
+    private List<String> names(Collection<OrganizationPermission> permissions) {
+        return permissions.stream()
+                .map(OrganizationPermission::name)
+                .toList();
     }
 
     /**
@@ -874,10 +961,6 @@ public class OrganizationServiceImpl implements OrganizationService {
                 ));
     }
 
-    private Organization findMyActiveOrganization() {
-        return requireActiveOrganization(findMyOrganization());
-    }
-
     private Organization requireActiveOrganization(
             Organization organization
     ) {
@@ -1003,12 +1086,20 @@ public class OrganizationServiceImpl implements OrganizationService {
      * review has a team screen too, and its own roster is not something the
      * review withholds from them. Everyone else is resolved through
      * membership, which only an active organization can grant.
+     *
+     * @param organizationId which organization, for an account that belongs to
+     *                       more than one. Null asks for the only one there is.
      */
-    private Organization findMyTeamOrganization(UUID callerId) {
+    private Organization findMyTeamOrganization(
+            UUID callerId,
+            UUID organizationId
+    ) {
         return organizationRepository
                 .findByOwnerIdAndDeletedAtIsNull(callerId)
+                .filter(owned -> organizationId == null
+                        || organizationId.equals(owned.getId()))
                 .orElseGet(() -> organizationAuthorization
-                        .findSingleAccessibleOrganization(callerId));
+                        .findAccessibleOrganization(callerId, organizationId));
     }
 
     /**
@@ -1022,14 +1113,17 @@ public class OrganizationServiceImpl implements OrganizationService {
      * answer "you do not have MANAGE_MEMBERS" to the one person who does, and
      * a client cannot act on that.
      */
-    private Organization findManageableOrganization() {
+    private Organization findManageableOrganization(UUID organizationId) {
         UUID callerId = extractCurrentUserId(getCurrentJwt());
         organizationRepository
                 .findByOwnerIdAndDeletedAtIsNull(callerId)
+                .filter(owned -> organizationId == null
+                        || organizationId.equals(owned.getId()))
                 .ifPresent(this::requireActiveOrganization);
 
-        return organizationAuthorization.findSingleAccessibleOrganization(
+        return organizationAuthorization.findAccessibleOrganization(
                 callerId,
+                organizationId,
                 OrganizationPermission.MANAGE_MEMBERS
         );
     }

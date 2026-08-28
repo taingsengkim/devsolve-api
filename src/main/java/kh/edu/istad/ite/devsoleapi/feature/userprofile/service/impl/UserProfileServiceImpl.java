@@ -4,6 +4,7 @@ import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.SocialPlatform;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserSocialLink;
@@ -27,7 +28,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -50,6 +53,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserProfileMapper userProfileMapper;
     private final SocialLinkValidator socialLinkValidator;
     private final ImageStorageService imageStorageService;
+    private final OrganizationAuthorizationService organizationAuthorization;
 
     @Override
     @Transactional(readOnly = true)
@@ -202,7 +206,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                         userId,
                         UserStatus.ACTIVE
                 )
-                .map(this::toPublicProfile)
+                .map(this::toProfileForViewer)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Public user profile not found"
                 ));
@@ -353,10 +357,41 @@ public class UserProfileServiceImpl implements UserProfileService {
                         username == null ? "" : username.trim(),
                         UserStatus.ACTIVE
                 )
-                .map(this::toPublicProfile)
+                .map(this::toProfileForViewer)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Public user profile not found"
                 ));
+    }
+
+    /**
+     * The profile, with the email filled in only for somebody entitled to it.
+     *
+     * <p>These endpoints are open to anonymous callers, so the common case has
+     * no viewer at all and the address is simply left out.
+     */
+    private PublicUserProfileResponse toProfileForViewer(UserProfile profile) {
+        UUID viewerId = currentUserIdOrNull();
+        boolean visible = viewerId != null
+                && (viewerId.equals(profile.getId())
+                || organizationAuthorization.shareOrganization(
+                        viewerId,
+                        profile.getId()
+                ));
+
+        return toPublicProfile(profile, visible ? profile.getEmail() : null);
+    }
+
+    private UUID currentUserIdOrNull() {
+        Authentication authentication = AuthUtils.getAuth();
+        if (!(authentication instanceof JwtAuthenticationToken token)
+                || !authentication.isAuthenticated()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(token.getToken().getSubject());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            return null;
+        }
     }
 
     @Override
@@ -398,13 +433,28 @@ public class UserProfileServiceImpl implements UserProfileService {
         return UsernameAvailabilityResponse.available(username);
     }
 
+    /**
+     * A directory row, where the email is always withheld.
+     *
+     * <p>Establishing that a viewer is a colleague costs two organization
+     * lookups, which on a page of profiles is a query per row for a column no
+     * directory shows. The single-profile reads pay it; a listing does not.
+     */
     private PublicUserProfileResponse toPublicProfile(
             UserProfile profile
+    ) {
+        return toPublicProfile(profile, null);
+    }
+
+    private PublicUserProfileResponse toPublicProfile(
+            UserProfile profile,
+            String email
     ) {
         return new PublicUserProfileResponse(
                 profile.getId(),
                 profile.getUsername(),
                 profile.getFullName(),
+                email,
                 profile.getBiography(),
                 profile.getAvatarUrl(),
                 profile.getCountry(),
