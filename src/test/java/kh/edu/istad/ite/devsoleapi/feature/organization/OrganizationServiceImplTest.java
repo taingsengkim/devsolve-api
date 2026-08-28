@@ -9,9 +9,11 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.RejectOrganizationRe
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationMembershipResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationNextAction;
@@ -46,6 +48,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -462,6 +465,106 @@ class OrganizationServiceImplTest {
     }
 
     @Test
+    void myMembershipsCarriesTheOwnedOrganizationAndTheAcceptedInvitations() {
+        UUID userId = UUID.randomUUID();
+        authenticateCompany(userId, "member@acme.com");
+
+        UserProfile member = new UserProfile();
+        member.setId(userId);
+        member.setEmail("member@acme.com");
+        member.setFullName("Acme Member");
+
+        Organization owned = reviewOrganization(OrganizationStatus.PENDING);
+        owned.getOwner().setId(userId);
+
+        Organization joinedFirst = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        Organization joinedLater = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        Organization deleted = reviewOrganization(OrganizationStatus.ACTIVE);
+        deleted.setDeletedAt(LocalDateTime.now());
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(owned));
+        when(memberRepository.findByUserIdAndStatus(
+                userId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(
+                membership(
+                        joinedLater,
+                        member,
+                        OrgRole.VIEWER,
+                        LocalDateTime.now().minusDays(1)
+                ),
+                membership(
+                        deleted,
+                        member,
+                        OrgRole.MANAGER,
+                        LocalDateTime.now().minusDays(3)
+                ),
+                membership(
+                        joinedFirst,
+                        member,
+                        OrgRole.MEMBER,
+                        LocalDateTime.now().minusDays(2)
+                )
+        ));
+
+        List<OrganizationMembershipResponse> memberships = createService(
+                new WebsiteUrlServiceImpl()
+        ).getMyMemberships();
+
+        assertEquals(3, memberships.size());
+
+        OrganizationMembershipResponse ownedMembership = memberships.get(0);
+        assertEquals(owned.getId(), ownedMembership.organizationId());
+        assertTrue(ownedMembership.owner());
+        assertNull(ownedMembership.role());
+        assertEquals(
+                EnumSet.allOf(OrganizationPermission.class),
+                ownedMembership.permissions()
+        );
+        // The company is still under review, and the client is told so rather
+        // than shown nothing.
+        assertEquals(
+                OrganizationStatus.PENDING,
+                ownedMembership.organizationStatus()
+        );
+
+        assertEquals(joinedFirst.getId(), memberships.get(1).organizationId());
+        assertEquals(OrgRole.MEMBER, memberships.get(1).role());
+        assertTrue(memberships.get(1).permissions().contains(
+                OrganizationPermission.TRIAGE_REPORTS
+        ));
+        assertEquals(false, memberships.get(1).owner());
+
+        assertEquals(joinedLater.getId(), memberships.get(2).organizationId());
+        assertEquals(
+                OrganizationPermission.defaultsFor(OrgRole.VIEWER),
+                memberships.get(2).permissions()
+        );
+    }
+
+    @Test
+    void myMembershipsIsEmptyForAnAccountAtNoCompany() {
+        UUID userId = UUID.randomUUID();
+        authenticateCompany(userId, "researcher@example.com");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                userId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of());
+
+        assertTrue(createService(new WebsiteUrlServiceImpl())
+                .getMyMemberships()
+                .isEmpty());
+    }
+
+    @Test
     void adminListsAndFiltersAllOrganizationsNewestFirst() {
         authenticate("ADMIN");
         Organization organization = reviewOrganization(
@@ -848,6 +951,24 @@ class OrganizationServiceImplTest {
         organization.setCreatedAt(LocalDateTime.now().minusDays(1));
         organization.setUpdatedAt(LocalDateTime.now());
         return organization;
+    }
+
+    private OrganizationMember membership(
+            Organization organization,
+            UserProfile user,
+            OrgRole role,
+            LocalDateTime joinedAt
+    ) {
+        OrganizationMember member = new OrganizationMember(
+                organization,
+                user,
+                role
+        );
+        member.setStatus(MembershipStatus.ACTIVE);
+        member.setInvitedBy(organization.getOwner());
+        member.setInvitationEmail(user.getEmail());
+        member.setJoinedAt(joinedAt);
+        return member;
     }
 
     private OrganizationMember invitation(

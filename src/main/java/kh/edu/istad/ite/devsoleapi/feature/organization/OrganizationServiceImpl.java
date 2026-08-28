@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationMembershipResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
@@ -526,6 +527,56 @@ public class OrganizationServiceImpl implements OrganizationService {
         }
 
         member.markAsRemoved();
+    }
+
+    /**
+     * Every organization the caller can act in, owned or joined.
+     *
+     * <p>The one endpoint that answers "does this account belong to a company".
+     * Nothing else could: {@link #me()} and every other {@code /me} route
+     * resolves an organization by owner, so an accepted invitation was written
+     * to {@code organization_members} and then never read back — the member's
+     * role and permissions survived only in the response to the accept call
+     * itself, and were gone by their next sign-in. The Keycloak token is no
+     * help either, as the COMPANY realm role is granted at company
+     * registration and accepting an invitation does not, and should not, hand
+     * a researcher account a second platform role.
+     *
+     * <p>Owned first, then joined, oldest membership first. Organizations that
+     * are not ACTIVE are kept rather than filtered: the caller does belong to
+     * one under review, and each entry carries the status so the client can say
+     * so instead of showing nothing.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrganizationMembershipResponse> getMyMemberships() {
+        UUID currentUserId = extractCurrentUserId(getCurrentJwt());
+        Map<UUID, OrganizationMembershipResponse> memberships =
+                new LinkedHashMap<>();
+
+        organizationRepository
+                .findByOwnerIdAndDeletedAtIsNull(currentUserId)
+                .ifPresent(organization -> memberships.put(
+                        organization.getId(),
+                        organizationMapper.toOwnerMembership(organization)
+                ));
+
+        memberRepository
+                .findByUserIdAndStatus(currentUserId, MembershipStatus.ACTIVE)
+                .stream()
+                .filter(member ->
+                        member.getOrganization().getDeletedAt() == null
+                )
+                .sorted(Comparator.comparing(
+                        OrganizationMember::getJoinedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())
+                ))
+                .forEach(member -> memberships.putIfAbsent(
+                        member.getOrganization().getId(),
+                        organizationMapper.toMembership(member)
+                ));
+
+        return List.copyOf(memberships.values());
     }
 
     @Override
