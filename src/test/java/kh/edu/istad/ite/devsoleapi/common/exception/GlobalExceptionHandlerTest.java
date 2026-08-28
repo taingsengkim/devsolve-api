@@ -151,6 +151,24 @@ class GlobalExceptionHandlerTest {
                 .andExpect(jsonPath("$.errorDetails.size").isNotEmpty());
     }
 
+    /**
+     * A message is enough to show a user and not enough to validate against,
+     * so a client keeps its own copy of the bound — and that copy is wrong the
+     * day this one changes. The constraint travels beside the message so there
+     * is nothing left to duplicate.
+     */
+    @Test
+    void aRejectedValueCarriesTheRuleItBroke() throws Exception {
+        mockMvc.perform(get("/boom/validated"))
+                .andExpect(status().isBadRequest())
+                // errorDetails is unchanged for clients already reading it
+                .andExpect(jsonPath("$.errorDetails.size").isNotEmpty())
+                .andExpect(jsonPath("$.violations[0].field").value("size"))
+                .andExpect(jsonPath("$.violations[0].constraint").value("Max"))
+                .andExpect(jsonPath("$.violations[0].rule.value").value(100))
+                .andExpect(jsonPath("$.violations[0].rule.message").doesNotExist());
+    }
+
     @Test
     void malformedPathVariableIsBadRequest() throws Exception {
         mockMvc.perform(get("/boom/by-id/not-a-uuid"))

@@ -68,8 +68,29 @@ class ProgramRequestValidationTest {
         assertTrue(validator.validate(request).isEmpty());
     }
 
+    /**
+     * A wizard with a "Save draft" button on every step cannot satisfy the
+     * published-program contract on step one, and the only way it could was by
+     * inventing the answers to the later steps. An invented policy nobody
+     * revisits is the policy researchers end up bound by, so absence has to be
+     * expressible. Completeness is checked at submission instead.
+     */
     @Test
-    void invalidProgramSetupReportsRequiredFieldsAndNestedErrors() {
+    void aDraftMayCarryNothingButAHandleAndAName() {
+        ProgramRequestDto request = ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .build();
+
+        assertTrue(validator.validate(request).isEmpty());
+    }
+
+    /**
+     * Absence is what a draft is allowed; nonsense is not. Nothing here is
+     * merely missing — every value supplied is one the API could not store.
+     */
+    @Test
+    void aDraftIsStillHeldToTheFormatOfWhateverItSupplies() {
         ProgramRequestDto request = new ProgramRequestDto(
                 "Invalid Handle",
                 " ",
@@ -77,7 +98,7 @@ class ProgramRequestValidationTest {
                 null,
                 Visibility.PRIVATE,
                 null,
-                " ",
+                null,
                 null,
                 null,
                 null,
@@ -97,7 +118,7 @@ class ProgramRequestValidationTest {
         Set<ConstraintViolation<ProgramRequestDto>> violations =
                 validator.validate(request);
 
-        assertEquals(11, violations.size());
+        assertEquals(6, violations.size());
         assertTrue(violations.stream().anyMatch(violation ->
                 violation.getPropertyPath().toString().equals("handle")
         ));
@@ -105,22 +126,20 @@ class ProgramRequestValidationTest {
                 violation.getPropertyPath().toString()
                         .equals("assets[0].assetType")
         ));
-        assertTrue(violations.stream().anyMatch(violation ->
+        // The three guideline blocks are absent, not wrong, and a draft may
+        // leave them so.
+        assertTrue(violations.stream().noneMatch(violation ->
                 violation.getPropertyPath().toString()
-                        .equals("proofOfConceptRequirements")
-        ));
-        assertTrue(violations.stream().anyMatch(violation ->
-                violation.getPropertyPath().toString()
-                        .equals("rulesOfEngagement")
-        ));
-        assertTrue(violations.stream().anyMatch(violation ->
-                violation.getPropertyPath().toString()
-                        .equals("exclusions")
+                        .startsWith("proofOfConceptRequirements")
+                        || violation.getPropertyPath().toString()
+                        .startsWith("rulesOfEngagement")
+                        || violation.getPropertyPath().toString()
+                        .startsWith("exclusions")
         ));
     }
 
     @Test
-    void guidelinesRejectBlankDescriptionAndRules() {
+    void guidelinesAcceptAMissingDescriptionButNotABlankRule() {
         ProgramRequestDto request = new ProgramRequestDto(
                 "acme-security",
                 "Acme Security Program",
@@ -133,7 +152,7 @@ class ProgramRequestValidationTest {
                         "Include reproducible steps and evidence",
                         "Attach a request trace"
                 ),
-                new ProgramGuidelinesDto(" ", List.of(" ")),
+                new ProgramGuidelinesDto(null, List.of(" ")),
                 guidelines("These findings are excluded", "Self-XSS"),
                 false,
                 null,
@@ -151,10 +170,12 @@ class ProgramRequestValidationTest {
         Set<ConstraintViolation<ProgramRequestDto>> violations =
                 validator.validate(request);
 
-        assertTrue(violations.stream().anyMatch(violation ->
+        // A description not written yet is a step the author has not reached.
+        assertTrue(violations.stream().noneMatch(violation ->
                 violation.getPropertyPath().toString()
                         .equals("rulesOfEngagement.description")
         ));
+        // A rule that is only whitespace is one they cannot have meant.
         assertTrue(violations.stream().anyMatch(violation ->
                 violation.getPropertyPath().toString()
                         .startsWith("rulesOfEngagement.rules[0]")

@@ -18,6 +18,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramHandleAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
@@ -191,7 +192,7 @@ public class ProgramServiceImpl implements ProgramService {
     @Transactional(readOnly = true)
     public PublicProgramResponseDto getPublicProgramByHandle(String handle) {
         Program program = programRepository
-                .findByHandle(normalizeHandle(handle))
+                .findByHandle(ProgramHandlePolicy.normalize(handle))
                 .filter(this::isPubliclyAccessible)
                 .orElseThrow(this::programNotFound);
         return toPublicResponse(program);
@@ -282,6 +283,55 @@ public class ProgramServiceImpl implements ProgramService {
         ));
     }
 
+    /**
+     * Whether a handle can be taken, answered while somebody is still typing
+     * it rather than after four wizard steps.
+     *
+     * <p>Checks every program regardless of state, visibility or deletion,
+     * because that is what {@link #requireUniqueHandle} enforces on the write.
+     * An availability check that consulted a narrower set would call a handle
+     * free and then watch the save reject it, which is the failure it exists
+     * to prevent.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ProgramHandleAvailabilityResponse checkHandleAvailability(
+            String handle,
+            UUID excludedProgramId
+    ) {
+        String normalized = ProgramHandlePolicy.normalize(
+                handle == null ? "" : handle
+        );
+
+        if (normalized.length() < ProgramHandlePolicy.MIN_LENGTH
+                || normalized.length() > ProgramHandlePolicy.MAX_LENGTH) {
+            return ProgramHandleAvailabilityResponse.unavailable(
+                    normalized,
+                    ProgramHandlePolicy.LENGTH_MESSAGE
+            );
+        }
+        if (!ProgramHandlePolicy.isValid(normalized)) {
+            return ProgramHandleAvailabilityResponse.unavailable(
+                    normalized,
+                    ProgramHandlePolicy.FORMAT_MESSAGE
+            );
+        }
+
+        boolean taken = excludedProgramId == null
+                ? programRepository.existsByHandleIgnoreCase(normalized)
+                : programRepository.existsByHandleIgnoreCaseAndIdNot(
+                        normalized,
+                        excludedProgramId
+                );
+
+        return taken
+                ? ProgramHandleAvailabilityResponse.unavailable(
+                        normalized,
+                        "Already used by another program"
+                )
+                : ProgramHandleAvailabilityResponse.available(normalized);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public ProgramResponseDto getMyProgram(UUID id) {
@@ -292,10 +342,19 @@ public class ProgramServiceImpl implements ProgramService {
         return mapper.toResponseDto(program);
     }
 
+    /**
+     * @param submit whether to hand the program to administrators in the same
+     *               transaction. Creating and then submitting as two calls
+     *               leaves a draft the author never meant to keep whenever the
+     *               second call fails, and tells them submission failed while
+     *               it sits in their list. Equivalent to {@code state=ACTIVE},
+     *               which says the same thing less plainly.
+     */
     @Override
     @Transactional
     public ProgramResponseDto createProgram(
             UUID organizationId,
+            boolean submit,
             ProgramRequestDto request
     ) {
         Organization organization = findAccessibleOrganization(
@@ -306,15 +365,24 @@ public class ProgramServiceImpl implements ProgramService {
 
         Program program = mapper.toEntity(request);
         program.setOrganizationId(organization.getId());
-        program.setState(resolveInitialState(request.state()));
         // Asking to start ACTIVE is the organization saying the program is
         // finished, so it goes straight to the queue. A draft stays with its
-        // author until they submit it.
-        boolean submitNow = program.getState() == ProgramState.ACTIVE;
+        // author until they submit it. Resolved before the flag is consulted,
+        // so an incoherent starting state is still refused when submitting.
+        ProgramState requestedState = resolveInitialState(request.state());
+        boolean submitNow = submit || requestedState == ProgramState.ACTIVE;
+        program.setState(submitNow
+                ? ProgramState.ACTIVE
+                : ProgramState.DRAFT);
         program.setSubmissionState(submitNow
                 ? SubmissionState.PENDING_REVIEW
                 : SubmissionState.NOT_SUBMITTED);
-        validateProgramConfiguration(program);
+        // A draft may be incomplete; submission is where completeness is
+        // checked. Validating here too would put the whole published-program
+        // contract in front of a client trying to save step one.
+        if (submitNow) {
+            validateProgramConfiguration(program);
+        }
 
         Program saved = programRepository.saveAndFlush(program);
         ProgramUpdate update = logUpdate(saved,
@@ -359,7 +427,12 @@ public class ProgramServiceImpl implements ProgramService {
                 reviewConfiguration(program);
         Visibility previousVisibility = program.getVisibility();
         mapper.updateEntity(request, program);
-        validateProgramConfiguration(program);
+        // An unsubmitted draft is still being written, so saving one step of it
+        // must not demand the rest. Anything already handed to an administrator
+        // — or live — is held to the full contract on every edit.
+        if (!isUnsubmittedDraft(program)) {
+            validateProgramConfiguration(program);
+        }
         boolean reviewSensitiveChanges = !previousConfiguration.equals(
                 reviewConfiguration(program)
         );
@@ -844,8 +917,19 @@ public class ProgramServiceImpl implements ProgramService {
                 && program.getVisibility() == Visibility.PUBLIC;
     }
 
+    /**
+     * A program still with its author, free to be incomplete. A rejected
+     * program counts: it has come back to be fixed, and holding half a fix to
+     * the full contract is the same trap as holding a new draft to it.
+     */
+    private boolean isUnsubmittedDraft(Program program) {
+        return program.getState() == ProgramState.DRAFT
+                && (program.getSubmissionState() == SubmissionState.NOT_SUBMITTED
+                        || program.getSubmissionState() == SubmissionState.REJECTED);
+    }
+
     private void requireUniqueHandle(String handle, UUID excludedId) {
-        String normalizedHandle = normalizeHandle(handle);
+        String normalizedHandle = ProgramHandlePolicy.normalize(handle);
         boolean exists = excludedId == null
                 ? programRepository.existsByHandleIgnoreCase(normalizedHandle)
                 : programRepository.existsByHandleIgnoreCaseAndIdNot(
@@ -860,7 +944,17 @@ public class ProgramServiceImpl implements ProgramService {
         }
     }
 
+    /**
+     * The full published-program contract, checked wherever a program is
+     * submitted, approved or live — never on a draft.
+     */
     private void validateProgramConfiguration(Program program) {
+        if (program.getEngagementType() == null) {
+            throw badRequest("Engagement type is required");
+        }
+        if (program.getVisibility() == null) {
+            throw badRequest("Visibility is required");
+        }
         if (program.getPolicy() == null || program.getPolicy().isBlank()) {
             throw badRequest("Program policy is required");
         }
@@ -1336,10 +1430,6 @@ public class ProgramServiceImpl implements ProgramService {
                 && isPubliclyAccessible(program)) {
             program.setPublishedAt(LocalDateTime.now());
         }
-    }
-
-    private String normalizeHandle(String handle) {
-        return handle.trim().toLowerCase(Locale.ROOT);
     }
 
     private ResponseStatusException badRequest(String reason) {

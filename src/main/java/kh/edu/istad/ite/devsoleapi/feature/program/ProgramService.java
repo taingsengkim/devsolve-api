@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramHandleAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
@@ -51,10 +52,16 @@ public interface ProgramService {
             Pageable pageable
     );
 
+    ProgramHandleAvailabilityResponse checkHandleAvailability(
+            String handle,
+            UUID excludedProgramId
+    );
+
     ProgramResponseDto getMyProgram(UUID id);
 
     ProgramResponseDto createProgram(
             UUID organizationId,
+            boolean submit,
             ProgramRequestDto request
     );
 

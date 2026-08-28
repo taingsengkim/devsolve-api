@@ -67,6 +67,18 @@ class ProgramControllerTest {
         ));
     }
 
+    /**
+     * The literal segment has to win over {@code /{id}}, or "handle-available"
+     * reaches the UUID converter instead of the check.
+     */
+    @Test
+    void mapsHandleAvailabilityEndpoint() {
+        assertTrue(hasProgramEndpoint(
+                "/api/v1/organizations/me/programs/handle-available",
+                RequestMethod.GET
+        ));
+    }
+
     @Test
     void mapsPublicProgramViewEndpoint() {
         boolean endpointExists = handlerMapping.getHandlerMethods()
