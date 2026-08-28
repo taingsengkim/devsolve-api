@@ -13,7 +13,13 @@ public enum OrganizationPermission {
     TRIAGE_REPORTS,
     MANAGE_DISCLOSURE,
     AWARD_REWARDS,
-    MANAGE_RESEARCHERS;
+    MANAGE_RESEARCHERS,
+    /**
+     * Inviting teammates, changing their role or permissions, and removing
+     * them. Reading the roster deliberately needs no permission at all —
+     * being on a team is what entitles someone to see who else is on it.
+     */
+    MANAGE_MEMBERS;
 
     public static Set<OrganizationPermission> defaultsFor(OrgRole role) {
         return switch (role) {

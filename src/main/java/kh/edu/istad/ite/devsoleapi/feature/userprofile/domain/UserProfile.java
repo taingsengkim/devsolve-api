@@ -32,6 +32,34 @@ public class UserProfile extends BasedEntity {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
 
+    /**
+     * The profile's public handle, stored in the case its owner chose and
+     * unique without regard to case — the unique index is on
+     * {@code lower(username)}, which {@code @Column(unique = true)} cannot
+     * express, so it lives in schema.sql.
+     */
+    @NotBlank(message = "Username is required")
+    @Size(
+            min = 3,
+            max = 30,
+            message = "Username must be between 3 and 30 characters"
+    )
+    @Pattern(
+            regexp = "^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{1,28}[a-zA-Z0-9])?$",
+            message = "Username must start and end with a letter or number, "
+                    + "and may contain dots, underscores and hyphens between"
+    )
+    @Column(length = 30, nullable = false)
+    private String username;
+
+    /**
+     * When the handle last moved, or null while it is still the one the
+     * account was created with. Null therefore reads as "never changed", which
+     * is what makes a first change free.
+     */
+    @Column(name = "username_changed_at")
+    private LocalDateTime usernameChangedAt;
+
     @NotBlank(message = "Full name is required")
     @Size(min = 2, max = 150, message = "Full name must be between 2 and 150 characters")
     @Column(length = 150, nullable = false)

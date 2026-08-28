@@ -9,6 +9,19 @@ import java.time.LocalDate;
 import java.util.List;
 
 public record UpdateUserProfileRequest(
+        @Size(
+                min = 3,
+                max = 30,
+                message = "Username must be between 3 and 30 characters"
+        )
+        @Pattern(
+                regexp = "^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{1,28}[a-zA-Z0-9])?$",
+                message = "Username must start and end with a letter or "
+                        + "number, and may contain dots, underscores and "
+                        + "hyphens between"
+        )
+        String username,
+
         @Size(max = 70, message = "First name must not exceed 70 characters")
         @Pattern(regexp = ".*\\S.*", message = "First name must not be blank")
         String firstName,

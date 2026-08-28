@@ -1,6 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
+import kh.edu.istad.ite.devsoleapi.common.exception.MissingPermissionException;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewResponse;
@@ -465,6 +467,191 @@ class OrganizationServiceImplTest {
     }
 
     @Test
+    void rosterLeadsWithTheOwnerAndMarksTheCallersOwnRow() {
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        UUID memberId = UUID.randomUUID();
+        authenticateCompany(memberId, "member@acme.com");
+
+        UserProfile caller = new UserProfile();
+        caller.setId(memberId);
+        caller.setEmail("member@acme.com");
+        caller.setFullName("Acme Member");
+
+        UserProfile colleague = new UserProfile();
+        colleague.setId(UUID.randomUUID());
+        colleague.setEmail("colleague@acme.com");
+        colleague.setFullName("Acme Colleague");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(memberId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                memberId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(membership(
+                organization,
+                caller,
+                OrgRole.VIEWER,
+                LocalDateTime.now().minusDays(1)
+        )));
+        when(memberRepository.findByOrganizationIdAndStatusNot(
+                organization.getId(),
+                MembershipStatus.REMOVED
+        )).thenReturn(List.of(
+                membership(
+                        organization,
+                        caller,
+                        OrgRole.VIEWER,
+                        LocalDateTime.now().minusDays(1)
+                ),
+                membership(
+                        organization,
+                        colleague,
+                        OrgRole.MANAGER,
+                        LocalDateTime.now().minusDays(2)
+                )
+        ));
+
+        List<MemberResponse> roster = createService(
+                new WebsiteUrlServiceImpl()
+        ).getMyMembers();
+
+        assertEquals(3, roster.size());
+
+        MemberResponse owner = roster.get(0);
+        assertTrue(owner.owner());
+        assertEquals(false, owner.self());
+        assertNull(owner.role());
+        assertEquals(
+                organization.getOwner().getId(),
+                owner.userId()
+        );
+        assertEquals(
+                EnumSet.allOf(OrganizationPermission.class),
+                owner.permissions()
+        );
+
+        assertTrue(roster.get(1).self());
+        assertEquals(false, roster.get(1).owner());
+        assertEquals(false, roster.get(2).self());
+    }
+
+    @Test
+    void rosterRefusesSomebodyWithNoOrganizationAtAll() {
+        UUID outsiderId = UUID.randomUUID();
+        authenticateCompany(outsiderId, "nobody@example.com");
+
+        when(organizationRepository
+                .findByOwnerIdAndDeletedAtIsNull(outsiderId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                outsiderId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> createService(new WebsiteUrlServiceImpl())
+                        .getMyMembers()
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+    }
+
+    @Test
+    void managingTheTeamNeedsManageMembersAndNamesItWhenRefused() {
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        UUID viewerId = UUID.randomUUID();
+        authenticateCompany(viewerId, "viewer@acme.com");
+
+        UserProfile viewer = new UserProfile();
+        viewer.setId(viewerId);
+        viewer.setEmail("viewer@acme.com");
+        viewer.setFullName("Acme Viewer");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(viewerId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                viewerId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(membership(
+                organization,
+                viewer,
+                OrgRole.VIEWER,
+                LocalDateTime.now()
+        )));
+
+        MissingPermissionException exception = assertThrows(
+                MissingPermissionException.class,
+                () -> createService(new WebsiteUrlServiceImpl())
+                        .removeMember(UUID.randomUUID())
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        assertEquals(
+                OrganizationPermission.MANAGE_MEMBERS.name(),
+                exception.getRequiredPermission()
+        );
+    }
+
+    /**
+     * A manager who can demote or remove themselves can lock a company out of
+     * its own team screen, so the API refuses rather than leaving it to the
+     * client to not offer it.
+     */
+    @Test
+    void aManagerCannotActOnTheirOwnMembershipOrOnTheOwners() {
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        UUID managerId = UUID.randomUUID();
+        authenticateCompany(managerId, "manager@acme.com");
+
+        UserProfile manager = new UserProfile();
+        manager.setId(managerId);
+        manager.setEmail("manager@acme.com");
+        manager.setFullName("Acme Manager");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(managerId))
+                .thenReturn(Optional.empty());
+        when(memberRepository.findByUserIdAndStatus(
+                managerId,
+                MembershipStatus.ACTIVE
+        )).thenReturn(List.of(membership(
+                organization,
+                manager,
+                OrgRole.MANAGER,
+                LocalDateTime.now()
+        )));
+
+        OrganizationServiceImpl service = createService(
+                new WebsiteUrlServiceImpl()
+        );
+
+        assertEquals(
+                HttpStatus.FORBIDDEN,
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.removeMember(managerId)
+                ).getStatusCode()
+        );
+        assertEquals(
+                HttpStatus.FORBIDDEN,
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.removeMember(
+                                organization.getOwner().getId()
+                        )
+                ).getStatusCode()
+        );
+        verify(memberRepository, never())
+                .findByOrganizationIdAndUserId(any(), any());
+    }
+
+    @Test
     void myMembershipsCarriesTheOwnedOrganizationAndTheAcceptedInvitations() {
         UUID userId = UUID.randomUUID();
         authenticateCompany(userId, "member@acme.com");
@@ -900,6 +1087,10 @@ class OrganizationServiceImplTest {
                 memberRepository,
                 userProfileRepository,
                 new OrganizationMapper(websiteUrlService),
+                new OrganizationAuthorizationService(
+                        organizationRepository,
+                        memberRepository
+                ),
                 websiteUrlService,
                 imageStorageService,
                 companyIdentityService,

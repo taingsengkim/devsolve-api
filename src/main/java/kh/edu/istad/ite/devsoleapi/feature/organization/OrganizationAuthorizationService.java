@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
+import kh.edu.istad.ite.devsoleapi.common.exception.MissingPermissionException;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
@@ -14,6 +15,8 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Service
@@ -23,9 +26,41 @@ public class OrganizationAuthorizationService {
     private final OrganizationRepository organizationRepository;
     private final OrganizationMemberRepository memberRepository;
 
+    /**
+     * The organization the caller belongs to, whatever their permissions.
+     *
+     * <p>Reading a team roster is the case this exists for: being on a team is
+     * what entitles someone to see who else is on it, so requiring a
+     * permission would mean a Viewer is a member of a company whose members
+     * they may not look at.
+     */
+    public Organization findSingleAccessibleOrganization(UUID userId) {
+        return findSingleAccessibleOrganization(
+                userId,
+                member -> true,
+                () -> forbidden("You are not a member of an active organization")
+        );
+    }
+
     public Organization findSingleAccessibleOrganization(
             UUID userId,
             OrganizationPermission permission
+    ) {
+        return findSingleAccessibleOrganization(
+                userId,
+                member -> member.hasPermission(permission),
+                () -> missingPermission(
+                        permission,
+                        "You do not have " + permission
+                                + " permission in an active organization"
+                )
+        );
+    }
+
+    private Organization findSingleAccessibleOrganization(
+            UUID userId,
+            Predicate<OrganizationMember> permitted,
+            Supplier<RuntimeException> refusal
     ) {
         Map<UUID, Organization> organizations = new LinkedHashMap<>();
 
@@ -40,7 +75,7 @@ public class OrganizationAuthorizationService {
                         MembershipStatus.ACTIVE
                 )
                 .stream()
-                .filter(member -> member.hasPermission(permission))
+                .filter(permitted)
                 .map(OrganizationMember::getOrganization)
                 .filter(this::isActive)
                 .forEach(organization ->
@@ -48,10 +83,7 @@ public class OrganizationAuthorizationService {
                 );
 
         if (organizations.isEmpty()) {
-            throw forbidden(
-                    "You do not have " + permission
-                            + " permission in an active organization"
-            );
+            throw refusal.get();
         }
         if (organizations.size() > 1) {
             throw new ResponseStatusException(
@@ -86,7 +118,8 @@ public class OrganizationAuthorizationService {
                 .filter(member -> member.hasPermission(permission))
                 .isPresent();
         if (!permitted) {
-            throw forbidden(
+            throw missingPermission(
+                    permission,
                     "Missing organization permission: " + permission
             );
         }
@@ -165,5 +198,16 @@ public class OrganizationAuthorizationService {
 
     private ResponseStatusException forbidden(String reason) {
         return new ResponseStatusException(HttpStatus.FORBIDDEN, reason);
+    }
+
+    /**
+     * Names the permission on the wire so a client can hide what it may not
+     * offer, rather than showing an empty screen it cannot explain.
+     */
+    private MissingPermissionException missingPermission(
+            OrganizationPermission permission,
+            String reason
+    ) {
+        return new MissingPermissionException(permission.name(), reason);
     }
 }

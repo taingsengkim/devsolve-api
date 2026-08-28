@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UserProfileResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UpdateUserProfileRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.AdminUserSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.PublicUserProfileResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.dto.UsernameAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.web.multipart.MultipartFile;
@@ -36,6 +37,15 @@ public interface UserProfileService {
     );
 
     PublicUserProfileResponse getPublicProfile(UUID userId);
+
+    /** The same public profile, addressed by handle instead of by id. */
+    PublicUserProfileResponse getPublicProfileByUsername(String username);
+
+    /**
+     * Whether a handle could be taken right now, for a form that wants to say
+     * so before the user submits.
+     */
+    UsernameAvailabilityResponse checkUsernameAvailability(String username);
 
 
     Integer getReputation(UUID userId);

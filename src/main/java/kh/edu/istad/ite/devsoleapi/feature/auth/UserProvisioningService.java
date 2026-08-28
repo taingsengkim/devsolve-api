@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.auth;
 
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UsernamePolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -95,6 +96,7 @@ public class UserProvisioningService {
 
         UserProfile userProfile = new UserProfile();
         userProfile.setId(userId);
+        userProfile.setUsername(allocateUsername(token, email));
         userProfile.setEmail(email);
         userProfile.setFullName(resolveFullName(token, email));
         userProfile.setAvatarUrl(resolveAvatarUrl(token));
@@ -112,6 +114,47 @@ public class UserProvisioningService {
                         COMPANY_AUTHORITY.equalsIgnoreCase(authority)
                                 || ADMIN_AUTHORITY.equalsIgnoreCase(authority)
                 );
+    }
+
+    /**
+     * A free handle for an account that never chose one.
+     *
+     * <p>The provider's own {@code preferred_username} is tried first, since
+     * it is the name this person already goes by, and the email local part
+     * after it. Neither is guaranteed to be free or even to be a legal handle,
+     * so both are run through the policy and then numbered until they are.
+     *
+     * <p>The user can change it once from their profile without waiting out
+     * the cooldown: {@code usernameChangedAt} is left null here, so a handle
+     * nobody picked does not count as a change.
+     */
+    private String allocateUsername(Jwt token, String email) {
+        String preferred = token.getClaimAsString("preferred_username");
+        String candidate = UsernamePolicy.isValid(preferred)
+                && !UsernamePolicy.isReserved(preferred)
+                ? preferred
+                : UsernamePolicy.suggestFrom(email);
+
+        if (isFree(candidate)) {
+            return candidate;
+        }
+        for (int suffix = 2; suffix < 1000; suffix++) {
+            String numbered = UsernamePolicy.withSuffix(candidate, suffix);
+            if (isFree(numbered)) {
+                return numbered;
+            }
+        }
+        // Nothing readable was free. A handle nobody can guess still beats
+        // failing a sign-in that has otherwise succeeded.
+        return UsernamePolicy.withSuffix(
+                candidate,
+                Math.abs(UUID.randomUUID().hashCode() % 100000)
+        );
+    }
+
+    private boolean isFree(String username) {
+        return !UsernamePolicy.isReserved(username)
+                && !userProfileRepository.existsByUsernameIgnoreCase(username);
     }
 
     private String normalizedEmail(Jwt token) {

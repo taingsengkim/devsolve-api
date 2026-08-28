@@ -302,6 +302,7 @@ class UserProfileServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 List.of(
                         new SocialLinkRequest(
                                 SocialPlatform.GITHUB,

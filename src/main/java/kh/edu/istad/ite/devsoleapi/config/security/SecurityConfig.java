@@ -200,12 +200,17 @@ public class SecurityConfig {
 
                 .requestMatchers(
                         HttpMethod.GET,
-                        "/api/v1/user-profiles/me"
+                        "/api/v1/user-profiles/me",
+                        "/api/v1/user-profiles/me/**"
                 ).authenticated()
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/user-profiles",
-                        "/api/v1/user-profiles/*"
+                        "/api/v1/user-profiles/*",
+                        // A handle addresses the same public profile a UUID
+                        // does, so it is reachable on the same terms. The
+                        // extra path segment means the /* above misses it.
+                        "/api/v1/user-profiles/by-username/*"
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.GET,

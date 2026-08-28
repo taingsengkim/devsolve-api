@@ -1910,3 +1910,93 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- Profile usernames -------------------------------------------------------
+--
+-- The handle a profile is shared by. Registration has always collected one and
+-- sent it to Keycloak, but never stored it here, so nothing on this side could
+-- resolve a profile by name and clients derived a display name from the email
+-- instead — a name that existed only in the browser and matched no row.
+--
+-- Uniqueness is case-insensitive: sengkim and Sengkim reading as two people is
+-- how impersonation starts. That needs an index on lower(username), which no
+-- JPA annotation expresses, so Hibernate cannot create it and it lives here.
+DO $$
+BEGIN
+    IF to_regclass('public.user_profiles') IS NOT NULL THEN
+        ALTER TABLE public.user_profiles
+            ADD COLUMN IF NOT EXISTS username VARCHAR(30);
+        ALTER TABLE public.user_profiles
+            ADD COLUMN IF NOT EXISTS username_changed_at TIMESTAMP(6);
+
+        -- Rows that predate the column. Derived from the email so the handle
+        -- is recognisable to the person who owns it rather than a random
+        -- string they log in to find; numbered only where two addresses clean
+        -- up to the same thing. username_changed_at stays null, so nobody is
+        -- serving a cooldown on a name they never chose.
+        WITH ranked AS (
+            SELECT id,
+                   base,
+                   row_number() OVER (
+                       PARTITION BY base ORDER BY created_at, id
+                   ) AS rn
+            FROM (
+                SELECT id,
+                       created_at,
+                       CASE WHEN length(trimmed) >= 3
+                            THEN trimmed
+                            ELSE 'member'
+                       END AS base
+                FROM (
+                    SELECT id,
+                           created_at,
+                           regexp_replace(
+                               regexp_replace(
+                                   left(
+                                       regexp_replace(
+                                           lower(split_part(email, '@', 1)),
+                                           '[^a-z0-9._-]', '', 'g'
+                                       ), 30
+                                   ),
+                                   '^[._-]+', ''
+                               ),
+                               '[._-]+$', ''
+                           ) AS trimmed
+                    FROM public.user_profiles
+                    WHERE username IS NULL
+                ) cleaned
+            ) based
+        )
+        UPDATE public.user_profiles p
+           SET username = CASE
+                   WHEN r.rn = 1 THEN r.base
+                   ELSE regexp_replace(
+                            left(r.base, 30 - length(r.rn::text)),
+                            '[._-]+$', ''
+                        ) || r.rn::text
+               END
+          FROM ranked r
+         WHERE p.id = r.id;
+
+        -- Both guarded rather than asserted: a database that somehow still
+        -- holds a null or a duplicate should start and be fixed, not refuse to
+        -- boot on the one statement that would have told us about it.
+        IF NOT EXISTS (
+            SELECT 1 FROM public.user_profiles WHERE username IS NULL
+        ) THEN
+            ALTER TABLE public.user_profiles
+                ALTER COLUMN username SET NOT NULL;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM public.user_profiles
+            GROUP BY lower(username)
+            HAVING count(*) > 1
+        ) THEN
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_user_profiles_username_lower
+                ON public.user_profiles (lower(username));
+        END IF;
+    END IF;
+END
+$$^^^
