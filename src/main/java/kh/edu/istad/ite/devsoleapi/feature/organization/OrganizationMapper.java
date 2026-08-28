@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.organization;
 
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationMembershipResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationStatsResponse;
@@ -9,10 +10,12 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSu
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.EnumSet;
 import java.util.Set;
 
 @Component
@@ -170,6 +173,48 @@ public class OrganizationMapper {
                 .invitationPending(member.isInvitationPending())
                 .joinedAt(member.getJoinedAt())
                 .build();
+    }
+
+    public OrganizationMembershipResponse toMembership(
+            OrganizationMember member
+    ) {
+        Organization organization = member.getOrganization();
+        return new OrganizationMembershipResponse(
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug(),
+                organization.getLogoUrl(),
+                organization.getStatus(),
+                false,
+                member.getRole(),
+                Set.copyOf(member.getPermissions()),
+                member.getJoinedAt()
+        );
+    }
+
+    /**
+     * The owner's own organization, in the shape a membership takes.
+     *
+     * <p>Ownership is not a row in {@code organization_members}, so a caller
+     * listing what they belong to would otherwise see their own company only if
+     * somebody had invited them to it. Every permission is granted because
+     * {@code OrganizationAuthorizationService} short-circuits on ownership
+     * before it ever reads a permission set.
+     */
+    public OrganizationMembershipResponse toOwnerMembership(
+            Organization organization
+    ) {
+        return new OrganizationMembershipResponse(
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug(),
+                organization.getLogoUrl(),
+                organization.getStatus(),
+                true,
+                null,
+                Set.copyOf(EnumSet.allOf(OrganizationPermission.class)),
+                organization.getCreatedAt()
+        );
     }
 
     public PendingInvitationResponse toPendingInvitation(
