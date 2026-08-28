@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UsernameAllocator;
+
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -36,12 +38,19 @@ class UserProvisioningServiceTest {
     @Mock
     private UserProfileRepository userProfileRepository;
 
+    @Mock
+    private UsernameAllocator usernameAllocator;
+
     @InjectMocks
     private UserProvisioningService userProvisioningService;
 
     @Test
     void createsProfileFromFederatedClaims() {
         when(userProfileRepository.existsById(USER_ID)).thenReturn(false);
+        // A social login never picks a handle, so one is allocated for it —
+        // without which the profile is rejected at flush.
+        when(usernameAllocator.allocate(null, "sok.dara@gmail.com"))
+                .thenReturn("sok.dara");
 
         UserProvisioningService.Outcome outcome =
                 userProvisioningService.ensureProvisioned(authentication(
@@ -57,6 +66,9 @@ class UserProvisioningServiceTest {
         assertEquals(UserProvisioningService.Outcome.CREATED, outcome);
         UserProfile saved = captureSavedProfile();
         assertEquals(USER_ID, saved.getId());
+        assertEquals("sok.dara", saved.getUsername());
+        // A handle nobody chose must not spend this account's one free change.
+        assertNull(saved.getUsernameChangedAt());
         assertEquals("sok.dara@gmail.com", saved.getEmail());
         assertEquals("Sok Dara", saved.getFullName());
         assertEquals(

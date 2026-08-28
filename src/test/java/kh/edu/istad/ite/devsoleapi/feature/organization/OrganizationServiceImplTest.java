@@ -29,6 +29,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRewardRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.service.UsernameAllocator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -104,6 +105,9 @@ class OrganizationServiceImplTest {
 
     @Mock
     private ReportRewardRepository reportRewardRepository;
+
+    @Mock
+    private UsernameAllocator usernameAllocator;
 
     @AfterEach
     void clearSecurityContext() {
@@ -1091,6 +1095,7 @@ class OrganizationServiceImplTest {
                         organizationRepository,
                         memberRepository
                 ),
+                usernameAllocator,
                 websiteUrlService,
                 imageStorageService,
                 companyIdentityService,

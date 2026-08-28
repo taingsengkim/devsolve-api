@@ -123,6 +123,11 @@ class ShowCasesHardDeleteIntegrationTest {
     private UserProfile saveAuthor() {
         UserProfile author = new UserProfile();
         author.setId(UUID.randomUUID());
+        // Unique, and inside the 30 characters a username may occupy.
+        author.setUsername("author" + UUID.randomUUID()
+                .toString()
+                .replace("-", "")
+                .substring(0, 16));
         author.setEmail("author-" + UUID.randomUUID() + "@example.test");
         author.setFullName("Integration Test Author");
         return userProfileRepository.saveAndFlush(author);
