@@ -10,6 +10,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewSu
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -162,16 +164,52 @@ public class OrganizationMapper {
         );
     }
 
-    public MemberResponse toMemberResponse(OrganizationMember member) {
+    public MemberResponse toMemberResponse(
+            OrganizationMember member,
+            UUID callerId
+    ) {
+        UserProfile user = member.getUser();
         return MemberResponse.builder()
-                .userId(member.getUser().getId())
-                .name(member.getUser().getFullName())
-                .email(member.getUser().getEmail())
+                .userId(user.getId())
+                .name(user.getFullName())
+                .email(user.getEmail())
                 .role(member.getRole())
                 .permissions(Set.copyOf(member.getPermissions()))
                 .status(member.getStatus())
                 .invitationPending(member.isInvitationPending())
+                .self(user.getId().equals(callerId))
+                .owner(false)
                 .joinedAt(member.getJoinedAt())
+                .build();
+    }
+
+    /**
+     * The owner, in the shape a roster row takes.
+     *
+     * <p>Ownership is not a membership row — {@code inviteMember} refuses to
+     * invite the owner — so a roster built from {@code organization_members}
+     * alone omits the one person who is always on the team, and every row it
+     * does return is somebody else. That is what left a client unable to tag
+     * either "You" or "Owner".
+     */
+    public MemberResponse toOwnerMemberResponse(
+            Organization organization,
+            UUID callerId
+    ) {
+        UserProfile owner = organization.getOwner();
+        return MemberResponse.builder()
+                .userId(owner.getId())
+                .name(owner.getFullName())
+                .email(owner.getEmail())
+                .role(null)
+                .permissions(Set.copyOf(
+                        EnumSet.allOf(OrganizationPermission.class)
+                ))
+                .status(MembershipStatus.ACTIVE)
+                .invitationPending(false)
+                .self(owner.getId().equals(callerId))
+                .owner(true)
+                .joinedAt(organization.getCreatedAt())
                 .build();
     }
 
