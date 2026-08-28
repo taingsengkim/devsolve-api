@@ -11,6 +11,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetResponseDto;
@@ -35,14 +36,24 @@ public class ProgramMapper {
 
     private static final int DESCRIPTION_PREVIEW_LENGTH = 240;
 
+    /**
+     * Everything but the handle and the name may be absent, because a draft is
+     * unfinished work. Absence is carried through as null rather than filled
+     * in, which is the whole point: a placeholder policy that nobody revisits
+     * becomes the policy researchers are bound by. Visibility is the one
+     * exception, defaulting to PRIVATE — the only honest reading of a program
+     * whose author has not said yet.
+     */
     public Program toEntity(ProgramRequestDto request) {
         Program program = Program.builder()
                 .handle(normalizeHandle(request.handle()))
                 .name(request.name().trim())
                 .description(trimToNull(request.description()))
                 .engagementType(request.engagementType())
-                .visibility(request.visibility())
-                .policy(request.policy().trim())
+                .visibility(request.visibility() == null
+                        ? Visibility.PRIVATE
+                        : request.visibility())
+                .policy(trimToNull(request.policy()))
                 .proofOfConceptRequirements(normalizeGuidelines(
                         request.proofOfConceptRequirements()
                 ))
@@ -451,17 +462,22 @@ public class ProgramMapper {
     }
 
     private String normalizeHandle(String handle) {
-        return handle.trim().toLowerCase(Locale.ROOT);
+        return ProgramHandlePolicy.normalize(handle);
     }
 
     private ProgramGuidelinesDto normalizeGuidelines(
             ProgramGuidelinesDto guidelines
     ) {
+        if (guidelines == null) {
+            return null;
+        }
         return new ProgramGuidelinesDto(
-                guidelines.description().trim(),
-                guidelines.rules().stream()
-                        .map(String::trim)
-                        .toList()
+                trimToNull(guidelines.description()),
+                guidelines.rules() == null
+                        ? null
+                        : guidelines.rules().stream()
+                                .map(String::trim)
+                                .toList()
         );
     }
 

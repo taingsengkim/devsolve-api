@@ -1324,6 +1324,28 @@ END
 $$^^^
 
 
+-- A draft is unfinished work, so the fields an author has not reached yet
+-- must be storable as absent. While these were NOT NULL, saving step one of a
+-- program wizard meant inventing the answers to steps two and three, and
+-- invented text that survives to publication is what researchers end up bound
+-- by. Completeness is enforced at submission instead. Only NOT NULL is
+-- dropped; no row changes.
+DO $$
+BEGIN
+    IF to_regclass('public.programs') IS NOT NULL THEN
+        ALTER TABLE public.programs
+            ALTER COLUMN engagement_type DROP NOT NULL;
+
+        ALTER TABLE public.programs
+            ALTER COLUMN rules_of_engagement DROP NOT NULL;
+
+        ALTER TABLE public.programs
+            ALTER COLUMN exclusions DROP NOT NULL;
+    END IF;
+END
+$$^^^
+
+
 -- Program search uses leading-wildcard LOWER(...) matches, while the common
 -- feed and aggregate sorts have predictable filter keys. These indexes keep
 -- those paths from degrading into full scans as programs and reports grow.

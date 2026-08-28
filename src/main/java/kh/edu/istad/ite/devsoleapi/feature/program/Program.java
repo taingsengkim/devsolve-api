@@ -59,11 +59,18 @@ public class Program extends BasedEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    /**
+     * Nullable, along with {@link #policy}, {@link #rulesOfEngagement} and
+     * {@link #exclusions}, because a draft is unfinished work. A NOT NULL
+     * column here forces a client saving step one of a wizard to invent the
+     * answers to steps two and three, and invented text that survives to
+     * publication is what researchers end up bound by. Submission is where
+     * completeness is checked.
+     */
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(
             name = "engagement_type",
-            nullable = false,
             columnDefinition = "engagement_type_enum"
     )
     private EngagementType engagementType;
@@ -114,7 +121,6 @@ public class Program extends BasedEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(
             name = "rules_of_engagement",
-            nullable = false,
             columnDefinition = "jsonb"
     )
     private ProgramGuidelinesDto rulesOfEngagement;
@@ -122,7 +128,6 @@ public class Program extends BasedEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(
             name = "exclusions",
-            nullable = false,
             columnDefinition = "jsonb"
     )
     private ProgramGuidelinesDto exclusions;

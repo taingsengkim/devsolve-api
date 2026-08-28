@@ -5,6 +5,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.ElementKind;
 import jakarta.validation.Path;
+import jakarta.validation.metadata.ConstraintDescriptor;
 import jakarta.ws.rs.WebApplicationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -19,6 +20,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.TransactionSystemException;
+import org.springframework.validation.FieldError;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -27,9 +29,13 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.lang.reflect.Array;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -48,6 +54,9 @@ import java.util.UUID;
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    private static final Set<String> CONSTRAINT_BOOKKEEPING =
+            Set.of("message", "groups", "payload");
 
     // ---------------------------------------------------------------- security
 
@@ -153,19 +162,20 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();
-        exception.getBindingResult().getFieldErrors().forEach(error ->
-                fieldErrors.putIfAbsent(
-                        error.getField(),
-                        error.getDefaultMessage()
-                )
-        );
+        List<FieldViolation> violations = new ArrayList<>();
+        exception.getBindingResult().getFieldErrors().forEach(error -> {
+            fieldErrors.putIfAbsent(
+                    error.getField(),
+                    error.getDefaultMessage()
+            );
+            violations.add(toFieldViolation(
+                    error.getField(),
+                    error.getDefaultMessage(),
+                    constraintDescriptorOf(error)
+            ));
+        });
 
-        return respond(
-                HttpStatus.BAD_REQUEST,
-                "Request validation failed",
-                fieldErrors,
-                request
-        );
+        return respondWithViolations(fieldErrors, violations, request);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -173,10 +183,15 @@ public class GlobalExceptionHandler {
             ConstraintViolationException exception,
             HttpServletRequest request
     ) {
-        return respond(
-                HttpStatus.BAD_REQUEST,
-                "Request validation failed",
+        return respondWithViolations(
                 violationsOf(exception),
+                exception.getConstraintViolations().stream()
+                        .map(violation -> toFieldViolation(
+                                propertyNameOf(violation),
+                                violation.getMessage(),
+                                violation.getConstraintDescriptor()
+                        ))
+                        .toList(),
                 request
         );
     }
@@ -424,6 +439,101 @@ public class GlobalExceptionHandler {
     private String reasonPhrase(HttpStatusCode status) {
         HttpStatus resolved = HttpStatus.resolve(status.value());
         return resolved != null ? resolved.getReasonPhrase() : "Error";
+    }
+
+    private ResponseEntity<RestErrorResponse> respondWithViolations(
+            Map<String, String> fieldErrors,
+            List<FieldViolation> violations,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(RestErrorResponse.builder()
+                        .message("Request validation failed")
+                        .code(HttpStatus.BAD_REQUEST.value())
+                        .status(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                        .timestamp(Instant.now())
+                        .errorDetails(fieldErrors)
+                        .violations(violations)
+                        .path(request != null ? request.getRequestURI() : null)
+                        .build());
+    }
+
+    /**
+     * The constraint behind a rejected body field, or null when the failure
+     * did not come from bean validation — a value Jackson could not bind at
+     * all has a message but no rule to publish.
+     */
+    private ConstraintDescriptor<?> constraintDescriptorOf(FieldError error) {
+        try {
+            return error.unwrap(ConstraintViolation.class)
+                    .getConstraintDescriptor();
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            return null;
+        }
+    }
+
+    /**
+     * The rule in the form a client can validate against, so it stops keeping
+     * its own copy of a length or a pattern that drifts the day this one
+     * changes. {@code message}, {@code groups} and {@code payload} are every
+     * constraint's own bookkeeping and describe nothing about the value.
+     */
+    private FieldViolation toFieldViolation(
+            String field,
+            String message,
+            ConstraintDescriptor<?> descriptor
+    ) {
+        if (descriptor == null) {
+            return new FieldViolation(field, message, null, Map.of());
+        }
+
+        Map<String, Object> rule = new LinkedHashMap<>();
+        descriptor.getAttributes().forEach((name, value) -> {
+            if (CONSTRAINT_BOOKKEEPING.contains(name) || value == null) {
+                return;
+            }
+            Object published = publishable(value);
+            if (published != null) {
+                rule.put(name, published);
+            }
+        });
+
+        return new FieldViolation(
+                field,
+                message,
+                descriptor.getAnnotation().annotationType().getSimpleName(),
+                rule
+        );
+    }
+
+    /**
+     * A constraint attribute is an annotation value, and an annotation may
+     * declare one of any type. Rendering a 400 must not itself fail, so
+     * anything that is not plainly a JSON scalar is described rather than
+     * handed to the serializer. An empty array — {@code @Pattern}'s unused
+     * flags, most often — is dropped rather than published as noise.
+     */
+    private Object publishable(Object value) {
+        if (value instanceof Number
+                || value instanceof Boolean
+                || value instanceof CharSequence) {
+            return value;
+        }
+        if (value instanceof Enum<?> constant) {
+            return constant.name();
+        }
+        if (value.getClass().isArray()) {
+            int length = Array.getLength(value);
+            if (length == 0) {
+                return null;
+            }
+            List<Object> items = new ArrayList<>(length);
+            for (int index = 0; index < length; index++) {
+                items.add(publishable(Array.get(value, index)));
+            }
+            return items;
+        }
+        return String.valueOf(value);
     }
 
     private Map<String, String> violationsOf(

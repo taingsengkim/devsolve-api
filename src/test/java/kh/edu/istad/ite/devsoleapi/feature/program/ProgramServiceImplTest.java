@@ -16,8 +16,10 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramHandleAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramUpdateRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
@@ -130,7 +132,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(null, ProgramRequestDto.builder()
+        service().createProgram(null, false, ProgramRequestDto.builder()
                 .handle("acme-security")
                 .name("Acme Security Program")
                 .engagementType(EngagementType.BOUNTY)
@@ -164,7 +166,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(null, ProgramRequestDto.builder()
+        service().createProgram(null, false, ProgramRequestDto.builder()
                 .handle("acme-security")
                 .name("Acme Security Program")
                 .engagementType(EngagementType.BOUNTY)
@@ -184,6 +186,191 @@ class ProgramServiceImplTest {
         );
     }
 
+    /**
+     * The point of the draft path: a program with no policy, no guidelines and
+     * no assets saves. Demanding them here is what forced a client to invent
+     * them, and invented text that survives to publication is what researchers
+     * end up bound by.
+     */
+    @Test
+    void aDraftSavesWithNothingButAHandleAndAName() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = emptyDraftProgram(organization.getId());
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(program);
+        when(programRepository.saveAndFlush(program)).thenReturn(program);
+
+        service().createProgram(null, false, ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .build());
+
+        assertEquals(ProgramState.DRAFT, program.getState());
+        assertEquals(
+                SubmissionState.NOT_SUBMITTED,
+                program.getSubmissionState()
+        );
+        verify(programRepository).saveAndFlush(program);
+    }
+
+    /**
+     * Creating and then submitting as two calls leaves a draft the author
+     * never meant to keep whenever the second call fails.
+     */
+    @Test
+    void submitOnCreateEntersReviewInOneTransaction() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = validProgram(organization.getId());
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(program);
+        when(programRepository.saveAndFlush(program)).thenReturn(program);
+
+        service().createProgram(null, true, ProgramRequestDto.builder()
+                .handle("acme-security")
+                .name("Acme Security Program")
+                .state(ProgramState.DRAFT)
+                .build());
+
+        assertEquals(ProgramState.ACTIVE, program.getState());
+        assertEquals(
+                SubmissionState.PENDING_REVIEW,
+                program.getSubmissionState()
+        );
+    }
+
+    @Test
+    void submitOnCreateStillDemandsACompleteProgramAndSavesNothing() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        authenticate(userId, "COMPANY");
+
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(userId))
+                .thenReturn(Optional.of(organization));
+        when(programMapper.toEntity(any(ProgramRequestDto.class)))
+                .thenReturn(emptyDraftProgram(organization.getId()));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().createProgram(
+                        null,
+                        true,
+                        ProgramRequestDto.builder()
+                                .handle("acme-security")
+                                .name("Acme Security Program")
+                                .build()
+                )
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(programRepository, never()).saveAndFlush(any(Program.class));
+    }
+
+    @Test
+    void savingAnIncompleteDraftDoesNotDemandTheRestOfIt() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = emptyDraftProgram(organization.getId());
+        authenticate(userId, "COMPANY");
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ProgramResponseDto response = service(new ProgramMapper())
+                .updateProgram(
+                        program.getId(),
+                        descriptionUpdate("Half of step one")
+                );
+
+        assertEquals("Half of step one", response.description());
+        assertNull(response.policy());
+    }
+
+    /**
+     * The relaxation is for drafts only. A program already handed to an
+     * administrator — or live — cannot have its policy blanked out.
+     */
+    @Test
+    void anApprovedProgramIsStillHeldToTheFullContractOnEveryEdit() {
+        UUID userId = UUID.randomUUID();
+        Organization organization = activeOwnedOrganization(userId);
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setExclusions(null);
+        authenticate(userId, "COMPANY");
+
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service(new ProgramMapper()).updateProgram(
+                        program.getId(),
+                        descriptionUpdate("Still live")
+                )
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+    }
+
+    /**
+     * A handle held by a draft is taken. GET /programs/handle/{handle} answers
+     * 404 for one, which is what made a client report "available" for a name
+     * the write then rejected.
+     */
+    @Test
+    void handleAvailabilityCountsProgramsInEveryState() {
+        when(programRepository.existsByHandleIgnoreCase("acme-web"))
+                .thenReturn(true);
+
+        ProgramHandleAvailabilityResponse response = service()
+                .checkHandleAvailability("  Acme-Web  ", null);
+
+        assertEquals("acme-web", response.handle());
+        assertEquals(false, response.available());
+        assertEquals("Already used by another program", response.reason());
+    }
+
+    @Test
+    void handleAvailabilityIgnoresTheProgramBeingEdited() {
+        UUID programId = UUID.randomUUID();
+        when(programRepository.existsByHandleIgnoreCaseAndIdNot(
+                "acme-web",
+                programId
+        )).thenReturn(false);
+
+        assertTrue(service()
+                .checkHandleAvailability("acme-web", programId)
+                .available());
+    }
+
+    @Test
+    void handleAvailabilityRefusesAHandleTheWriteCouldNotAcceptEither() {
+        ProgramHandleAvailabilityResponse response = service()
+                .checkHandleAvailability("Acme Web", null);
+
+        assertEquals(false, response.available());
+        assertEquals(
+                ProgramHandlePolicy.FORMAT_MESSAGE,
+                response.reason()
+        );
+        verify(programRepository, never()).existsByHandleIgnoreCase(any());
+    }
+
     @Test
     void createProgramHonoursRequestedActiveStateButStillNeedsReview() {
         UUID userId = UUID.randomUUID();
@@ -197,7 +384,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(null, ProgramRequestDto.builder()
+        service().createProgram(null, false, ProgramRequestDto.builder()
                 .handle("acme-security")
                 .name("Acme Security Program")
                 .engagementType(EngagementType.BOUNTY)
@@ -227,7 +414,7 @@ class ProgramServiceImplTest {
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> service().createProgram(null, ProgramRequestDto.builder()
+                () -> service().createProgram(null, false, ProgramRequestDto.builder()
                         .handle("acme-security")
                         .name("Acme Security Program")
                         .engagementType(EngagementType.BOUNTY)
@@ -405,7 +592,7 @@ class ProgramServiceImplTest {
                 .thenReturn(program);
         when(programRepository.saveAndFlush(program)).thenReturn(program);
 
-        service().createProgram(null, ProgramRequestDto.builder()
+        service().createProgram(null, false, ProgramRequestDto.builder()
                 .handle("public-before-approval")
                 .name("Public Program Awaiting Approval")
                 .engagementType(EngagementType.BOUNTY)
@@ -1589,6 +1776,42 @@ class ProgramServiceImplTest {
                 companyIdentityService,
                 eventPublisher
         );
+    }
+
+    private ProgramUpdateRequestDto descriptionUpdate(String description) {
+        return new ProgramUpdateRequestDto(
+                null,
+                null,
+                description,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    /**
+     * A program as step one of the wizard leaves it: identified, and nothing
+     * else answered yet.
+     */
+    private Program emptyDraftProgram(UUID organizationId) {
+        Program program = new Program();
+        program.setId(UUID.randomUUID());
+        program.setOrganizationId(organizationId);
+        program.setHandle("acme-security");
+        program.setName("Acme Security Program");
+        program.setVisibility(Visibility.PRIVATE);
+        program.setState(ProgramState.DRAFT);
+        program.setSubmissionState(SubmissionState.NOT_SUBMITTED);
+        program.setOffersBounties(false);
+        return program;
     }
 
     private Program validProgram(UUID organizationId) {

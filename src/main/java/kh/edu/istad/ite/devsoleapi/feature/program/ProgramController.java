@@ -1,11 +1,16 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Size;
+import kh.edu.istad.ite.devsoleapi.common.exception.RestErrorResponse;
 import kh.edu.istad.ite.devsoleapi.common.listing.ListingCache;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramHandleAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
@@ -165,6 +170,26 @@ public class ProgramController {
     }
 
     /**
+     * Whether a handle is still free, so the answer arrives beside the field
+     * instead of on submit after four wizard steps.
+     *
+     * <p>Mapped above {@code /organizations/me/programs/{id}} for the same
+     * reason {@code /deleted} is. Deliberately not
+     * {@code GET /programs/handle/{handle}}, which resolves published programs
+     * only: a draft holding the handle reads as 404 there, so a client would
+     * report "available" for a name the write then rejects.
+     */
+    @GetMapping("/organizations/me/programs/handle-available")
+    public ProgramHandleAvailabilityResponse checkHandleAvailability(
+            @RequestParam String handle,
+            @Parameter(description = "The program being edited, whose own "
+                    + "handle should not count as taken. Omit when creating.")
+            @RequestParam(required = false) UUID programId
+    ) {
+        return programService.checkHandleAvailability(handle, programId);
+    }
+
+    /**
      * Takes no organization: the program id already names one, and the caller
      * is checked for VIEW_PROGRAMS at that organization rather than at
      * whichever one they happen to be resolved to.
@@ -174,14 +199,40 @@ public class ProgramController {
         return programService.getMyProgram(id);
     }
 
+    /**
+     * Creates a program, as a draft unless {@code submit} says otherwise.
+     *
+     * <p>A draft may be incomplete: only {@code handle} and {@code name} are
+     * required, and the rest is checked when the program is submitted. What is
+     * supplied is still validated, so a malformed handle is refused either way.
+     */
+    @ApiResponse(
+            responseCode = "400",
+            description = "A supplied field is malformed, or — when submitting "
+                    + "— a required one is missing. errorDetails maps each "
+                    + "field to its message; violations names the constraint "
+                    + "and its parameters.",
+            content = @Content(schema = @Schema(
+                    implementation = RestErrorResponse.class))
+    )
+    @ApiResponse(
+            responseCode = "409",
+            description = "The handle is already used by another program.",
+            content = @Content(schema = @Schema(
+                    implementation = RestErrorResponse.class))
+    )
     @PostMapping("/organizations/me/programs")
     @ResponseStatus(HttpStatus.CREATED)
     public ProgramResponseDto createProgram(
             @Parameter(description = ORGANIZATION_PARAMETER_DESCRIPTION)
             @RequestParam(required = false) UUID organizationId,
+            @Parameter(description = "Submit for admin review in the same "
+                    + "transaction. Without it the program is created as a "
+                    + "draft, and a failed follow-up submit leaves one behind.")
+            @RequestParam(defaultValue = "false") boolean submit,
             @Valid @RequestBody ProgramRequestDto request
     ) {
-        return programService.createProgram(organizationId, request);
+        return programService.createProgram(organizationId, submit, request);
     }
 
     @PatchMapping({

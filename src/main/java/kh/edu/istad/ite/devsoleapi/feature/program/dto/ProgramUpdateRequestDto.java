@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.program.dto;
 
+import kh.edu.istad.ite.devsoleapi.feature.program.ProgramHandlePolicy;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
@@ -15,13 +16,13 @@ import java.util.List;
 
 public record ProgramUpdateRequestDto(
         @Size(
-                min = 2,
-                max = 100,
-                message = "Program handle must be between 2 and 100 characters"
+                min = ProgramHandlePolicy.MIN_LENGTH,
+                max = ProgramHandlePolicy.MAX_LENGTH,
+                message = ProgramHandlePolicy.LENGTH_MESSAGE
         )
         @Pattern(
-                regexp = "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-                message = "Program handle must use lowercase letters, numbers, and single hyphens"
+                regexp = ProgramHandlePolicy.FORMAT,
+                message = ProgramHandlePolicy.FORMAT_MESSAGE
         )
         String handle,
 
