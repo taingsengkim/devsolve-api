@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InviteMemberRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.InvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.MemberResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationMembershipResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
@@ -135,6 +136,20 @@ public class OrganizationController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeMember(@PathVariable UUID userId) {
         organizationService.removeMember(userId);
+    }
+
+    /**
+     * Which organizations the caller belongs to, and as what. Empty for an
+     * account with no company at all, which is the answer a client needs on
+     * sign-in before it can decide whether to offer a company workspace.
+     *
+     * <p>Sits beside /me rather than replacing it: /me is the organization a
+     * company owns and manages, and it stays owner-only so the company
+     * dashboard keeps the single organization it is written against.
+     */
+    @GetMapping("/me/memberships")
+    public List<OrganizationMembershipResponse> getMyMemberships() {
+        return organizationService.getMyMemberships();
     }
 
     /**
