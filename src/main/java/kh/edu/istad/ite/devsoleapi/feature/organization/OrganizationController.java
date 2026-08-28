@@ -10,6 +10,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationVerificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.OrganizationUpdateRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.dto.PendingInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberRoleRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.dto.UpdateMemberPermissionsRequest;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
@@ -134,6 +135,16 @@ public class OrganizationController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeMember(@PathVariable UUID userId) {
         organizationService.removeMember(userId);
+    }
+
+    /**
+     * The caller's own open invitations. Sits under /invitations rather than
+     * /me/members, which belongs to a company looking at its own team — this
+     * is the other side of that conversation.
+     */
+    @GetMapping("/invitations/me")
+    public List<PendingInvitationResponse> getMyInvitations() {
+        return organizationService.getMyInvitations();
     }
 
     @PostMapping("/invitations/{token}/accept")

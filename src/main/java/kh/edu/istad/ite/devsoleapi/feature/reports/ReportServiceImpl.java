@@ -11,6 +11,7 @@ import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.CompanyIdentityService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.ResearcherAccessService;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
@@ -107,6 +108,7 @@ public class ReportServiceImpl implements ReportService {
     private final ProgramRepository programRepository;
     private final UserProfileRepository userProfileRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final ResearcherAccessService researcherAccessService;
     private final CompanyIdentityService companyIdentityService;
     private final ReportMapper reportMapper;
     private final FollowNotificationService followNotificationService;
@@ -124,17 +126,20 @@ public class ReportServiceImpl implements ReportService {
         UUID reporterId = currentUserId();
         UserProfile reporter = findUserProfile(reporterId);
         Program program = findReportableProgram(programId);
+
+        // Clearance is held against the organization, so it covers every
+        // program that organization runs. Checked here rather than at the
+        // controller because a draft being filed reaches this same method.
+        researcherAccessService.requireApprovedReporter(
+                program.getOrganizationId(),
+                reporterId
+        );
+
         ProgramAsset asset = findReportableAsset(
                 program,
                 request.assetId()
         );
-        Weakness weakness = request.weaknessId() == null
-                ? null
-                : weaknessRepository
-                        .findByIdAndIsActiveTrue(request.weaknessId())
-                        .orElseThrow(() -> new ResourceNotFoundException(
-                                "Active weakness not found"
-                        ));
+        Weakness weakness = findActiveWeakness(request.weaknessId());
 
         if (request.reportedSeverity() == Severity.NONE) {
             throw badRequest(
@@ -275,6 +280,15 @@ public class ReportServiceImpl implements ReportService {
         report.setTriagedBy(triager);
         report.setTriagedAt(LocalDateTime.now());
         report.setState(targetState);
+
+        // Classification is triage's call: the reporter picks from the catalog
+        // if they recognise the class and leaves it unset otherwise. Omitting
+        // it here keeps whatever the report already carries, so re-triaging for
+        // a state change alone does not silently undo an earlier correction.
+        Weakness weakness = findActiveWeakness(request.weaknessId());
+        if (weakness != null) {
+            report.setWeakness(weakness);
+        }
 
         // An administrator has already settled this report's severity. That
         // ruling is final: re-triaging may still move the state, but it can
@@ -898,6 +912,21 @@ public class ReportServiceImpl implements ReportService {
                     "Only a valid confirmed report can be resolved"
             );
         }
+    }
+
+    /**
+     * A retired class stays readable on the reports already filed under it but
+     * can no longer be chosen, which is the whole point of retiring one rather
+     * than deleting it.
+     */
+    private Weakness findActiveWeakness(UUID weaknessId) {
+        if (weaknessId == null) {
+            return null;
+        }
+        return weaknessRepository.findByIdAndIsActiveTrue(weaknessId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Active weakness not found"
+                ));
     }
 
     private UserProfile findUserProfile(UUID userId) {

@@ -12,7 +12,7 @@ spring:
     # anything H2-specific put in spring.sql.init would be executed against
     # PostgreSQL there and fail. A URL only applies to the datasource that
     # actually uses it.
-    url: 'jdbc:h2:mem:devsolve;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=CREATE DOMAIN IF NOT EXISTS membership_status_enum AS VARCHAR(50)\;CREATE DOMAIN IF NOT EXISTS category_scope_enum AS VARCHAR(50)'
+    url: 'jdbc:h2:mem:devsolve;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=CREATE DOMAIN IF NOT EXISTS membership_status_enum AS VARCHAR(50)\;CREATE DOMAIN IF NOT EXISTS category_scope_enum AS VARCHAR(50)\;CREATE DOMAIN IF NOT EXISTS researcher_access_status_enum AS VARCHAR(50)'
     username: sa
     password:
     driver-class-name: org.h2.Driver

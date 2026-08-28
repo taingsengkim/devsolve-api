@@ -18,8 +18,8 @@ public record InviteMemberRequest(
         OrgRole role,
 
         @Size(
-                max = 9,
-                message = "At most 9 organization permissions are allowed"
+                max = 10,
+                message = "At most 10 organization permissions are allowed"
         )
         Set<OrganizationPermission> permissions
 ) {

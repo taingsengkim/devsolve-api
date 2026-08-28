@@ -24,6 +24,16 @@ import java.util.UUID;
         uniqueConstraints = @UniqueConstraint(columnNames = {"organization_id", "user_id"}))
 public class OrganizationMember extends BasedEntity {
 
+    /**
+     * How long an invitation stays acceptable.
+     *
+     * <p>Lives on the entity because three things now depend on it — issuing
+     * an invitation, accepting one, and listing the ones still open — and an
+     * endpoint that offers an invitation the accept call then rejects as
+     * expired is worse than no endpoint at all.
+     */
+    public static final long INVITATION_VALID_DAYS = 7;
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", updatable = false, nullable = false)
@@ -87,6 +97,33 @@ public class OrganizationMember extends BasedEntity {
 
     public boolean isInvitationPending() {
         return status == MembershipStatus.SUSPENDED && invitationToken != null;
+    }
+
+    /**
+     * When the current invitation stops being acceptable, counted from when it
+     * was last issued. Re-inviting refreshes the token and {@code updatedAt}
+     * together, so a fresh invitation gets a full window instead of inheriting
+     * what was left of the previous one's.
+     */
+    public LocalDateTime invitationExpiresAt() {
+        return invitationIssuedAt().plusDays(INVITATION_VALID_DAYS);
+    }
+
+    public boolean isInvitationExpired() {
+        return LocalDateTime.now().isAfter(invitationExpiresAt());
+    }
+
+    private LocalDateTime invitationIssuedAt() {
+        if (getUpdatedAt() != null) {
+            return getUpdatedAt();
+        }
+        if (getCreatedAt() != null) {
+            return getCreatedAt();
+        }
+        // Auditing has not run yet, which only happens between building an
+        // invitation and flushing it. Reading that as "issued now" is the one
+        // answer that cannot expire an invitation before it is even saved.
+        return LocalDateTime.now();
     }
 
     public void markAsRemoved() {

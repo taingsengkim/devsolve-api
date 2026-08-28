@@ -9,6 +9,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrgRole;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.ResearcherAccessService;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
@@ -22,6 +23,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Weakness;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -63,6 +65,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -115,6 +118,9 @@ class ReportServiceImplTest {
     @Mock
     private CompanyIdentityService companyIdentityService;
 
+    @Mock
+    private ResearcherAccessService researcherAccessService;
+
     @AfterEach
     void clearSecurityContext() {
         SecurityContextHolder.clearContext();
@@ -151,6 +157,69 @@ class ReportServiceImplTest {
         assertNull(report.getTriageSeverity());
         assertNull(report.getSeverity());
         assertEquals(ReportState.NEW, report.getState());
+    }
+
+    @Test
+    void hackerCannotCreateReportWithoutCompanyApproval() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        doThrow(new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "Acme has not reviewed your access request yet."
+        )).when(researcherAccessService).requireApprovedReporter(
+                program.getOrganizationId(),
+                hackerId
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().create(
+                        program.getId(),
+                        reportRequest(
+                                Severity.HIGH,
+                                program.getAssets().getFirst().getId()
+                        )
+                )
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, exception.getStatusCode());
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void approvedHackerPassesTheCompanyGateOnTheOwningOrganization() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().create(
+                program.getId(),
+                reportRequest(
+                        Severity.HIGH,
+                        program.getAssets().getFirst().getId()
+                )
+        );
+
+        verify(researcherAccessService).requireApprovedReporter(
+                program.getOrganizationId(),
+                hackerId
+        );
     }
 
     @Test
@@ -203,6 +272,7 @@ class ReportServiceImplTest {
                 new TriageReportRequest(
                         Severity.HIGH,
                         ReportState.VALID_CONFIRMED,
+                        null,
                         null
                 )
         );
@@ -211,6 +281,144 @@ class ReportServiceImplTest {
         assertEquals(Severity.HIGH, report.getSeverity());
         assertEquals(ReportState.VALID_CONFIRMED, report.getState());
         verify(disputeRepository, never()).save(any(Dispute.class));
+    }
+
+    /**
+     * The classification a reporter picks is a guess from a catalog they may
+     * not know well. Triage is where it gets settled.
+     */
+    @Test
+    void triageReclassifiesTheReport() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        Weakness reported = Weakness.builder()
+                .id(UUID.randomUUID())
+                .cweId("CWE-79")
+                .name("Cross-site Scripting (XSS)")
+                .isActive(true)
+                .build();
+        Weakness corrected = Weakness.builder()
+                .id(UUID.randomUUID())
+                .cweId("CWE-89")
+                .name("SQL Injection")
+                .isActive(true)
+                .build();
+        report.setWeakness(reported);
+
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(weaknessRepository.findByIdAndIsActiveTrue(corrected.getId()))
+                .thenReturn(Optional.of(corrected));
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        corrected.getId()
+                )
+        );
+
+        assertSame(corrected, report.getWeakness());
+    }
+
+    /**
+     * Re-triaging for a state change alone must not undo a classification
+     * somebody already corrected.
+     */
+    @Test
+    void triageWithoutAWeaknessKeepsTheOneTheReportHas() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        Weakness existing = Weakness.builder()
+                .id(UUID.randomUUID())
+                .cweId("CWE-89")
+                .name("SQL Injection")
+                .isActive(true)
+                .build();
+        report.setWeakness(existing);
+
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        null
+                )
+        );
+
+        assertSame(existing, report.getWeakness());
+        verify(weaknessRepository, never()).findByIdAndIsActiveTrue(any());
+    }
+
+    /**
+     * A retired class stays readable on the reports already filed under it,
+     * but nothing new can be classified into it.
+     */
+    @Test
+    void triageCannotReclassifyIntoARetiredWeakness() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        UUID retiredId = UUID.randomUUID();
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(weaknessRepository.findByIdAndIsActiveTrue(retiredId))
+                .thenReturn(Optional.empty());
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().triage(
+                        report.getId(),
+                        new TriageReportRequest(
+                                Severity.HIGH,
+                                ReportState.VALID_CONFIRMED,
+                                null,
+                                retiredId
+                        )
+                )
+        );
+
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
     }
 
     @Test
@@ -243,6 +451,7 @@ class ReportServiceImplTest {
                 new TriageReportRequest(
                         Severity.MEDIUM,
                         ReportState.VALID_CONFIRMED,
+                        null,
                         null
                 )
         );
@@ -303,6 +512,7 @@ class ReportServiceImplTest {
                 new TriageReportRequest(
                         Severity.LOW,
                         ReportState.RESOLVED,
+                        null,
                         null
                 )
         );
@@ -481,6 +691,7 @@ class ReportServiceImplTest {
                         new TriageReportRequest(
                                 Severity.MEDIUM,
                                 ReportState.VALID_CONFIRMED,
+                                null,
                                 null
                         )
                 )
@@ -726,6 +937,7 @@ class ReportServiceImplTest {
                         organizationRepository,
                         organizationMemberRepository
                 ),
+                researcherAccessService,
                 companyIdentityService,
                 reportMapper,
                 followNotificationService,
