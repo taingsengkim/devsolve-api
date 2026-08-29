@@ -35,6 +35,13 @@ spring:
           issuer-uri: http://localhost:9999/test-issuer
           jwk-set-uri: http://localhost:9999/test-jwks
 
+app:
+  # No suite needs a Redis server. Off rather than left on and unreachable, so
+  # tests exercise one deterministic path instead of whatever a connection
+  # timeout happens to produce.
+  redis:
+    enabled: false
+
 minio:
   url: http://localhost:9000
   access-key: test-access-key

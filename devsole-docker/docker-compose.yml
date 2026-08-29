@@ -63,6 +63,38 @@ services:
 #    depends_on:
 #      - devsolve-db
 #    restart: unless-stopped
+  redis:
+    image: redis:8.2-alpine
+    container_name: devsolve-redis
+    # No volume and no persistence: everything here is a cache entry or a
+    # short-lived counter, all rebuildable from PostgreSQL. allkeys-lru for the
+    # same reason — under memory pressure, drop old keys rather than refuse
+    # writes and take the rate limiters down.
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --requirepass
+      - ${REDIS_PASSWORD}
+    ports:
+      # Localhost only: the API reaches Redis over the compose network, and it
+      # has no business being open to the internet on a VPS.
+      - "127.0.0.1:6379:6379"
+    networks:
+      - devsolve
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: devsolve-minio

@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.category;
 
+import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
@@ -10,6 +11,8 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowcaseRevisionRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,8 +34,15 @@ public class CategoryServiceImpl implements CategoryService {
     private final ShowCasesRepository showCasesRepository;
     private final ShowcaseRevisionRepository showcaseRevisionRepository;
 
+    /**
+     * Drops the whole categories cache, here and on every other write below: a
+     * new or renamed category invalidates both listings and every scope filter
+     * of each. Eviction happens only on a successful return, so a create that
+     * throws leaves a cache that is still correct.
+     */
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.CATEGORIES, allEntries = true)
     public CategoryResponse createCategory(CategoryRequest request) {
 
         if (!AuthUtils.hasRole("ADMIN")) {
@@ -57,7 +67,16 @@ public class CategoryServiceImpl implements CategoryService {
         return mapToResponse(saved);
     }
 
+    /**
+     * Cached: read on nearly every page load, written only by an admin, and
+     * identical for every viewer — nothing in a {@link CategoryResponse} is
+     * per-user, which is what makes a shared cache safe here.
+     */
     @Override
+    @Cacheable(
+            cacheNames = CacheNames.CATEGORIES,
+            key = "'all:' + (#scope == null ? 'any' : #scope)"
+    )
     public List<CategoryResponse> getAllCategories(CategoryScope scope) {
         List<Category> categories = scope == null
                 ? categoryRepository.findAll()
@@ -69,6 +88,10 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Cacheable(
+            cacheNames = CacheNames.CATEGORIES,
+            key = "'active:' + (#scope == null ? 'any' : #scope)"
+    )
     public List<CategoryResponse> getActiveCategoriesSorted(
             CategoryScope scope
     ) {
@@ -134,6 +157,7 @@ public class CategoryServiceImpl implements CategoryService {
      */
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.CATEGORIES, allEntries = true)
     public void deleteCategory(UUID id) {
 
         if (!AuthUtils.hasRole("ADMIN")) {
@@ -238,6 +262,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.CATEGORIES, allEntries = true)
     public CategoryResponse partialUpdateCategory(UUID id, CategoryPatchRequest request) {
         if (!AuthUtils.hasRole("ADMIN")) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only ADMIN can update categories");
@@ -294,6 +319,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.CATEGORIES, allEntries = true)
     public CategoryResponse uploadIcon(UUID id, MultipartFile file) {
         if (!AuthUtils.hasRole("ADMIN")) {
             throw new ResponseStatusException(
@@ -317,6 +343,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.CATEGORIES, allEntries = true)
     public CategoryResponse removeIcon(UUID id) {
         if (!AuthUtils.hasRole("ADMIN")) {
             throw new ResponseStatusException(
