@@ -4,7 +4,10 @@ import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseDetailParts;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseTagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
 import org.junit.jupiter.api.Test;
@@ -159,6 +162,36 @@ class CacheConfigTest {
                         .map(ShowcaseStepResponse::stepNumber)
                         .toList()
         );
+    }
+
+    @Test
+    void roundTripsAShowcaseListingSliceWithItsTotalIntact() {
+        SerializationPair<ShowcaseListingSlice> listing =
+                CacheConfig.showcaseListingSerializer();
+
+        ShowcaseListingSlice original = new ShowcaseListingSlice(
+                List.of(ShowCasesSummaryResponse.builder()
+                        .id(UUID.randomUUID())
+                        .authorName("Sok Dara")
+                        .categoryName("Web Security")
+                        .title("Breaking a JWT")
+                        .overview("How a weak secret fell")
+                        .reviewStatus(ReviewStatus.APPROVED)
+                        .viewCount(94)
+                        .commentCount(0)
+                        .tags(List.of(new ShowcaseTagResponse(
+                                UUID.randomUUID(), "JWT", "jwt"
+                        )))
+                        .createdAt(LocalDateTime.of(2026, 8, 30, 8, 0))
+                        .build()),
+                31
+        );
+
+        ShowcaseListingSlice restored = listing.read(listing.write(original));
+
+        assertNotNull(restored);
+        assertEquals(original, restored);
+        assertEquals(31, restored.totalElements());
     }
 
     @Test

@@ -17,6 +17,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.BatchSize;
 import jakarta.persistence.UniqueConstraint;
 import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
 import kh.edu.istad.ite.devsoleapi.feature.solution.enums.ApproachType;
@@ -75,6 +76,9 @@ public class SolutionRevision extends BasedEntity {
             joinColumns = @JoinColumn(name = "solution_revision_id")
     )
     @OrderColumn(name = "display_order")
+    // Batched so a page of solutions costs a couple of extra selects rather
+    // than one per row; every response maps all four collections.
+    @BatchSize(size = 50)
     @Builder.Default
     private List<SolutionVerificationStep> verificationSteps =
             new ArrayList<>();
@@ -85,6 +89,7 @@ public class SolutionRevision extends BasedEntity {
             joinColumns = @JoinColumn(name = "solution_revision_id")
     )
     @OrderColumn(name = "display_order")
+    @BatchSize(size = 50)
     @Builder.Default
     private List<SolutionTestedWith> testedWith = new ArrayList<>();
 
@@ -111,6 +116,7 @@ public class SolutionRevision extends BasedEntity {
             orphanRemoval = true
     )
     @OrderBy("displayOrder ASC")
+    @BatchSize(size = 50)
     @Builder.Default
     private List<SolutionResource> resources = new ArrayList<>();
 
@@ -120,6 +126,7 @@ public class SolutionRevision extends BasedEntity {
             orphanRemoval = true
     )
     @OrderBy("createdAt ASC")
+    @BatchSize(size = 50)
     @Builder.Default
     private List<SolutionAttachment> attachments = new ArrayList<>();
 }

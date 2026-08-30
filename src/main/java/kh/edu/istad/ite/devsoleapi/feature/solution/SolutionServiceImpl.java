@@ -55,15 +55,19 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class SolutionServiceImpl implements SolutionService {
+
+    private final SolutionResponseEnricher solutionResponseEnricher;
 
     private static final int MAX_ATTACHMENTS = 10;
     private static final Duration DOWNLOAD_LINK_VALIDITY = Duration.ofMinutes(5);
@@ -133,16 +137,15 @@ public class SolutionServiceImpl implements SolutionService {
                 pageSize,
                 Sort.by(Sort.Direction.ASC, "createdAt")
         );
-        return solutionRepository
-                .findAllByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-                        problemId,
-                        pageable
-                )
-                .map(solution -> toResponse(
-                        solution,
-                        solution.getCurrentPublishedRevision(),
-                        false
-                ));
+        return toResponses(
+                solutionRepository
+                        .findAllByProblem_IdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
+                                problemId,
+                                pageable
+                        ),
+                Solution::getCurrentPublishedRevision,
+                false
+        );
     }
 
     @Override
@@ -159,18 +162,18 @@ public class SolutionServiceImpl implements SolutionService {
     public Page<SolutionResponse> getMine(int pageNumber, int pageSize) {
         validatePagination(pageNumber, pageSize);
         UUID authorId = requireCurrentUserId();
-        return solutionRepository.findAllByAuthorIdAndDeletedAtIsNull(
-                authorId,
-                PageRequest.of(
-                        pageNumber,
-                        pageSize,
-                        Sort.by(Sort.Direction.DESC, "updatedAt")
-                )
-        ).map(solution -> toResponse(
-                solution,
-                solution.getLatestRevision(),
+        return toResponses(
+                solutionRepository.findAllByAuthorIdAndDeletedAtIsNull(
+                        authorId,
+                        PageRequest.of(
+                                pageNumber,
+                                pageSize,
+                                Sort.by(Sort.Direction.DESC, "updatedAt")
+                        )
+                ),
+                Solution::getLatestRevision,
                 true
-        ));
+        );
     }
 
     @Override
@@ -181,20 +184,19 @@ public class SolutionServiceImpl implements SolutionService {
             int pageSize
     ) {
         validatePagination(pageNumber, pageSize);
-        return solutionRepository
-                .findAllByAuthorIdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
-                        authorId,
-                        PageRequest.of(
-                                pageNumber,
-                                pageSize,
-                                Sort.by(Sort.Direction.DESC, "createdAt")
-                        )
-                )
-                .map(solution -> toResponse(
-                        solution,
-                        solution.getCurrentPublishedRevision(),
-                        false
-                ));
+        return toResponses(
+                solutionRepository
+                        .findAllByAuthorIdAndCurrentPublishedRevisionIsNotNullAndDeletedAtIsNull(
+                                authorId,
+                                PageRequest.of(
+                                        pageNumber,
+                                        pageSize,
+                                        Sort.by(Sort.Direction.DESC, "createdAt")
+                                )
+                        ),
+                Solution::getCurrentPublishedRevision,
+                false
+        );
     }
 
     @Override
@@ -206,18 +208,18 @@ public class SolutionServiceImpl implements SolutionService {
     ) {
         requireAdmin();
         validatePagination(pageNumber, pageSize);
-        return solutionRepository.findForModeration(
-                reviewStatus,
-                PageRequest.of(
-                        pageNumber,
-                        pageSize,
-                        Sort.by(Sort.Direction.ASC, "createdAt")
-                )
-        ).map(solution -> toResponse(
-                solution,
-                solution.getLatestRevision(),
+        return toResponses(
+                solutionRepository.findForModeration(
+                        reviewStatus,
+                        PageRequest.of(
+                                pageNumber,
+                                pageSize,
+                                Sort.by(Sort.Direction.ASC, "createdAt")
+                        )
+                ),
+                Solution::getLatestRevision,
                 true
-        ));
+        );
     }
 
     @Override
@@ -741,31 +743,56 @@ public class SolutionServiceImpl implements SolutionService {
                 ));
     }
 
+    /**
+     * Maps a page in one go. The counters, author profiles and viewer votes are
+     * read once for the whole page rather than once per solution.
+     */
+    private Page<SolutionResponse> toResponses(
+            Page<Solution> solutions,
+            Function<Solution, SolutionRevision> revision,
+            boolean includeModeration
+    ) {
+        Map<UUID, SolutionResponseEnricher.SolutionMetrics> metrics =
+                solutionResponseEnricher.readAll(solutions.getContent());
+        return solutions.map(solution -> toResponse(
+                solution,
+                revision.apply(solution),
+                includeModeration,
+                metrics.get(solution.getId())
+        ));
+    }
+
+    /** Single-solution reads go through the same batch loader, with one row. */
     private SolutionResponse toResponse(
             Solution solution,
             SolutionRevision revision,
             boolean includeModeration
+    ) {
+        return toResponse(
+                solution,
+                revision,
+                includeModeration,
+                solutionResponseEnricher.readAll(List.of(solution))
+                        .get(solution.getId())
+        );
+    }
+
+    private SolutionResponse toResponse(
+            Solution solution,
+            SolutionRevision revision,
+            boolean includeModeration,
+            SolutionResponseEnricher.SolutionMetrics metrics
     ) {
         if (revision == null) {
             throw new IllegalStateException(
                     "Solution " + solution.getId() + " has no content revision"
             );
         }
-        UserProfile author = requireAuthorProfile(solution.getAuthorId());
-        VoteSummaryProjection votes = voteRepository.summarize(
-                VoteType.SOLUTION,
-                solution.getId()
-        );
-        String viewerVote = optionalCurrentUserId()
-                .flatMap(userId -> voteRepository
-                        .findByUserIdAndVotableTypeAndVotableId(
-                                userId,
-                                VoteType.SOLUTION,
-                                solution.getId()
-                        ))
-                .map(Vote::getVoteValue)
-                .map(value -> value > 0 ? "UP" : "DOWN")
-                .orElse(null);
+        UserProfile author = metrics == null ? null : metrics.author();
+        if (author == null) {
+            throw notFound("Solution author profile", solution.getAuthorId());
+        }
+        String viewerVote = metrics.viewerVote();
         return new SolutionResponse(
                 solution.getId(),
                 solution.getProblem().getId(),
@@ -813,11 +840,8 @@ public class SolutionServiceImpl implements SolutionService {
                         .toList(),
                 findAcceptance(solution.getProblem(), solution.getId())
                         .isPresent(),
-                votes == null ? 0 : votes.getScore(),
-                commentRepository.countVisible(
-                        CommentableType.SOLUTION,
-                        solution.getId()
-                ),
+                metrics.voteScore(),
+                metrics.commentCount(),
                 viewerVote,
                 solution.getVersion(),
                 includeModeration

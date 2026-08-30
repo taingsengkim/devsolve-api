@@ -40,6 +40,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -49,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
@@ -77,6 +79,13 @@ class SolutionServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new SolutionServiceImpl(
+                // Real, over the same mocks: these tests still assert against
+                // the queries the enricher now batches.
+                new SolutionResponseEnricher(
+                        userProfileRepository,
+                        voteRepository,
+                        commentRepository
+                ),
                 solutionRepository,
                 revisionRepository,
                 attachmentRepository,
@@ -458,7 +467,14 @@ class SolutionServiceImplTest {
         UserProfile profile = new UserProfile();
         profile.setId(authorId);
         profile.setFullName("Solution Author");
-        when(userProfileRepository.findById(authorId)).thenReturn(Optional.of(profile));
+        lenient().when(userProfileRepository.findById(authorId))
+                .thenReturn(Optional.of(profile));
+        // Author profiles are loaded per page now, not per solution.
+        lenient().when(userProfileRepository.findAllById(
+                argThat(ids -> ids != null
+                        && StreamSupport.stream(ids.spliterator(), false)
+                        .anyMatch(authorId::equals))
+        )).thenReturn(List.of(profile));
     }
 
     private void authenticate(UUID subject, boolean admin) {

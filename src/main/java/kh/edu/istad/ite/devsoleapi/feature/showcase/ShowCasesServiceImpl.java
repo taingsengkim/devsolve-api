@@ -15,6 +15,7 @@ import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseDetailParts;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewHistoryResponse;
@@ -38,6 +39,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -74,6 +76,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ShowcaseCommentCounts showcaseCommentCounts;
     private final ViewCountGuard viewCountGuard;
     private final ShowcaseDetailCache showcaseDetailCache;
+    private final ShowcaseListingCache showcaseListingCache;
 
     @Override
     @Transactional(readOnly = true)
@@ -91,41 +94,24 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         String queryPattern = containsPattern(normalizeQuery(query));
         String tagSlug = normalizeQuery(tag);
 
-        // One query shape for every filter combination. The old code branched
-        // between three repository methods depending on which filters were
-        // present, which is why adding a fourth filter meant adding branches
-        // rather than a parameter.
-        Page<ShowCases> showcases = effectiveSort.isScoreOrdered()
-                ? showCaseRepository.searchPublishedByScore(
-                        ReviewStatus.APPROVED,
-                        queryPattern,
-                        categoryId,
-                        tagSlug,
-                        effectiveSort.windowStart(),
-                        VoteType.SHOWCASE,
-                        PageRequest.of(pageNumber, pageSize)
-                )
-                : showCaseRepository.searchPublished(
-                        ReviewStatus.APPROVED,
-                        queryPattern,
-                        categoryId,
-                        tagSlug,
-                        PageRequest.of(pageNumber, pageSize, columnSort(
-                                effectiveSort
-                        ))
-                );
+        // Cached only when nothing is filtered — see ShowcaseListingCache. The
+        // comment counts below stay outside it, so the number that moves most
+        // is never served stale.
+        ShowcaseListingSlice slice = showcaseListingCache.load(
+                queryPattern,
+                categoryId,
+                tagSlug,
+                effectiveSort,
+                pageNumber,
+                pageSize,
+                columnSort(effectiveSort)
+        );
 
-        Map<UUID, List<ShowcaseTagResponse>> tagsByShowcaseId =
-                showcaseTagService.tagsOfShowcases(idsOf(showcases));
-
-        return showcaseCommentCounts.applyToSummaries(showcases.map(showcase ->
-                showCasesMapper.mapShowCaseToSummaryResponse(
-                        showcase,
-                        tagsByShowcaseId.getOrDefault(
-                                showcase.getId(),
-                                List.of()
-                        )
-                )));
+        return showcaseCommentCounts.applyToSummaries(new PageImpl<>(
+                slice.content(),
+                PageRequest.of(pageNumber, pageSize),
+                slice.totalElements()
+        ));
     }
 
     /**

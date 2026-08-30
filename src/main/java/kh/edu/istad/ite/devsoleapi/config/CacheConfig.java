@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.common.cache.LoggingCacheErrorHandler;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseDetailParts;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseListingSlice;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.cache.autoconfigure.RedisCacheManagerBuilderCustomizer;
 import org.springframework.cache.annotation.CachingConfigurer;
@@ -53,6 +54,9 @@ public class CacheConfig implements CachingConfigurer {
     /** Every step and tag write evicts; this only bounds a path someone forgets to. */
     private static final Duration SHOWCASE_DETAIL_TTL = Duration.ofMinutes(10);
 
+    /** Nothing evicts the listing, so this is how fast a new showcase appears on it. */
+    private static final Duration SHOWCASE_LISTING_TTL = Duration.ofSeconds(60);
+
     /**
      * Deliberately not the HTTP {@code ObjectMapper}: cached bytes outlive the
      * request that wrote them, so their format should not move because someone
@@ -89,6 +93,12 @@ public class CacheConfig implements CachingConfigurer {
                             defaults
                                     .entryTtl(SHOWCASE_DETAIL_TTL)
                                     .serializeValuesWith(showcaseDetailSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.SHOWCASE_LISTING,
+                            defaults
+                                    .entryTtl(SHOWCASE_LISTING_TTL)
+                                    .serializeValuesWith(showcaseListingSerializer())
                     );
         };
     }
@@ -116,6 +126,15 @@ public class CacheConfig implements CachingConfigurer {
                 new JacksonJsonRedisSerializer<>(
                         CACHE_MAPPER,
                         CACHE_MAPPER.constructType(LeaderboardSlice.class)
+                )
+        );
+    }
+
+    static SerializationPair<ShowcaseListingSlice> showcaseListingSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(ShowcaseListingSlice.class)
                 )
         );
     }
