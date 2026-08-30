@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.common.listing;
 
 import jakarta.servlet.http.HttpServletRequest;
 import kh.edu.istad.ite.devsoleapi.common.ratelimit.RateLimitStore;
+import kh.edu.istad.ite.devsoleapi.common.web.ClientAddress;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -62,18 +63,15 @@ public class ViewCountGuard {
             return "user:" + jwt.getToken().getSubject();
         }
 
-        HttpServletRequest request = currentRequest();
-        if (request == null) {
+        String address = ClientAddress.current();
+        if (address == null) {
             // No request bound — a scheduled job or a test. Nothing to
             // attribute the view to, so let it through rather than silently
             // dropping counts.
             return "anonymous:" + UUID.randomUUID();
         }
-        String forwarded = request.getHeader("X-Forwarded-For");
-        String address = forwarded == null || forwarded.isBlank()
-                ? request.getRemoteAddr()
-                : forwarded.split(",")[0].trim();
-        String agent = request.getHeader("User-Agent");
+        HttpServletRequest request = currentRequest();
+        String agent = request == null ? null : request.getHeader("User-Agent");
         // Hashed, unlike the user id above: a User-Agent is caller-controlled
         // and unbounded, and this ends up in a Redis key.
         return "anon:" + fingerprint(address + "|" + (agent == null ? "" : agent));

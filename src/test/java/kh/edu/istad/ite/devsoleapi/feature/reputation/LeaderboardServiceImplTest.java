@@ -33,8 +33,7 @@ class LeaderboardServiceImplTest {
 
     private LeaderboardServiceImpl leaderboardService() {
         return new LeaderboardServiceImpl(
-                userProfileRepository,
-                leaderboardMapper
+                new LeaderboardCache(userProfileRepository, leaderboardMapper)
         );
     }
 

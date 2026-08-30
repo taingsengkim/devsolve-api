@@ -131,7 +131,15 @@ class ShowCasesServiceImplTest {
                 imageStorageService,
                 showcaseTagService,
                 showcaseCommentCounts,
-                viewCountGuard
+                viewCountGuard,
+                // Real, over the same mocks: the cache is a pass-through
+                // without a CacheManager, so these tests still assert against
+                // the queries they always did.
+                new ShowcaseDetailCache(
+                        showcaseStepRepository,
+                        showcaseStepMapper,
+                        showcaseTagService
+                )
         );
 
         // Every view counts unless a test says otherwise; the dedup window is

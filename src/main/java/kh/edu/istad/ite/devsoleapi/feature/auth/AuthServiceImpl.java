@@ -39,10 +39,13 @@ public class AuthServiceImpl implements AuthService {
     private final UserProfileRepository userProfileRepository;
     private final UserProvisioningService userProvisioningService;
     private final UserProfileService userProfileService;
+    private final RegistrationRateLimiter registrationRateLimiter;
 
     @Override
     @Transactional
     public RegisterResponse register(RegisterRequest registerRequest) {
+        registrationRateLimiter.check();
+
         if (!registerRequest.password().equals(registerRequest.confirmPassword())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Passwords do not match");
         }
