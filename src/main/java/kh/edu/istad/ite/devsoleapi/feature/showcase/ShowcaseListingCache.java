@@ -44,15 +44,59 @@ public class ShowcaseListingCache {
     /**
      * Cached only when nothing is filtered: a search or a tag makes every
      * request its own key, read once and never hit again.
+     *
+     * <p>{@code sync} so that an evict — which drops every page of every sort
+     * at once — is followed by one query per key rather than one per waiting
+     * request.
      */
     @Cacheable(
             cacheNames = CacheNames.SHOWCASE_LISTING,
             key = "#sort.name() + ':' + #page + ':' + #size",
             condition = "#queryPattern == null && #categoryId == null "
-                    + "&& #tagSlug == null && #page < 10"
+                    + "&& #tagSlug == null && #page < 10",
+            sync = true
     )
     @Transactional(readOnly = true)
     public ShowcaseListingSlice load(
+            String queryPattern,
+            UUID categoryId,
+            String tagSlug,
+            ListingSort sort,
+            int page,
+            int size,
+            Sort columnSort
+    ) {
+        return query(queryPattern, categoryId, tagSlug, sort, page, size, columnSort);
+    }
+
+    /**
+     * The same query for the vote- and view-ordered sorts, in its own cache so
+     * it can hold a short TTL: nothing evicts on a vote or a view, so the TTL
+     * is all that keeps these orderings honest. {@code TRENDING} needs it most
+     * — its window is read from the clock, so a long-lived page would answer
+     * from a window that stopped moving when it was cached.
+     */
+    @Cacheable(
+            cacheNames = CacheNames.SHOWCASE_LISTING_RANKED,
+            key = "#sort.name() + ':' + #page + ':' + #size",
+            condition = "#queryPattern == null && #categoryId == null "
+                    + "&& #tagSlug == null && #page < 10",
+            sync = true
+    )
+    @Transactional(readOnly = true)
+    public ShowcaseListingSlice loadRanked(
+            String queryPattern,
+            UUID categoryId,
+            String tagSlug,
+            ListingSort sort,
+            int page,
+            int size,
+            Sort columnSort
+    ) {
+        return query(queryPattern, categoryId, tagSlug, sort, page, size, columnSort);
+    }
+
+    private ShowcaseListingSlice query(
             String queryPattern,
             UUID categoryId,
             String tagSlug,

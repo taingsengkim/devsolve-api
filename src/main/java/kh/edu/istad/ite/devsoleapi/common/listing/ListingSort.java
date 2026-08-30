@@ -48,6 +48,16 @@ public enum ListingSort {
     }
 
     /**
+     * Whether the ordering depends on counts that move on votes and reads
+     * rather than on the row itself. Nothing can evict a cached page of one of
+     * these without emptying the cache on every view, so they are cached apart
+     * from the rest and briefly.
+     */
+    public boolean isCountOrdered() {
+        return isScoreOrdered() || this == MOST_VIEWED;
+    }
+
+    /**
      * The earliest publication date this ordering will consider, or null when
      * it considers everything.
      */

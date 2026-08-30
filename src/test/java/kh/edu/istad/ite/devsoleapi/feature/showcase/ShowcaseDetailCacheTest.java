@@ -7,9 +7,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -75,9 +77,27 @@ class ShowcaseDetailCacheTest {
                         "No " + methodName + " on ShowCasesServiceImpl"
                 ));
 
-        CacheEvict evict = method.getAnnotation(CacheEvict.class);
+        CacheEvict evict = detailEvictOn(method);
 
         assertNotNull(evict, methodName + " does not evict the cached detail");
         assertEquals("#showcaseId", evict.key());
+    }
+
+    /**
+     * A method may carry its {@code @CacheEvict} directly or nested in a
+     * {@code @Caching} alongside evicts of other caches, and only the one
+     * naming {@link CacheNames#SHOWCASE_DETAIL} is the one under test.
+     */
+    private static CacheEvict detailEvictOn(Method method) {
+        Caching caching = method.getAnnotation(Caching.class);
+        Stream<CacheEvict> evicts = caching == null
+                ? Stream.ofNullable(method.getAnnotation(CacheEvict.class))
+                : Arrays.stream(caching.evict());
+
+        return evicts
+                .filter(evict -> Arrays.asList(evict.cacheNames())
+                        .contains(CacheNames.SHOWCASE_DETAIL))
+                .findFirst()
+                .orElse(null);
     }
 }

@@ -46,16 +46,20 @@ import java.util.List;
 public class CacheConfig implements CachingConfigurer {
 
     /** The taxonomy changes rarely and every write path evicts, so this is only a backstop. */
-    private static final Duration CATEGORY_TTL = Duration.ofMinutes(30);
+    private static final Duration CATEGORY_TTL = Duration.ofDays(1);
 
     /** Nothing evicts the leaderboard, so this is the only thing bounding staleness. */
-    private static final Duration LEADERBOARD_TTL = Duration.ofSeconds(60);
+    private static final Duration LEADERBOARD_TTL = Duration.ofMinutes(5);
 
     /** Every step and tag write evicts; this only bounds a path someone forgets to. */
-    private static final Duration SHOWCASE_DETAIL_TTL = Duration.ofMinutes(10);
+    private static final Duration SHOWCASE_DETAIL_TTL = Duration.ofDays(1);
 
-    /** Nothing evicts the listing, so this is how fast a new showcase appears on it. */
-    private static final Duration SHOWCASE_LISTING_TTL = Duration.ofSeconds(60);
+    /** Moderation and deletion evict, and nothing else changes these orderings. */
+    private static final Duration SHOWCASE_LISTING_TTL = Duration.ofDays(1);
+
+    /** Votes and views move on reads, so nothing evicts these pages. */
+    private static final Duration SHOWCASE_LISTING_RANKED_TTL =
+            Duration.ofSeconds(60);
 
     /**
      * Deliberately not the HTTP {@code ObjectMapper}: cached bytes outlive the
@@ -98,6 +102,12 @@ public class CacheConfig implements CachingConfigurer {
                             CacheNames.SHOWCASE_LISTING,
                             defaults
                                     .entryTtl(SHOWCASE_LISTING_TTL)
+                                    .serializeValuesWith(showcaseListingSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.SHOWCASE_LISTING_RANKED,
+                            defaults
+                                    .entryTtl(SHOWCASE_LISTING_RANKED_TTL)
                                     .serializeValuesWith(showcaseListingSerializer())
                     );
         };

@@ -56,7 +56,7 @@ spring:
       key-prefix: "devsolve:cache:"
       use-key-prefix: true
       # Backstop only — each cache sets its own TTL in CacheConfig.
-      time-to-live: ${REDIS_CACHE_TTL:5m}
+      time-to-live: ${REDIS_CACHE_TTL:1d}
       # Spring's NullValue sentinel cannot go through a serializer typed to the
       # cached class, and no cached method here returns null.
       cache-null-values: false

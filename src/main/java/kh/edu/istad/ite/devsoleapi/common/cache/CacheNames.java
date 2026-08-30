@@ -35,8 +35,19 @@ public final class CacheNames {
      * One page of the unfiltered showcase listing. Searched and filtered pages
      * are deliberately not cached: each filter combination is its own key, read
      * once, so they would fill Redis without ever being hit again.
+     *
+     * <p>Evicted whole: the key is {@code sort:page:size}, so a showcase
+     * joining or leaving shifts an unknown set of pages across every sort.
      */
     public static final String SHOWCASE_LISTING = "showcase-listing";
+
+    /**
+     * The same pages under a vote- or view-ordered sort. Split out because
+     * those orderings move on reads and votes, which nothing evicts, so they
+     * need a short TTL while the rest of the listing can hold for a day.
+     */
+    public static final String SHOWCASE_LISTING_RANKED =
+            "showcase-listing-ranked";
 
     private CacheNames() {
     }

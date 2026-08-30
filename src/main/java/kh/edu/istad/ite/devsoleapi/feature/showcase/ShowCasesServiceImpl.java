@@ -39,6 +39,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -96,16 +97,27 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
         // Cached only when nothing is filtered — see ShowcaseListingCache. The
         // comment counts below stay outside it, so the number that moves most
-        // is never served stale.
-        ShowcaseListingSlice slice = showcaseListingCache.load(
-                queryPattern,
-                categoryId,
-                tagSlug,
-                effectiveSort,
-                pageNumber,
-                pageSize,
-                columnSort(effectiveSort)
-        );
+        // is never served stale. Vote- and view-ordered sorts go to the other
+        // cache, which nothing evicts and which therefore expires quickly.
+        ShowcaseListingSlice slice = effectiveSort.isCountOrdered()
+                ? showcaseListingCache.loadRanked(
+                        queryPattern,
+                        categoryId,
+                        tagSlug,
+                        effectiveSort,
+                        pageNumber,
+                        pageSize,
+                        columnSort(effectiveSort)
+                )
+                : showcaseListingCache.load(
+                        queryPattern,
+                        categoryId,
+                        tagSlug,
+                        effectiveSort,
+                        pageNumber,
+                        pageSize,
+                        columnSort(effectiveSort)
+                );
 
         return showcaseCommentCounts.applyToSummaries(new PageImpl<>(
                 slice.content(),
@@ -715,6 +727,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     }
 
     @Override
+    @CacheEvict(cacheNames = {
+            CacheNames.SHOWCASE_LISTING,
+            CacheNames.SHOWCASE_LISTING_RANKED
+    }, allEntries = true)
     public void softDelete(UUID showcaseId) {
         UUID authorId = UUID.fromString(
                 AuthUtils.extractUserId()
@@ -743,7 +759,13 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId"),
+            @CacheEvict(cacheNames = {
+                    CacheNames.SHOWCASE_LISTING,
+                    CacheNames.SHOWCASE_LISTING_RANKED
+            }, allEntries = true)
+    })
     public void hardDelete(UUID showcaseId) {
         UUID authorId = extractCurrentUserId();
 
@@ -823,6 +845,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = {
+            CacheNames.SHOWCASE_LISTING,
+            CacheNames.SHOWCASE_LISTING_RANKED
+    }, allEntries = true)
     public void restore(UUID showcaseId) {
         UUID authorId = extractCurrentUserId();
         ShowCases showcase = showCaseRepository
@@ -893,8 +919,14 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     @Transactional
-    // Approving a revision replaces the showcase's steps and tags.
-    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
+    @Caching(evict = {
+            // Approving a revision replaces the showcase's steps and tags.
+            @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId"),
+            @CacheEvict(cacheNames = {
+                    CacheNames.SHOWCASE_LISTING,
+                    CacheNames.SHOWCASE_LISTING_RANKED
+            }, allEntries = true)
+    })
     public ShowCasesResponse updateStatus(
             UUID showcaseId,
             UpdateShowcaseStatusRequest request
