@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.bookmark.BookmarkRepository;
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.BookmarkType;
 import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.vote.Vote;
@@ -61,11 +62,44 @@ class ProblemResponseEnricher {
     }
 
     Map<UUID, ProblemResponseMetrics> readAll(List<Problem> problems) {
+        return readAllFor(problems.stream()
+                .map(problem -> new Subject(
+                        problem.getId(),
+                        problem.getAuthorId(),
+                        problem.getStatus()
+                ))
+                .toList());
+    }
+
+    /**
+     * The same read for problems that came back from the cache rather than the
+     * database. A cached response holds no viewer state by construction, so
+     * everything this returns is computed fresh for whoever is asking.
+     */
+    Map<UUID, ProblemResponseMetrics> readAllForCached(
+            List<CachedProblem> cached
+    ) {
+        return readAllFor(cached.stream()
+                .map(row -> new Subject(
+                        row.response().id(),
+                        // Carried alongside the response rather than read off
+                        // its author summary, which is null when the profile
+                        // has gone missing — that must not cost the author
+                        // their own edit rights.
+                        row.authorId(),
+                        row.response().status()
+                ))
+                .toList());
+    }
+
+    private Map<UUID, ProblemResponseMetrics> readAllFor(
+            List<Subject> problems
+    ) {
         if (problems.isEmpty()) {
             return Map.of();
         }
         List<UUID> problemIds = problems.stream()
-                .map(Problem::getId)
+                .map(Subject::id)
                 .toList();
         Optional<UUID> viewerId = currentUserId();
         boolean admin = AuthUtils.hasRole("ADMIN");
@@ -111,11 +145,10 @@ class ProblemResponseEnricher {
                 .orElseGet(Map::of);
 
         Map<UUID, ProblemResponseMetrics> metrics = new HashMap<>();
-        for (Problem problem : problems) {
-            UUID problemId = problem.getId();
-            boolean owner = viewerId
-                    .map(problem.getAuthorId()::equals)
-                    .orElse(false);
+        for (Subject problem : problems) {
+            UUID problemId = problem.id();
+            boolean owner = problem.authorId() != null
+                    && viewerId.map(problem.authorId()::equals).orElse(false);
             long solutionCount = solutionCounts.getOrDefault(problemId, 0L);
             Short vote = viewerVotes.get(problemId);
 
@@ -126,14 +159,16 @@ class ProblemResponseEnricher {
                     bookmarkCounts.getOrDefault(problemId, 0L),
                     viewerBookmarks.contains(problemId),
                     vote == null ? null : vote > 0 ? "UP" : "DOWN",
-                    owner && EDITABLE.contains(problem.getStatus()),
+                    owner && EDITABLE.contains(problem.status()),
                     admin || owner,
-                    (admin || owner) && ACCEPTABLE.contains(
-                            problem.getStatus()
-                    )
+                    (admin || owner) && ACCEPTABLE.contains(problem.status())
             ));
         }
         return metrics;
+    }
+
+    /** What computing the metrics needs of a problem, however it was loaded. */
+    private record Subject(UUID id, UUID authorId, ProblemStatus status) {
     }
 
     private Map<UUID, Long> toTotals(List<IdCountProjection> rows) {

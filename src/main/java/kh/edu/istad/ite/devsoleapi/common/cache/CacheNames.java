@@ -65,6 +65,22 @@ public final class CacheNames {
      */
     public static final String PROGRAM_DETAIL = "program-detail";
 
+    /**
+     * One page of the unfiltered problem feed, holding responses with their
+     * viewer state left blank.
+     *
+     * <p>A problem response carries who voted, who bookmarked and who may edit
+     * it. None of that can go in a shared cache, so what is cached here is the
+     * search and the associations — author, category, tags, technologies,
+     * attachments — and {@code ProblemResponseEnricher} fills the rest in per
+     * request. The counts come from the enricher too: it has to run anyway for
+     * the viewer flags, and reads them in the same queries.
+     */
+    public static final String PROBLEM_LISTING = "problem-listing";
+
+    /** One problem's viewer-independent half, keyed by problem id. */
+    public static final String PROBLEM_DETAIL = "problem-detail";
+
     private CacheNames() {
     }
 }

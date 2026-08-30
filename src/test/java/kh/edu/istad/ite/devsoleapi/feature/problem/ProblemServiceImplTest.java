@@ -104,6 +104,17 @@ class ProblemServiceImplTest {
     @BeforeEach
     void setUp() {
         problemMapper = new ProblemMapper();
+        // Real collaborators, not mocks: unproxied, @Cacheable is inert, so
+        // these run the same queries the service used to run inline.
+        ProblemResponseAssembler assembler = new ProblemResponseAssembler(
+                userProfileRepository,
+                categoryRepository,
+                technologyRepository,
+                problemTagRepository,
+                attachmentRepository,
+                problemMapper,
+                contentSafety
+        );
         service = new ProblemServiceImpl(
                 problemRepository,
                 technologyRepository,
@@ -121,7 +132,10 @@ class ProblemServiceImplTest {
                 new TagResolver(tagRepository),
                 solutionRepository,
                 viewCountGuard,
-                profanityFlagger
+                profanityFlagger,
+                assembler,
+                new ProblemListingCache(problemRepository, assembler),
+                new ProblemDetailCache(assembler)
         );
         // Every view counts unless a test says otherwise; the dedup window is
         // covered by ViewCountGuard's own test.

@@ -19,7 +19,13 @@ import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import org.springframework.context.ApplicationEventPublisher;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
+import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.data.domain.PageImpl;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemTechnologyRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemUpdateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.RelatedProblemResponse;
@@ -144,6 +150,9 @@ public class ProblemServiceImpl implements ProblemService {
     private final SolutionRepository solutionRepository;
     private final ViewCountGuard viewCountGuard;
     private final ProfanityFlagger profanityFlagger;
+    private final ProblemResponseAssembler assembler;
+    private final ProblemListingCache problemListingCache;
+    private final ProblemDetailCache problemDetailCache;
 
     @Autowired(required = false)
     private ProblemResponseEnricher responseEnricher;
@@ -170,34 +179,27 @@ public class ProblemServiceImpl implements ProblemService {
         ProblemStatus publicStatus = requirePublicStatus(status);
         ListingSort effectiveSort = sort == null ? ListingSort.NEWEST : sort;
 
-        if (effectiveSort.isScoreOrdered()) {
-            // The ordering is fixed by the query, so the caller's sort is
-            // dropped rather than silently fighting the ORDER BY.
-            LocalDateTime window = effectiveSort.windowStart();
-            return toResponses(problemRepository.findPublishedByScore(
-                    categoryId,
-                    sdlcPhase,
-                    tagSlug,
-                    technologyName,
-                    queryPattern,
-                    publicStatus,
-                    unansweredOnly,
-                    window == null
-                            ? null
-                            : window.atZone(ZoneOffset.UTC).toInstant(),
-                    VoteType.PROBLEM,
-                    PageRequest.of(
-                            pageable.getPageNumber(),
-                            pageable.getPageSize()
-                    )
-            ));
-        }
+        // The score-ordered sorts fix the ordering in the query, so the
+        // caller's sort is dropped rather than silently fighting the ORDER BY.
+        // Everything else takes its order from the pageable, which is why the
+        // cache keys on this string rather than on the sort alone.
+        Pageable columnPageable = effectiveSort.isScoreOrdered()
+                ? PageRequest.of(
+                        pageable.getPageNumber(),
+                        pageable.getPageSize()
+                )
+                : stabilize(PageableValidator.requireAllowedSort(
+                        pageable,
+                        PROBLEM_SORT_PROPERTIES
+                ));
+        String ordering = effectiveSort.isScoreOrdered()
+                ? effectiveSort.name()
+                : columnPageable.getSort().toString();
 
-        Pageable validatedPageable = PageableValidator.requireAllowedSort(
-                pageable,
-                PROBLEM_SORT_PROPERTIES
-        );
-        return toResponses(problemRepository.findPublished(
+        // Cached only when nothing is filtered — see ProblemListingCache. The
+        // viewer's votes, bookmarks and permissions are never in there; they
+        // are read per request below.
+        ProblemListingSlice slice = problemListingCache.load(
                 categoryId,
                 sdlcPhase,
                 tagSlug,
@@ -205,8 +207,38 @@ public class ProblemServiceImpl implements ProblemService {
                 queryPattern,
                 publicStatus,
                 unansweredOnly,
-                stabilize(validatedPageable)
-        ));
+                effectiveSort,
+                ordering,
+                columnPageable.getPageNumber(),
+                columnPageable.getPageSize(),
+                columnPageable
+        );
+
+        return new PageImpl<>(
+                applyViewerState(slice.content()),
+                columnPageable,
+                slice.totalElements()
+        );
+    }
+
+    /**
+     * Fills in what the cache deliberately left blank: the counts, and the
+     * vote, bookmark and permissions belonging to whoever is asking.
+     */
+    private List<ProblemResponse> applyViewerState(List<CachedProblem> cached) {
+        Map<UUID, ProblemResponseMetrics> metrics = responseEnricher == null
+                ? Map.of()
+                : responseEnricher.readAllForCached(cached);
+
+        return cached.stream()
+                .map(row -> ProblemResponses.withMetrics(
+                        row.response(),
+                        metrics.getOrDefault(
+                                row.response().id(),
+                                ProblemResponseMetrics.empty()
+                        )
+                ))
+                .toList();
     }
 
     @Override
@@ -357,10 +389,14 @@ public class ProblemServiceImpl implements ProblemService {
     @Transactional(readOnly = true)
     public ProblemResponse findById(UUID id) {
         Problem problem = findProblem(id);
+        // Authorised on the fresh row, every request: the cache below holds
+        // nothing that decides who may see this.
         if (!canView(problem)) {
             throw notFound(id);
         }
-        return toResponse(problem);
+        return applyViewerState(
+                List.of(problemDetailCache.load(id, problem))
+        ).getFirst();
     }
 
     @Override
@@ -377,6 +413,10 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_LISTING, allEntries = true)
+    })
     public ProblemResponse update(
             UUID id,
             ProblemUpdateRequest request,
@@ -467,6 +507,10 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_LISTING, allEntries = true)
+    })
     public ProblemResponse submit(UUID id) {
         Problem problem = findOwnedEditableProblem(id);
         validateForPublication(problem);
@@ -479,6 +523,10 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_LISTING, allEntries = true)
+    })
     public ProblemResponse moderate(
             UUID id,
             ProblemModerationRequest request
@@ -548,6 +596,10 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_LISTING, allEntries = true)
+    })
     public void softDelete(UUID id) {
         Problem problem = problemRepository.findActiveByIdForUpdate(id)
                 .orElseThrow(() -> notFound(id));
@@ -602,6 +654,10 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_LISTING, allEntries = true)
+    })
     public ProblemResponse uploadAttachment(
             UUID id,
             MultipartFile file
@@ -648,6 +704,10 @@ public class ProblemServiceImpl implements ProblemService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_DETAIL, key = "#problemId"),
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_LISTING, allEntries = true)
+    })
     public void removeAttachment(
             UUID problemId,
             UUID attachmentId
@@ -958,13 +1018,36 @@ public class ProblemServiceImpl implements ProblemService {
     }
 
     private Page<ProblemResponse> toResponses(Page<Problem> problems) {
-        ProblemAssociations associations =
-                loadAssociations(problems.getContent());
-        return problems.map(problem -> toResponse(problem, associations));
+        List<Problem> rows = problems.getContent();
+        ProblemResponseAssembler.Associations associations =
+                assembler.load(rows);
+        Map<UUID, ProblemResponseMetrics> metrics = readMetrics(rows);
+
+        return problems.map(problem -> ProblemResponses.withMetrics(
+                assembler.toResponse(problem, associations),
+                metrics.getOrDefault(
+                        problem.getId(),
+                        ProblemResponseMetrics.empty()
+                )
+        ));
     }
 
     private ProblemResponse toResponse(Problem problem) {
-        return toResponse(problem, loadAssociations(List.of(problem)));
+        return ProblemResponses.withMetrics(
+                assembler.toResponse(problem),
+                readMetrics(List.of(problem)).getOrDefault(
+                        problem.getId(),
+                        ProblemResponseMetrics.empty()
+                )
+        );
+    }
+
+    private Map<UUID, ProblemResponseMetrics> readMetrics(
+            List<Problem> problems
+    ) {
+        return responseEnricher == null
+                ? Map.of()
+                : responseEnricher.readAll(problems);
     }
 
     /**
@@ -972,106 +1055,6 @@ public class ProblemServiceImpl implements ProblemService {
      * the whole page. Reading these per problem instead turns a single listing
      * into upwards of a hundred queries.
      */
-    private ProblemAssociations loadAssociations(List<Problem> problems) {
-        if (problems.isEmpty()) {
-            return ProblemAssociations.empty();
-        }
-        List<UUID> problemIds = problems.stream()
-                .map(Problem::getId)
-                .toList();
-        Set<UUID> authorIds = problems.stream()
-                .map(Problem::getAuthorId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        Set<UUID> categoryIds = problems.stream()
-                .map(Problem::getCategoryId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-
-        return new ProblemAssociations(
-                userProfileRepository.findAllById(authorIds).stream()
-                        .collect(Collectors.toMap(
-                                UserProfile::getId,
-                                Function.identity()
-                        )),
-                categoryRepository.findAllById(categoryIds).stream()
-                        .collect(Collectors.toMap(
-                                Category::getId,
-                                Function.identity()
-                        )),
-                technologyRepository
-                        .findAllByProblemIdInOrderByNameAsc(problemIds)
-                        .stream()
-                        .collect(Collectors.groupingBy(
-                                technology -> technology.getProblem().getId()
-                        )),
-                problemTagRepository.findAllByProblemIdIn(problemIds).stream()
-                        .collect(Collectors.groupingBy(
-                                problemTag -> problemTag.getProblem().getId()
-                        )),
-                attachmentRepository
-                        .findAllByProblemIdInOrderByCreatedAtAsc(problemIds)
-                        .stream()
-                        .collect(Collectors.groupingBy(
-                                attachment -> attachment.getProblem().getId()
-                        )),
-                responseEnricher == null
-                        ? Map.of()
-                        : responseEnricher.readAll(problems)
-        );
-    }
-
-    private ProblemResponse toResponse(
-            Problem problem,
-            ProblemAssociations associations
-    ) {
-        return problemMapper.toResponse(
-                problem,
-                // Null rather than a 404: one problem whose author profile has
-                // gone missing should cost that row its byline, not take the
-                // whole page down with it.
-                associations.authors().get(problem.getAuthorId()),
-                associations.categories().get(problem.getCategoryId()),
-                associations.technologies().getOrDefault(
-                        problem.getId(),
-                        List.of()
-                ),
-                associations.tags().getOrDefault(problem.getId(), List.of()),
-                associations.attachments().getOrDefault(
-                        problem.getId(),
-                        List.of()
-                ),
-                contentSafety.warnings(
-                        problem.getTitle(),
-                        problem.getDescription()
-                ),
-                associations.metrics().getOrDefault(
-                        problem.getId(),
-                        ProblemResponseMetrics.empty()
-                )
-        );
-    }
-
-    private record ProblemAssociations(
-            Map<UUID, UserProfile> authors,
-            Map<UUID, Category> categories,
-            Map<UUID, List<ProblemTechnology>> technologies,
-            Map<UUID, List<ProblemTag>> tags,
-            Map<UUID, List<ProblemAttachment>> attachments,
-            Map<UUID, ProblemResponseMetrics> metrics
-    ) {
-        static ProblemAssociations empty() {
-            return new ProblemAssociations(
-                    Map.of(),
-                    Map.of(),
-                    Map.of(),
-                    Map.of(),
-                    Map.of(),
-                    Map.of()
-            );
-        }
-    }
-
     private Problem findProblem(UUID id) {
         return problemRepository.findActiveById(id)
                 .orElseThrow(() -> notFound(id));

@@ -3,6 +3,13 @@ package kh.edu.istad.ite.devsoleapi.config;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemSeverity;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemType;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramOrganizationDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -26,12 +33,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * With {@code app.redis.enabled=false} the suite never builds a cache, so a
@@ -333,6 +343,128 @@ class CacheConfigTest {
         assertEquals(87L, restored.followerCount());
         assertEquals(19L, restored.totalResearchers());
         assertEquals(42L, restored.totalSubmissions());
+    }
+
+    private static CachedProblem cachedProblem(UUID authorId) {
+        return new CachedProblem(
+                new ProblemResponse(
+                        UUID.randomUUID(),
+                        new ProblemResponse.AuthorSummary(
+                                authorId,
+                                "Sok Dara",
+                                "https://example.test/avatar.png",
+                                420
+                        ),
+                        new ProblemResponse.CategorySummary(
+                                UUID.randomUUID(),
+                                "Web Security",
+                                "web-security",
+                                CategoryScope.PROBLEM
+                        ),
+                        "JWT verification fails",
+                        "The token is rejected",
+                        ProblemType.BUG,
+                        SdlcPhase.DEVELOPMENT,
+                        ProblemSeverity.HIGH,
+                        "It should verify",
+                        "It throws",
+                        List.of("Sign a token", "Verify it"),
+                        List.of(new ProblemResponse.EnvironmentSummary(
+                                "Java", "21"
+                        )),
+                        "Tried rotating the key",
+                        "SignatureException",
+                        "https://github.test/acme/api",
+                        ProblemStatus.PUBLISHED,
+                        94L,
+                        List.of(new ProblemResponse.TechnologySummary(
+                                UUID.randomUUID(), "Spring", "6.2"
+                        )),
+                        List.of(new ProblemResponse.TagSummary(
+                                UUID.randomUUID(), "JWT", "jwt"
+                        )),
+                        List.of(new ProblemResponse.AttachmentSummary(
+                                UUID.randomUUID(),
+                                "stack.txt",
+                                "text/plain",
+                                1_024L,
+                                UUID.randomUUID(),
+                                Instant.parse("2026-08-30T09:00:00Z"),
+                                "https://example.test/stack.txt"
+                        )),
+                        List.of("profanity"),
+                        0L,
+                        0L,
+                        0L,
+                        0L,
+                        List.of(UUID.randomUUID()),
+                        false,
+                        null,
+                        false,
+                        false,
+                        false,
+                        Instant.parse("2026-08-29T10:00:00Z"),
+                        null,
+                        7L,
+                        LocalDateTime.of(2026, 8, 29, 9, 0),
+                        LocalDateTime.of(2026, 8, 30, 11, 30)
+                ),
+                authorId
+        );
+    }
+
+    @Test
+    void roundTripsAProblemListingSliceThroughEveryNestedRecord() {
+        SerializationPair<ProblemListingSlice> listing =
+                CacheConfig.problemListingSerializer();
+
+        ProblemListingSlice original = new ProblemListingSlice(
+                List.of(cachedProblem(UUID.randomUUID())),
+                17
+        );
+
+        ProblemListingSlice restored = listing.read(listing.write(original));
+
+        assertNotNull(restored);
+        // Reaches the author, category, environment, technology, tag and
+        // attachment records, the enums, and the Instants — everything most
+        // likely to come back as a LinkedHashMap or a string.
+        assertEquals(original, restored);
+        assertEquals(17, restored.totalElements());
+    }
+
+    @Test
+    void roundTripsACachedProblemKeepingTheAuthorItCarriesOutOfBand() {
+        SerializationPair<CachedProblem> detail =
+                CacheConfig.problemDetailSerializer();
+        UUID authorId = UUID.randomUUID();
+
+        CachedProblem restored =
+                detail.read(detail.write(cachedProblem(authorId)));
+
+        assertNotNull(restored);
+        // The out-of-band author id is what decides who may edit; losing it
+        // would silently strip an author of their own permissions.
+        assertEquals(authorId, restored.authorId());
+    }
+
+    @Test
+    void aCachedProblemNeverCarriesViewerState() {
+        SerializationPair<CachedProblem> detail =
+                CacheConfig.problemDetailSerializer();
+
+        CachedProblem restored = detail.read(
+                detail.write(cachedProblem(UUID.randomUUID()))
+        );
+        ProblemResponse response = restored.response();
+
+        // What a shared cache must never hold. If one of these ever comes back
+        // set, a reader is being handed someone else's vote or permissions.
+        assertFalse(response.isBookmarkedByViewer());
+        assertNull(response.viewerVote());
+        assertFalse(response.canEdit());
+        assertFalse(response.canDelete());
+        assertFalse(response.canAcceptSolution());
     }
 
     @Test

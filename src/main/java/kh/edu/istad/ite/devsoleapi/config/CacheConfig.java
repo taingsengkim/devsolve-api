@@ -3,6 +3,8 @@ package kh.edu.istad.ite.devsoleapi.config;
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.cache.LoggingCacheErrorHandler;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
@@ -47,30 +49,26 @@ import java.util.List;
 )
 public class CacheConfig implements CachingConfigurer {
 
-    /** The taxonomy changes rarely and every write path evicts, so this is only a backstop. */
-    private static final Duration CATEGORY_TTL = Duration.ofDays(1);
-
-    /** Nothing evicts the leaderboard, so this is the only thing bounding staleness. */
-    private static final Duration LEADERBOARD_TTL = Duration.ofMinutes(5);
-
-    /** Every step and tag write evicts; this only bounds a path someone forgets to. */
-    private static final Duration SHOWCASE_DETAIL_TTL = Duration.ofDays(1);
-
-    /** Moderation and deletion evict, and nothing else changes these orderings. */
-    private static final Duration SHOWCASE_LISTING_TTL = Duration.ofDays(1);
-
-    /** Votes and views move on reads, so nothing evicts these pages. */
-    private static final Duration SHOWCASE_LISTING_RANKED_TTL =
-            Duration.ofSeconds(60);
+    /**
+     * The default, and what every cache here uses unless it has a reason not
+     * to.
+     *
+     * <p>Longer was tempting and mostly illusory: the listings are evicted
+     * whole on any write that changes them, so on a moderated feed they never
+     * reach a long TTL anyway. What a long TTL does reliably is widen the
+     * blast radius of the one thing a TTL exists to catch — a write path added
+     * later without an evict. Five minutes keeps that a glitch rather than a
+     * day of a frozen feed, and a cache earns most of its keep in the first
+     * minutes regardless.
+     */
+    private static final Duration DEFAULT_TTL = Duration.ofMinutes(5);
 
     /**
-     * Program writes evict, so this bounds one thing: the follower, submission
-     * and researcher counts, which move on follows and report submissions
-     * outside the program service entirely. Statistics rather than state, so
-     * minutes of drift is the right trade for collapsing an aggregate over the
-     * whole report table.
+     * Shorter than the rest: vote- and view-ordered pages are the one thing no
+     * write can evict, because the counts they sort by move on reads.
      */
-    private static final Duration PROGRAM_TTL = Duration.ofMinutes(5);
+    private static final Duration SHOWCASE_LISTING_RANKED_TTL =
+            Duration.ofSeconds(60);
 
     /**
      * Deliberately not the HTTP {@code ObjectMapper}: cached bytes outlive the
@@ -94,25 +92,25 @@ public class CacheConfig implements CachingConfigurer {
                     .withCacheConfiguration(
                             CacheNames.CATEGORIES,
                             defaults
-                                    .entryTtl(CATEGORY_TTL)
+                                    .entryTtl(DEFAULT_TTL)
                                     .serializeValuesWith(categoryListSerializer())
                     )
                     .withCacheConfiguration(
                             CacheNames.LEADERBOARD,
                             defaults
-                                    .entryTtl(LEADERBOARD_TTL)
+                                    .entryTtl(DEFAULT_TTL)
                                     .serializeValuesWith(leaderboardSliceSerializer())
                     )
                     .withCacheConfiguration(
                             CacheNames.SHOWCASE_DETAIL,
                             defaults
-                                    .entryTtl(SHOWCASE_DETAIL_TTL)
+                                    .entryTtl(DEFAULT_TTL)
                                     .serializeValuesWith(showcaseDetailSerializer())
                     )
                     .withCacheConfiguration(
                             CacheNames.SHOWCASE_LISTING,
                             defaults
-                                    .entryTtl(SHOWCASE_LISTING_TTL)
+                                    .entryTtl(DEFAULT_TTL)
                                     .serializeValuesWith(showcaseListingSerializer())
                     )
                     .withCacheConfiguration(
@@ -124,14 +122,26 @@ public class CacheConfig implements CachingConfigurer {
                     .withCacheConfiguration(
                             CacheNames.PROGRAM_LISTING,
                             defaults
-                                    .entryTtl(PROGRAM_TTL)
+                                    .entryTtl(DEFAULT_TTL)
                                     .serializeValuesWith(programListingSerializer())
                     )
                     .withCacheConfiguration(
                             CacheNames.PROGRAM_DETAIL,
                             defaults
-                                    .entryTtl(PROGRAM_TTL)
+                                    .entryTtl(DEFAULT_TTL)
                                     .serializeValuesWith(programDetailSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.PROBLEM_LISTING,
+                            defaults
+                                    .entryTtl(DEFAULT_TTL)
+                                    .serializeValuesWith(problemListingSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.PROBLEM_DETAIL,
+                            defaults
+                                    .entryTtl(DEFAULT_TTL)
+                                    .serializeValuesWith(problemDetailSerializer())
                     );
         };
     }
@@ -186,6 +196,24 @@ public class CacheConfig implements CachingConfigurer {
                 new JacksonJsonRedisSerializer<>(
                         CACHE_MAPPER,
                         CACHE_MAPPER.constructType(PublicProgramResponseDto.class)
+                )
+        );
+    }
+
+    static SerializationPair<ProblemListingSlice> problemListingSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(ProblemListingSlice.class)
+                )
+        );
+    }
+
+    static SerializationPair<CachedProblem> problemDetailSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(CachedProblem.class)
                 )
         );
     }
