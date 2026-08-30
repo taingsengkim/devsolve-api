@@ -26,6 +26,7 @@ public record UserProfileResponse(
         String biography,
         String phone,
         String avatarUrl,
+        String coverImageUrl,
         LocalDate dateOfBirth,
         GenderStatus gender,
         String country,

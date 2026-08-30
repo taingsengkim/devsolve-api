@@ -57,6 +57,7 @@ public abstract class UserProfileMapper {
                 .biography(userProfile.getBiography())
                 .status(userProfile.getStatus())
                 .avatarUrl(userProfile.getAvatarUrl())
+                .coverImageUrl(userProfile.getCoverImageUrl())
                 .dateOfBirth(userProfile.getDateOfBirth())
                 .gender(userProfile.getGender())
                 .country(userProfile.getCountry())

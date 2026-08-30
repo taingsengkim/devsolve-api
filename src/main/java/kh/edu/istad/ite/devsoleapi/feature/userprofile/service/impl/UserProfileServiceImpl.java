@@ -136,6 +136,45 @@ public class UserProfileServiceImpl implements UserProfileService {
         return toResponse(userProfile);
     }
 
+    /**
+     * Under its own key prefix so a bucket listing tells covers and avatars
+     * apart. Sharing one would work — {@code replace} drops only the URL it is
+     * handed — but leaves the two indistinguishable outside the database.
+     */
+    @Override
+    @Transactional
+    public UserProfileResponse uploadCoverImage(MultipartFile file) {
+        UUID userId = extractCurrentUserId();
+        UserProfile userProfile = findUserProfile(userId);
+
+        String coverImageUrl = imageStorageService.replace(
+                coverImagePrefix(userId),
+                userProfile.getCoverImageUrl(),
+                file
+        );
+        userProfile.setCoverImageUrl(coverImageUrl);
+        userProfileRepository.saveAndFlush(userProfile);
+
+        return toResponse(userProfile);
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponse removeCoverImage() {
+        UUID userId = extractCurrentUserId();
+        UserProfile userProfile = findUserProfile(userId);
+
+        imageStorageService.remove(userProfile.getCoverImageUrl());
+        userProfile.setCoverImageUrl(null);
+        userProfileRepository.saveAndFlush(userProfile);
+
+        return toResponse(userProfile);
+    }
+
+    private String coverImagePrefix(UUID userId) {
+        return "user-profiles/" + userId + "/cover";
+    }
+
     @Override
     @Transactional(readOnly = true)
     public Page<AdminUserSummaryResponse> getAllForAdmin(
@@ -457,6 +496,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                 email,
                 profile.getBiography(),
                 profile.getAvatarUrl(),
+                profile.getCoverImageUrl(),
                 profile.getCountry(),
                 userProfileMapper.toSocialLinkResponses(profile),
                 profile.getReputation(),

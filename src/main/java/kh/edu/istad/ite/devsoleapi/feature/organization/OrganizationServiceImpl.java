@@ -304,6 +304,39 @@ public class OrganizationServiceImpl implements OrganizationService {
         return organizationMapper.toOrganizationResponse(saved);
     }
 
+    /**
+     * Under its own key prefix so a bucket listing tells covers and logos
+     * apart. Sharing one would work — {@code replace} drops only the URL it is
+     * handed — but leaves the two indistinguishable outside the database.
+     */
+    @Override
+    @Transactional
+    public OrganizationResponse uploadCoverImage(MultipartFile file) {
+        Organization organization = findMyOrganization();
+        String coverImageUrl = imageStorageService.replace(
+                "organizations/" + organization.getId() + "/cover",
+                organization.getCoverImageUrl(),
+                file
+        );
+        organization.setCoverImageUrl(coverImageUrl);
+        Organization saved = organizationRepository.saveAndFlush(
+                organization
+        );
+        return organizationMapper.toOrganizationResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public OrganizationResponse removeCoverImage() {
+        Organization organization = findMyOrganization();
+        imageStorageService.remove(organization.getCoverImageUrl());
+        organization.setCoverImageUrl(null);
+        Organization saved = organizationRepository.saveAndFlush(
+                organization
+        );
+        return organizationMapper.toOrganizationResponse(saved);
+    }
+
     @Override
     @Transactional
     public void deleteMe() {

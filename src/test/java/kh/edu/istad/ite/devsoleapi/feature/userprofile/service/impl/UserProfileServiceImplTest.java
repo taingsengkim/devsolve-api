@@ -455,6 +455,109 @@ class UserProfileServiceImplTest {
         verify(userProfileRepository).saveAndFlush(profile);
     }
 
+    @Test
+    void uploadCoverImageStoresUnderItsOwnPrefixAndSavesTheUrl() {
+        UUID userId = UUID.randomUUID();
+        UserProfile profile = profile();
+        profile.setId(userId);
+        profile.setCoverImageUrl(
+                "https://cdn.example.com/bucket/public/old-cover.png"
+        );
+        authenticate(userId, "USER");
+        stubProfile(userId, profile);
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "cover.png",
+                "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}
+        );
+        when(imageStorageService.replace(
+                eq("user-profiles/" + userId + "/cover"),
+                eq("https://cdn.example.com/bucket/public/old-cover.png"),
+                eq(file)
+        )).thenReturn("https://cdn.example.com/bucket/public/new-cover.png");
+
+        service().uploadCoverImage(file);
+
+        assertEquals(
+                "https://cdn.example.com/bucket/public/new-cover.png",
+                profile.getCoverImageUrl()
+        );
+        verify(userProfileRepository).saveAndFlush(profile);
+    }
+
+    @Test
+    void uploadCoverImageLeavesTheAvatarAlone() {
+        UUID userId = UUID.randomUUID();
+        UserProfile profile = profile();
+        profile.setId(userId);
+        profile.setAvatarUrl("https://cdn.example.com/bucket/public/face.png");
+        authenticate(userId, "USER");
+        stubProfile(userId, profile);
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "cover.png",
+                "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}
+        );
+        when(imageStorageService.replace(anyString(), any(), any()))
+                .thenReturn("https://cdn.example.com/bucket/public/cover.png");
+
+        service().uploadCoverImage(file);
+
+        // The two images are independent; setting one must never be handed the
+        // other's URL as the object to drop.
+        assertEquals(
+                "https://cdn.example.com/bucket/public/face.png",
+                profile.getAvatarUrl()
+        );
+        verify(imageStorageService, never())
+                .remove("https://cdn.example.com/bucket/public/face.png");
+    }
+
+    @Test
+    void uploadCoverImageCannotTargetAnotherUsersProfile() {
+        UUID callerId = UUID.randomUUID();
+        authenticate(callerId, "USER");
+        when(userProfileRepository.findById(callerId))
+                .thenReturn(Optional.empty());
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "cover.png",
+                "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47}
+        );
+
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service().uploadCoverImage(file)
+        );
+        verify(imageStorageService, never())
+                .replace(anyString(), anyString(), any());
+    }
+
+    @Test
+    void removeCoverImageClearsTheUrlAndDropsTheStoredObject() {
+        UUID userId = UUID.randomUUID();
+        UserProfile profile = profile();
+        profile.setId(userId);
+        profile.setCoverImageUrl(
+                "https://cdn.example.com/bucket/public/old-cover.png"
+        );
+        authenticate(userId, "USER");
+        stubProfile(userId, profile);
+
+        service().removeCoverImage();
+
+        assertNull(profile.getCoverImageUrl());
+        verify(imageStorageService)
+                .remove("https://cdn.example.com/bucket/public/old-cover.png");
+        verify(userProfileRepository).saveAndFlush(profile);
+    }
+
     /**
      * Reads answer from the local row and the caller's token, so no Keycloak
      * admin stubbing belongs here: only a first or last name change goes to

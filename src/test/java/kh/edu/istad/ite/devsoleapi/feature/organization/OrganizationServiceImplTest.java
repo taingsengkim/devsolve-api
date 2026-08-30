@@ -68,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -303,6 +304,97 @@ class OrganizationServiceImplTest {
         assertNull(response.logoUrl());
         assertNull(organization.getLogoUrl());
         verify(imageStorageService).remove(currentLogoUrl);
+        verify(organizationRepository).saveAndFlush(organization);
+    }
+
+    @Test
+    void ownerCanUploadOrganizationCoverImage() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        organization.setCoverImageUrl("https://cdn.example.com/old-cover.png");
+        MockMultipartFile cover = new MockMultipartFile(
+                "file",
+                "cover.png",
+                "image/png",
+                new byte[]{1, 2, 3}
+        );
+        String uploadedUrl = "https://cdn.example.com/new-cover.png";
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(imageStorageService.replace(
+                "organizations/" + organization.getId() + "/cover",
+                organization.getCoverImageUrl(),
+                cover
+        )).thenReturn(uploadedUrl);
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        OrganizationResponse response = createService(
+                new WebsiteUrlServiceImpl()
+        ).uploadCoverImage(cover);
+
+        assertEquals(uploadedUrl, response.coverImageUrl());
+        assertEquals(uploadedUrl, organization.getCoverImageUrl());
+        verify(organizationRepository).saveAndFlush(organization);
+    }
+
+    @Test
+    void uploadingACoverImageLeavesTheLogoAlone() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        String logoUrl = "https://cdn.example.com/logo.png";
+        organization.setLogoUrl(logoUrl);
+        MockMultipartFile cover = new MockMultipartFile(
+                "file",
+                "cover.png",
+                "image/png",
+                new byte[]{1, 2, 3}
+        );
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(imageStorageService.replace(anyString(), any(), any()))
+                .thenReturn("https://cdn.example.com/cover.png");
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        createService(new WebsiteUrlServiceImpl()).uploadCoverImage(cover);
+
+        // The two images are independent; setting one must never be handed the
+        // other's URL as the object to drop.
+        assertEquals(logoUrl, organization.getLogoUrl());
+        verify(imageStorageService, never()).remove(logoUrl);
+    }
+
+    @Test
+    void ownerCanRemoveOrganizationCoverImage() {
+        UUID ownerId = UUID.randomUUID();
+        Organization organization = reviewOrganization(
+                OrganizationStatus.ACTIVE
+        );
+        organization.getOwner().setId(ownerId);
+        String currentCoverUrl = "https://cdn.example.com/cover.png";
+        organization.setCoverImageUrl(currentCoverUrl);
+        authenticateCompany(ownerId, "owner@acme.com");
+        when(organizationRepository.findByOwnerIdAndDeletedAtIsNull(ownerId))
+                .thenReturn(Optional.of(organization));
+        when(organizationRepository.saveAndFlush(organization))
+                .thenReturn(organization);
+
+        OrganizationResponse response = createService(
+                new WebsiteUrlServiceImpl()
+        ).removeCoverImage();
+
+        assertNull(response.coverImageUrl());
+        assertNull(organization.getCoverImageUrl());
+        verify(imageStorageService).remove(currentCoverUrl);
         verify(organizationRepository).saveAndFlush(organization);
     }
 

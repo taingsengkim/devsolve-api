@@ -27,6 +27,12 @@ public interface OrganizationService {
 
     OrganizationResponse removeLogo();
 
+    /** Replaces the caller's own organization banner. */
+    OrganizationResponse uploadCoverImage(MultipartFile file);
+
+    /** Clears the caller's own organization banner. */
+    OrganizationResponse removeCoverImage();
+
     void deleteMe();
 
     OrganizationResponse getById(UUID id);

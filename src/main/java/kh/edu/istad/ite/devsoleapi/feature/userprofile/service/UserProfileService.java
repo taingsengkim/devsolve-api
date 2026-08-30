@@ -23,6 +23,12 @@ public interface UserProfileService {
     /** Clears the caller's own avatar. */
     UserProfileResponse removeAvatar();
 
+    /** Replaces the caller's own profile banner. */
+    UserProfileResponse uploadCoverImage(MultipartFile file);
+
+    /** Clears the caller's own profile banner. */
+    UserProfileResponse removeCoverImage();
+
     Page<AdminUserSummaryResponse> getAllForAdmin(
             String query,
             UserStatus status,

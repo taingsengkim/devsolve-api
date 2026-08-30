@@ -906,6 +906,13 @@ $$^^^
 
 DO $$
 BEGIN
+    -- The organization banner. Nullable with no backfill: no cover is the
+    -- correct state for every row that predates it.
+    IF to_regclass('public.organizations') IS NOT NULL THEN
+        ALTER TABLE public.organizations
+            ADD COLUMN IF NOT EXISTS cover_image_url VARCHAR(500);
+    END IF;
+
     IF to_regclass('public.organizations') IS NOT NULL
        AND NOT EXISTS (
            SELECT 1
@@ -1950,6 +1957,10 @@ BEGIN
             ADD COLUMN IF NOT EXISTS username VARCHAR(30);
         ALTER TABLE public.user_profiles
             ADD COLUMN IF NOT EXISTS username_changed_at TIMESTAMP(6);
+        -- The profile banner. Nullable with no backfill: no cover is the
+        -- correct state for every row that predates it.
+        ALTER TABLE public.user_profiles
+            ADD COLUMN IF NOT EXISTS cover_image_url TEXT;
 
         -- Rows that predate the column. Derived from the email so the handle
         -- is recognisable to the person who owns it rather than a random

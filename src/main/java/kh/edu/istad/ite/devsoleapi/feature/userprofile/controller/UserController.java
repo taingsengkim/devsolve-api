@@ -106,6 +106,21 @@ public class UserController {
         return userProfileService.removeAvatar();
     }
 
+    @PutMapping(
+            value = "/me/cover",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public UserProfileResponse uploadCoverImage(
+            @RequestPart("file") MultipartFile file
+    ) {
+        return userProfileService.uploadCoverImage(file);
+    }
+
+    @DeleteMapping("/me/cover")
+    public UserProfileResponse removeCoverImage() {
+        return userProfileService.removeCoverImage();
+    }
+
     @GetMapping("/{userId}/reputation")
     public Integer getReputation(
             @PathVariable UUID userId

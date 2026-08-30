@@ -80,6 +80,11 @@ public class UserProfile extends BasedEntity {
     @Column(name = "avatar_url", columnDefinition = "TEXT")
     private String avatarUrl;
 
+    /** The banner behind the avatar on a profile page. Null until one is set. */
+    @Size(max = 2048, message = "Cover image URL is too long")
+    @Column(name = "cover_image_url", columnDefinition = "TEXT")
+    private String coverImageUrl;
+
     @Past(message = "Date of birth must be in the past")
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;

@@ -37,6 +37,10 @@ public class Organization extends BasedEntity {
     @Column(name = "logo_url", length = 500)
     private String logoUrl;
 
+    /** The banner behind the logo on an organization page. Null until set. */
+    @Column(name = "cover_image_url", length = 500)
+    private String coverImageUrl;
+
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 

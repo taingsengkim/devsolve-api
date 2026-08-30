@@ -15,6 +15,12 @@ public record OrganizationUpdateRequest(
         @Size(max = 500, message = "Logo URL must not exceed 500 characters")
         String logoUrl,
 
+        @Size(
+                max = 500,
+                message = "Cover image URL must not exceed 500 characters"
+        )
+        String coverImageUrl,
+
         String description,
 
         Industry industry

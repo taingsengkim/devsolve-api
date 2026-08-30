@@ -56,6 +56,11 @@ public class OrganizationMapper {
         if (request.logoUrl() != null) {
             organization.setLogoUrl(trimToNull(request.logoUrl()));
         }
+        if (request.coverImageUrl() != null) {
+            organization.setCoverImageUrl(
+                    trimToNull(request.coverImageUrl())
+            );
+        }
         if (request.description() != null) {
             organization.setDescription(trimToNull(request.description()));
         }
@@ -80,6 +85,7 @@ public class OrganizationMapper {
                 websiteUrlService.extractDomain(organization.getWebsiteUrl()),
                 organization.getWebsiteUrl(),
                 organization.getLogoUrl(),
+                organization.getCoverImageUrl(),
                 organization.getDescription(),
                 organization.getIndustry(),
                 organization.getCompanySize(),

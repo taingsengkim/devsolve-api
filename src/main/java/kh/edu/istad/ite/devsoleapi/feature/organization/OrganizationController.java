@@ -132,6 +132,21 @@ public class OrganizationController {
         return organizationService.removeLogo();
     }
 
+    @PutMapping(
+            value = "/me/cover",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public OrganizationResponse uploadCoverImage(
+            @RequestPart("file") MultipartFile file
+    ) {
+        return organizationService.uploadCoverImage(file);
+    }
+
+    @DeleteMapping("/me/cover")
+    public OrganizationResponse removeCoverImage() {
+        return organizationService.removeCoverImage();
+    }
+
     @PostMapping("/me/resubmit")
     public OrganizationResponse resubmit() {
         return organizationService.resubmit();

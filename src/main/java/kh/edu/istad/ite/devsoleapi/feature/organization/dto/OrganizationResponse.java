@@ -14,6 +14,7 @@ public record OrganizationResponse(
         String domain,
         String websiteUrl,
         String logoUrl,
+        String coverImageUrl,
         String description,
         Industry industry,
         String companySize,

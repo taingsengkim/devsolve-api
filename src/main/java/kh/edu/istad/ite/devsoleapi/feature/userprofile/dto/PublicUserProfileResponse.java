@@ -29,6 +29,7 @@ public record PublicUserProfileResponse(
 
         String biography,
         String avatarUrl,
+        String coverImageUrl,
         String country,
         List<SocialLinkResponse> socialLinks,
         int reputation,
