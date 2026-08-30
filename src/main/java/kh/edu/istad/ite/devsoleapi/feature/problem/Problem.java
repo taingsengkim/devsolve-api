@@ -130,6 +130,9 @@ public class Problem extends BasedEntity {
             orphanRemoval = true
     )
     @OrderBy("acceptedAt ASC")
+    // A solutions listing checks acceptance per row, so without this it is one
+    // select per solution's problem.
+    @BatchSize(size = 50)
     @Builder.Default
     private List<ProblemAcceptedSolution> acceptedSolutions = new ArrayList<>();
 

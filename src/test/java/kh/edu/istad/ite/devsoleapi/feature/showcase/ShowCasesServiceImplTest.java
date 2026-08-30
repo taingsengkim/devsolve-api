@@ -139,6 +139,11 @@ class ShowCasesServiceImplTest {
                         showcaseStepRepository,
                         showcaseStepMapper,
                         showcaseTagService
+                ),
+                new ShowcaseListingCache(
+                        showCasesRepository,
+                        showCasesMapper,
+                        showcaseTagService
                 )
         );
 

@@ -31,6 +31,13 @@ public final class CacheNames {
      */
     public static final String SHOWCASE_DETAIL = "showcase-detail";
 
+    /**
+     * One page of the unfiltered showcase listing. Searched and filtered pages
+     * are deliberately not cached: each filter combination is its own key, read
+     * once, so they would fill Redis without ever being hit again.
+     */
+    public static final String SHOWCASE_LISTING = "showcase-listing";
+
     private CacheNames() {
     }
 }
