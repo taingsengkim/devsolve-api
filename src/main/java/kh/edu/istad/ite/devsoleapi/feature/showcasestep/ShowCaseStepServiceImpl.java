@@ -14,7 +14,9 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.UpdateShowcaseStepRe
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
+import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -37,6 +39,7 @@ public class ShowCaseStepServiceImpl implements ShowCaseStepService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public ShowcaseStepResponse create(UUID showcaseId, CreateShowcaseStepRequest request) {
         UUID currentUserId = extractCurrentUserId();
         ShowCases showcase = findActiveShowcase(showcaseId);
@@ -119,6 +122,7 @@ public class ShowCaseStepServiceImpl implements ShowCaseStepService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public ShowcaseStepResponse update(
             UUID showcaseId,
             UUID stepId,
@@ -185,6 +189,7 @@ public class ShowCaseStepServiceImpl implements ShowCaseStepService {
      */
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public ShowcaseStepResponse uploadImage(
             UUID showcaseId,
             UUID stepId,
@@ -236,6 +241,7 @@ public class ShowCaseStepServiceImpl implements ShowCaseStepService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public ShowcaseStepResponse removeImage(
             UUID showcaseId,
             UUID stepId,
@@ -311,6 +317,7 @@ public class ShowCaseStepServiceImpl implements ShowCaseStepService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public void delete(UUID showcaseId, UUID stepId) {
         UUID currentUserId = extractCurrentUserId();
         ShowCases showcase = findActiveShowcase(showcaseId);

@@ -1,10 +1,15 @@
 package kh.edu.istad.ite.devsoleapi.config;
 
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
+import kh.edu.istad.ite.devsoleapi.common.cache.LoggingCacheErrorHandler;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseDetailParts;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.cache.autoconfigure.RedisCacheManagerBuilderCustomizer;
+import org.springframework.cache.annotation.CachingConfigurer;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
@@ -37,10 +42,16 @@ import java.util.List;
         havingValue = "true",
         matchIfMissing = true
 )
-public class CacheConfig {
+public class CacheConfig implements CachingConfigurer {
 
     /** The taxonomy changes rarely and every write path evicts, so this is only a backstop. */
     private static final Duration CATEGORY_TTL = Duration.ofMinutes(30);
+
+    /** Nothing evicts the leaderboard, so this is the only thing bounding staleness. */
+    private static final Duration LEADERBOARD_TTL = Duration.ofSeconds(60);
+
+    /** Every step and tag write evicts; this only bounds a path someone forgets to. */
+    private static final Duration SHOWCASE_DETAIL_TTL = Duration.ofMinutes(10);
 
     /**
      * Deliberately not the HTTP {@code ObjectMapper}: cached bytes outlive the
@@ -66,8 +77,25 @@ public class CacheConfig {
                             defaults
                                     .entryTtl(CATEGORY_TTL)
                                     .serializeValuesWith(categoryListSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.LEADERBOARD,
+                            defaults
+                                    .entryTtl(LEADERBOARD_TTL)
+                                    .serializeValuesWith(leaderboardSliceSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.SHOWCASE_DETAIL,
+                            defaults
+                                    .entryTtl(SHOWCASE_DETAIL_TTL)
+                                    .serializeValuesWith(showcaseDetailSerializer())
                     );
         };
+    }
+
+    @Override
+    public CacheErrorHandler errorHandler() {
+        return new LoggingCacheErrorHandler();
     }
 
     /** Package-private so a test can round-trip a real payload through it. */
@@ -79,6 +107,24 @@ public class CacheConfig {
                                 new TypeReference<List<CategoryResponse>>() {
                                 }
                         )
+                )
+        );
+    }
+
+    static SerializationPair<LeaderboardSlice> leaderboardSliceSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(LeaderboardSlice.class)
+                )
+        );
+    }
+
+    static SerializationPair<ShowcaseDetailParts> showcaseDetailSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(ShowcaseDetailParts.class)
                 )
         );
     }

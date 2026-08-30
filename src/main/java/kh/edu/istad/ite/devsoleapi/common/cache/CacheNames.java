@@ -17,6 +17,20 @@ public final class CacheNames {
      */
     public static final String CATEGORIES = "categories";
 
+    /**
+     * One page of the leaderboard. Nothing evicts it: reputation moves on
+     * votes, accepted reports and recognitions, so a short TTL is more honest
+     * than trying to catch every path.
+     */
+    public static final String LEADERBOARD = "leaderboard";
+
+    /**
+     * The tags and steps of one showcase, keyed by showcase id. Holds nothing
+     * viewer-specific and nothing off the showcase row itself, so it is the
+     * same bytes for everyone and cannot go stale against a moderation change.
+     */
+    public static final String SHOWCASE_DETAIL = "showcase-detail";
+
     private CacheNames() {
     }
 }

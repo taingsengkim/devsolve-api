@@ -11,8 +11,10 @@ import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import org.springframework.context.ApplicationEventPublisher;
+import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseDetailParts;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewHistoryResponse;
@@ -35,6 +37,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
@@ -70,6 +73,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ShowcaseTagService showcaseTagService;
     private final ShowcaseCommentCounts showcaseCommentCounts;
     private final ViewCountGuard viewCountGuard;
+    private final ShowcaseDetailCache showcaseDetailCache;
 
     @Override
     @Transactional(readOnly = true)
@@ -437,17 +441,16 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
-        List<ShowcaseStepResponse> steps = showcaseStepRepository
-                .findByShowcase_IdOrderByStepNumberAsc(id)
-                .stream()
-                .map(showcaseStepMapper::mapShowcaseStepToShowcaseStepResponse)
-                .toList();
+        // The showcase row above is read fresh every time; only its tags and
+        // steps come from the cache, so a soft delete or a moderation change
+        // still takes effect on the next request.
+        ShowcaseDetailParts parts = showcaseDetailCache.load(id);
 
         return showcaseCommentCounts.applyToDetail(
                 showCasesMapper.mapShowCaseToDetailResponse(
                         showcase,
-                        showcaseTagService.tagsOfShowcase(id),
-                        steps
+                        parts.tags(),
+                        parts.steps()
                 )
         );
     }
@@ -535,6 +538,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public ShowCasesResponse update(
             UUID showcaseId,
             UpdateShowCasesRequest request
@@ -753,6 +757,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public void hardDelete(UUID showcaseId) {
         UUID authorId = extractCurrentUserId();
 
@@ -796,6 +801,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public void cancelRevision(UUID showcaseId) {
         UUID authorId = extractCurrentUserId();
 
@@ -901,6 +907,8 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
     @Override
     @Transactional
+    // Approving a revision replaces the showcase's steps and tags.
+    @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId")
     public ShowCasesResponse updateStatus(
             UUID showcaseId,
             UpdateShowcaseStatusRequest request

@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.config;
 
+import kh.edu.istad.ite.devsoleapi.common.cache.LoggingCacheErrorHandler;
 import kh.edu.istad.ite.devsoleapi.common.ratelimit.InMemoryRateLimitStore;
 import kh.edu.istad.ite.devsoleapi.common.ratelimit.RateLimitStore;
 import kh.edu.istad.ite.devsoleapi.common.ratelimit.RedisRateLimitStore;
@@ -9,6 +10,7 @@ import org.springframework.boot.cache.autoconfigure.CacheAutoConfiguration;
 import org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.interceptor.CacheInterceptor;
 import org.springframework.data.redis.cache.RedisCacheManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +63,26 @@ class RedisWiringTest {
                             .isInstanceOf(InMemoryRateLimitStore.class);
                     // No @EnableCaching, so @Cacheable is a plain method call.
                     assertThat(context).doesNotHaveBean(CacheManager.class);
+                });
+    }
+
+    /**
+     * A {@link org.springframework.cache.annotation.CachingConfigurer} that is
+     * never picked up fails silently — caching keeps working, and the first
+     * sign is a 500 on a cached read during a Redis outage.
+     */
+    @Test
+    void installsTheErrorHandlerThatKeepsAnOutageOutOfTheResponse() {
+        contextRunner
+                .withPropertyValues(
+                        "spring.data.redis.host=192.0.2.1",
+                        "spring.cache.type=redis"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(CacheInterceptor.class)
+                            .getErrorHandler())
+                            .isInstanceOf(LoggingCacheErrorHandler.class);
                 });
     }
 
