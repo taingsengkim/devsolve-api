@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.common.listing;
 
+import kh.edu.istad.ite.devsoleapi.common.ratelimit.InMemoryRateLimitStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -28,7 +29,7 @@ class ViewCountGuardTest {
         RequestContextHolder.setRequestAttributes(
                 new ServletRequestAttributes(request)
         );
-        ViewCountGuard guard = new ViewCountGuard();
+        ViewCountGuard guard = new ViewCountGuard(new InMemoryRateLimitStore());
         UUID targetId = UUID.randomUUID();
 
         assertTrue(guard.shouldCount("problem", targetId));

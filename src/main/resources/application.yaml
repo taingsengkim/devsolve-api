@@ -35,6 +35,32 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USERNAME:}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      # Short on purpose. Nothing behind Redis here is worth stalling a request
+      # for, so these are what keep an unreachable host a slowdown rather than
+      # an outage.
+      timeout: ${REDIS_TIMEOUT:1s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
+
+  cache:
+    type: redis
+    redis:
+      # Namespaced away from the rate-limit counters, which carry their own
+      # devsolve:rl: prefix, so one Redis can hold both.
+      key-prefix: "devsolve:cache:"
+      use-key-prefix: true
+      # Backstop only — each cache sets its own TTL in CacheConfig.
+      time-to-live: ${REDIS_CACHE_TTL:5m}
+      # Spring's NullValue sentinel cannot go through a serializer typed to the
+      # cached class, and no cached method here returns null.
+      cache-null-values: false
+
   security:
     oauth2:
       resourceserver:
@@ -83,6 +109,12 @@ keycloak:
   target-realm: ${KEYCLOAK_TARGET_REALM}
 
 app:
+  redis:
+    # Whether Redis backs the shared rate-limit counters and the caches. On is
+    # safe even with no server running — the counters degrade to per-instance
+    # memory and log once. Off also switches @EnableCaching off, so @Cacheable
+    # becomes a plain method call rather than an unconfigured heap cache.
+    enabled: ${REDIS_ENABLED:true}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   mail:
