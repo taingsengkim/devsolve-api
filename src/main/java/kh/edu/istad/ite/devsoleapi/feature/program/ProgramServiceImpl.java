@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.program;
 
+import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
@@ -21,6 +22,7 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramHandleAvailabilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramRequestDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramGuidelinesDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramManagementSummaryResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
@@ -41,6 +43,8 @@ import kh.edu.istad.ite.devsoleapi.feature.program.program_update.ProgramUpdateR
 import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpdateChangeLogDto;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -112,6 +116,8 @@ public class ProgramServiceImpl implements ProgramService {
     private final ViewCountGuard viewCountGuard;
     private final CompanyIdentityService companyIdentityService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ProgramListingCache programListingCache;
+    private final ProgramDetailCache programDetailCache;
 
     @Override
     @Transactional(readOnly = true)
@@ -136,14 +142,9 @@ public class ProgramServiceImpl implements ProgramService {
         PublicProgramOrdering ordering = resolvePublicOrdering(
                 validatedPageable
         );
-        Pageable databasePageable = validatedPageable.isPaged()
-                ? PageRequest.of(
-                        validatedPageable.getPageNumber(),
-                        validatedPageable.getPageSize()
-                )
-                : Pageable.unpaged();
-
-        Page<Program> programs = programRepository.searchPublicPrograms(
+        // Cached only when nothing is filtered — see ProgramListingCache. An
+        // unpaged request passes a size of zero, which that cache declines.
+        ProgramListingSlice slice = programListingCache.load(
                 organizationId,
                 databaseValue(engagementType),
                 offersBounties,
@@ -156,36 +157,30 @@ public class ProgramServiceImpl implements ProgramService {
                 normalizeExactFilter(country, 100, "country"),
                 ordering.property(),
                 ordering.direction(),
-                databasePageable
+                validatedPageable.isPaged()
+                        ? validatedPageable.getPageNumber()
+                        : 0,
+                validatedPageable.isPaged()
+                        ? validatedPageable.getPageSize()
+                        : 0
         );
-        PublicProgramContext context = loadPublicProgramContext(
-                programs.getContent()
-        );
-        List<ProgramSummaryResponseDto> content = programs.stream()
-                .map(program -> mapper.toSummaryDto(
-                program,
-                context.organizations().get(program.getOrganizationId()),
-                context.assetsByProgram().getOrDefault(
-                        program.getId(),
-                        List.of()
-                ),
-                context.followerCounts().getOrDefault(program.getId(), 0L),
-                context.submissionCounts().getOrDefault(program.getId(), 0L)
-        )).toList();
+
         if (validatedPageable.isUnpaged()) {
-            return new PageImpl<>(content);
+            return new PageImpl<>(slice.content());
         }
         return new PageImpl<>(
-                content,
+                slice.content(),
                 validatedPageable,
-                programs.getTotalElements()
+                slice.totalElements()
         );
     }
 
     @Override
     @Transactional(readOnly = true)
     public PublicProgramResponseDto getPublicProgramById(UUID id) {
-        return toPublicResponse(findPublicProgramById(id));
+        // Resolved fresh, then the heavy half comes from the cache: a pause, a
+        // close or a delete takes effect here regardless of what is cached.
+        return programDetailCache.load(findPublicProgramById(id).getId());
     }
 
     @Override
@@ -195,7 +190,9 @@ public class ProgramServiceImpl implements ProgramService {
                 .findByHandle(ProgramHandlePolicy.normalize(handle))
                 .filter(this::isPubliclyAccessible)
                 .orElseThrow(this::programNotFound);
-        return toPublicResponse(program);
+        // Keyed by id, not by handle: one cached entry per program, so a write
+        // has a single key to evict rather than one per way in.
+        return programDetailCache.load(program.getId());
     }
 
     @Override
@@ -404,6 +401,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto updateProgram(
             UUID id,
             ProgramUpdateRequestDto request
@@ -477,6 +478,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto submitProgram(UUID id) {
         Program program = findProgramForManagement(
                 id,
@@ -516,6 +521,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto publishProgram(UUID id) {
         Program program = findProgramForManagement(
                 id,
@@ -541,6 +550,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto pauseProgram(UUID id) {
         Program program = findProgramForManagement(
                 id,
@@ -557,6 +570,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto resumeProgram(UUID id) {
         Program program = findProgramForManagement(
                 id,
@@ -579,6 +596,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto closeProgram(UUID id) {
         Program program = findProgramForManagement(
                 id,
@@ -595,6 +616,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public void deleteProgram(UUID id) {
         Program program = findProgramForManagement(
                 id,
@@ -622,6 +647,10 @@ public class ProgramServiceImpl implements ProgramService {
      */
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public void removeProgramByAdmin(UUID id) {
         requireRole(ADMIN_ROLE);
         Program program = programRepository.findById(id)
@@ -663,6 +692,10 @@ public class ProgramServiceImpl implements ProgramService {
      */
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto restoreProgram(UUID id) {
         Program program = programRepository.findById(id)
                 .orElseThrow(this::programNotFound);
@@ -754,6 +787,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto approveProgram(UUID id) {
         requireRole(ADMIN_ROLE);
         Program program = findPendingProgramForReview(id);
@@ -789,6 +826,10 @@ public class ProgramServiceImpl implements ProgramService {
 
     @Override
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROGRAM_LISTING, allEntries = true)
+    })
     public ProgramResponseDto rejectProgram(UUID id, String reason) {
         requireRole(ADMIN_ROLE);
         Program program = findPendingProgramForReview(id);
@@ -1195,73 +1236,6 @@ public class ProgramServiceImpl implements ProgramService {
         }
     }
 
-    private PublicProgramResponseDto toPublicResponse(Program program) {
-        Organization organization = organizationRepository
-                .findById(program.getOrganizationId())
-                .orElseThrow(this::programNotFound);
-        List<ProgramAsset> assets = programAssetRepository
-                .findByProgramIdOrderByCreatedAtAsc(program.getId());
-        ProgramRepository.PublicProgramStatistics statistics =
-                programRepository.findPublicStatisticsByProgramId(
-                        program.getId()
-                );
-        return mapper.toPublicResponseDto(
-                program,
-                organization,
-                assets,
-                statistics.getTotalResearchers(),
-                statistics.getTotalSubmissions(),
-                followRepository.countByFollowableTypeAndFollowableId(
-                        FollowType.PROGRAM,
-                        program.getId()
-                )
-        );
-    }
-
-    private PublicProgramContext loadPublicProgramContext(
-            Collection<Program> programs
-    ) {
-        if (programs.isEmpty()) {
-            return new PublicProgramContext(
-                    Map.of(),
-                    Map.of(),
-                    Map.of(),
-                    Map.of()
-            );
-        }
-
-        // The whole row, not just the name: the public listing now carries the
-        // organization's profile, and this query already had to load it.
-        Map<UUID, Organization> organizations = loadOrganizationsById(programs);
-
-        Set<UUID> programIds = programs.stream()
-                .map(Program::getId)
-                .collect(Collectors.toSet());
-        Map<UUID, List<ProgramAsset>> assetsByProgram =
-                programAssetRepository
-                        .findInScopeByProgramIds(programIds)
-                        .stream()
-                        .collect(Collectors.groupingBy(
-                                asset -> asset.getProgram().getId()
-                        ));
-        Map<UUID, Long> followerCounts = toCountMap(
-                followRepository.countByFollowableIds(
-                        FollowType.PROGRAM,
-                        programIds
-                )
-        );
-        Map<UUID, Long> submissionCounts = toCountMap(
-                reportRepository.countByProgramIds(programIds)
-        );
-
-        return new PublicProgramContext(
-                organizations,
-                assetsByProgram,
-                followerCounts,
-                submissionCounts
-        );
-    }
-
     private Map<UUID, Organization> loadOrganizationsById(
             Collection<Program> programs
     ) {
@@ -1293,14 +1267,6 @@ public class ProgramServiceImpl implements ProgramService {
                 .collect(Collectors.groupingBy(
                         asset -> asset.getProgram().getId()
                 ));
-    }
-
-    private record PublicProgramContext(
-            Map<UUID, Organization> organizations,
-            Map<UUID, List<ProgramAsset>> assetsByProgram,
-            Map<UUID, Long> followerCounts,
-            Map<UUID, Long> submissionCounts
-    ) {
     }
 
     private void notifyOrganizationFollowersOfPublishedProgram(
@@ -1414,15 +1380,6 @@ public class ProgramServiceImpl implements ProgramService {
         return value == null
                 ? null
                 : value.name().toLowerCase(Locale.ROOT);
-    }
-
-    private Map<UUID, Long> toCountMap(
-            Collection<IdCountProjection> counts
-    ) {
-        return counts.stream().collect(Collectors.toUnmodifiableMap(
-                IdCountProjection::getId,
-                IdCountProjection::getTotal
-        ));
     }
 
     private void markPublishedIfPublic(Program program) {

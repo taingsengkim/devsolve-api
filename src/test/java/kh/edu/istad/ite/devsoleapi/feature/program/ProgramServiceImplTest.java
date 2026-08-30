@@ -1774,7 +1774,24 @@ class ProgramServiceImplTest {
                 reportRepository,
                 viewCountGuard,
                 companyIdentityService,
-                eventPublisher
+                eventPublisher,
+                // Real collaborators, not mocks: unproxied, @Cacheable is
+                // inert, so these run the same queries the service used to.
+                new ProgramListingCache(
+                        programRepository,
+                        programAssetRepository,
+                        organizationRepository,
+                        followRepository,
+                        reportRepository,
+                        mapper
+                ),
+                new ProgramDetailCache(
+                        programRepository,
+                        programAssetRepository,
+                        organizationRepository,
+                        followRepository,
+                        mapper
+                )
         );
     }
 

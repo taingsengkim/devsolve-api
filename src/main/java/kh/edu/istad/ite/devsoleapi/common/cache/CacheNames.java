@@ -49,6 +49,22 @@ public final class CacheNames {
     public static final String SHOWCASE_LISTING_RANKED =
             "showcase-listing-ranked";
 
+    /**
+     * One page of the unfiltered public program listing, keyed by ordering and
+     * page. Filtered pages are left uncached for the same reason as the
+     * showcase listing, and there are eleven filters to combine here.
+     */
+    public static final String PROGRAM_LISTING = "program-listing";
+
+    /**
+     * A whole public program response, keyed by program id. Unlike
+     * {@link #SHOWCASE_DETAIL} this holds the counts too: the expensive part of
+     * a program detail is the aggregate over reports, so caching only the
+     * stable half would cache the cheap queries and leave the costly ones.
+     * Every program write evicts; the TTL bounds the counts alone.
+     */
+    public static final String PROGRAM_DETAIL = "program-detail";
+
     private CacheNames() {
     }
 }

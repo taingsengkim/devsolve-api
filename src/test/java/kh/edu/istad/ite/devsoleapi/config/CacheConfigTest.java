@@ -2,6 +2,18 @@ package kh.edu.istad.ite.devsoleapi.config;
 
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramListingSlice;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramOrganizationDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramSummaryResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
@@ -13,6 +25,7 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -203,6 +216,123 @@ class CacheConfigTest {
                 new ShowcaseDetailParts(List.of(), List.of());
 
         assertEquals(bare, showcase.read(showcase.write(bare)));
+    }
+
+    @Test
+    void roundTripsAProgramListingSliceWithItsNestedRecordsIntact() {
+        SerializationPair<ProgramListingSlice> listing =
+                CacheConfig.programListingSerializer();
+
+        ProgramListingSlice original = new ProgramListingSlice(
+                List.of(new ProgramSummaryResponseDto(
+                        UUID.randomUUID(),
+                        UUID.randomUUID(),
+                        "Acme Security",
+                        new ProgramOrganizationDto(
+                                UUID.randomUUID(),
+                                "Acme Security",
+                                "acme-security",
+                                "https://example.test/logo.png",
+                                "https://acme.test",
+                                "We break things",
+                                Industry.TECHNOLOGY,
+                                "KH",
+                                LocalDateTime.of(2026, 8, 20, 9, 0)
+                        ),
+                        "acme-vdp",
+                        "Acme VDP",
+                        "Report anything you find",
+                        EngagementType.BOUNTY,
+                        true,
+                        new BigDecimal("50.00"),
+                        new BigDecimal("5000.00"),
+                        List.of(new ProgramAssetResponseDto(
+                                UUID.randomUUID(),
+                                AssetType.WILDCARD,
+                                "*.acme.test",
+                                "Main site",
+                                true,
+                                Severity.CRITICAL
+                        )),
+                        1_204L,
+                        87L,
+                        42L,
+                        LocalDateTime.of(2026, 8, 21, 10, 0),
+                        LocalDateTime.of(2026, 8, 20, 8, 0),
+                        LocalDateTime.of(2026, 8, 22, 11, 30)
+                )),
+                31
+        );
+
+        ProgramListingSlice restored = listing.read(listing.write(original));
+
+        assertNotNull(restored);
+        // Records compare by value, so this reaches the nested organization
+        // and asset records, the enums and both BigDecimals — the types most
+        // likely to come back as a LinkedHashMap or a double.
+        assertEquals(original, restored);
+        assertEquals(31, restored.totalElements());
+        assertEquals(
+                new BigDecimal("5000.00"),
+                restored.content().getFirst().maximumBounty()
+        );
+    }
+
+    @Test
+    void roundTripsAProgramListingSliceWithNoRows() {
+        SerializationPair<ProgramListingSlice> listing =
+                CacheConfig.programListingSerializer();
+        ProgramListingSlice empty = new ProgramListingSlice(List.of(), 0);
+
+        assertEquals(empty, listing.read(listing.write(empty)));
+    }
+
+    @Test
+    void roundTripsAPublicProgramKeepingItsCountsAndNullSections() {
+        SerializationPair<PublicProgramResponseDto> program =
+                CacheConfig.programDetailSerializer();
+
+        PublicProgramResponseDto original = new PublicProgramResponseDto(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "Acme Security",
+                null,
+                "acme-vdp",
+                "Acme VDP",
+                "Report anything you find",
+                EngagementType.BOUNTY,
+                ProgramState.ACTIVE,
+                SubmissionState.APPROVED,
+                Visibility.PUBLIC,
+                "Do not test production",
+                null,
+                null,
+                null,
+                true,
+                new BigDecimal("50.00"),
+                new BigDecimal("5000.00"),
+                List.of(),
+                List.of(),
+                1_204L,
+                87L,
+                19L,
+                42L,
+                LocalDateTime.of(2026, 8, 21, 10, 0),
+                LocalDateTime.of(2026, 8, 20, 8, 0),
+                LocalDateTime.of(2026, 8, 22, 11, 30)
+        );
+
+        PublicProgramResponseDto restored =
+                program.read(program.write(original));
+
+        assertNotNull(restored);
+        assertEquals(original, restored);
+        // These four are the reason this cache has a short TTL rather than a
+        // long one, so a serializer that dropped them would be quietly wrong.
+        assertEquals(1_204L, restored.viewCount());
+        assertEquals(87L, restored.followerCount());
+        assertEquals(19L, restored.totalResearchers());
+        assertEquals(42L, restored.totalSubmissions());
     }
 
     @Test

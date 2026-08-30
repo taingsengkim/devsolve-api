@@ -3,6 +3,8 @@ package kh.edu.istad.ite.devsoleapi.config;
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.cache.LoggingCacheErrorHandler;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramListingSlice;
+import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseDetailParts;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseListingSlice;
@@ -62,6 +64,15 @@ public class CacheConfig implements CachingConfigurer {
             Duration.ofSeconds(60);
 
     /**
+     * Program writes evict, so this bounds one thing: the follower, submission
+     * and researcher counts, which move on follows and report submissions
+     * outside the program service entirely. Statistics rather than state, so
+     * minutes of drift is the right trade for collapsing an aggregate over the
+     * whole report table.
+     */
+    private static final Duration PROGRAM_TTL = Duration.ofMinutes(5);
+
+    /**
      * Deliberately not the HTTP {@code ObjectMapper}: cached bytes outlive the
      * request that wrote them, so their format should not move because someone
      * changed how responses are rendered.
@@ -109,6 +120,18 @@ public class CacheConfig implements CachingConfigurer {
                             defaults
                                     .entryTtl(SHOWCASE_LISTING_RANKED_TTL)
                                     .serializeValuesWith(showcaseListingSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.PROGRAM_LISTING,
+                            defaults
+                                    .entryTtl(PROGRAM_TTL)
+                                    .serializeValuesWith(programListingSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.PROGRAM_DETAIL,
+                            defaults
+                                    .entryTtl(PROGRAM_TTL)
+                                    .serializeValuesWith(programDetailSerializer())
                     );
         };
     }
@@ -145,6 +168,24 @@ public class CacheConfig implements CachingConfigurer {
                 new JacksonJsonRedisSerializer<>(
                         CACHE_MAPPER,
                         CACHE_MAPPER.constructType(ShowcaseListingSlice.class)
+                )
+        );
+    }
+
+    static SerializationPair<ProgramListingSlice> programListingSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(ProgramListingSlice.class)
+                )
+        );
+    }
+
+    static SerializationPair<PublicProgramResponseDto> programDetailSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(PublicProgramResponseDto.class)
                 )
         );
     }
