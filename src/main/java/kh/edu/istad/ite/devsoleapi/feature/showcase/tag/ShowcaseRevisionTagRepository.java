@@ -37,4 +37,14 @@ public interface ShowcaseRevisionTagRepository
             where srt.revision.id = :revisionId
             """)
     void deleteAllByRevisionId(@Param("revisionId") UUID revisionId);
+
+    @Query("""
+            select count(srt) from ShowcaseRevisionTag srt
+            where srt.tag.id = :tagId
+            """)
+    long countByTagId(@Param("tagId") UUID tagId);
+
+    @Modifying
+    @Query("delete from ShowcaseRevisionTag srt where srt.tag.id = :tagId")
+    int deleteAllByTagId(@Param("tagId") UUID tagId);
 }

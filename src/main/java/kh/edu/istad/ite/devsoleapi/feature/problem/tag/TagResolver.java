@@ -97,14 +97,7 @@ public class TagResolver {
     }
 
     public static String normalizeSlug(String value) {
-        String normalized = Normalizer.normalize(
-                        Objects.requireNonNullElse(value, ""),
-                        Normalizer.Form.NFKD
-                )
-                .replaceAll("\\p{M}", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("(^-+|-+$)", "");
+        String normalized = slugify(value);
         if (normalized.isBlank()) {
             throw badRequest("Tag name must contain letters or numbers");
         }
@@ -112,6 +105,30 @@ public class TagResolver {
             throw badRequest("Normalized tag slug cannot exceed 50 characters");
         }
         return normalized;
+    }
+
+    /**
+     * The same normalization for a search box, which cannot throw: a query of
+     * punctuation alone is not an error, it just has nothing to match on and
+     * comes back as the empty string — the pattern that matches every tag.
+     */
+    public static String searchSlug(String value) {
+        return slugify(value);
+    }
+
+    /**
+     * Folds accents away, lowercases, and collapses everything that is not a
+     * letter or digit into single dashes. Blank when the input held neither.
+     */
+    private static String slugify(String value) {
+        return Normalizer.normalize(
+                        Objects.requireNonNullElse(value, ""),
+                        Normalizer.Form.NFKD
+                )
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("(^-+|-+$)", "");
     }
 
     private static String trimToNull(String value) {

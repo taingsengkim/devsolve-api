@@ -126,6 +126,13 @@ public class SecurityConfig {
                         "/api/v1/categories/**"
                 ).hasRole("ADMIN")
 
+                // Read-only, and the tags it lists are already visible on every
+                // public problem and showcase.
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/tags"
+                ).permitAll()
+
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/problems",

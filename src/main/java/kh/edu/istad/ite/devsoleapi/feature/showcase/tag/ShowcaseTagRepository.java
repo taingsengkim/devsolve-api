@@ -31,4 +31,11 @@ public interface ShowcaseTagRepository
     @Modifying
     @Query("delete from ShowcaseTag st where st.showcase.id = :showcaseId")
     void deleteAllByShowcaseId(@Param("showcaseId") UUID showcaseId);
+
+    @Query("select count(st) from ShowcaseTag st where st.tag.id = :tagId")
+    long countByTagId(@Param("tagId") UUID tagId);
+
+    @Modifying
+    @Query("delete from ShowcaseTag st where st.tag.id = :tagId")
+    int deleteAllByTagId(@Param("tagId") UUID tagId);
 }

@@ -25,4 +25,11 @@ public interface ProblemTagRepository
     @Query("delete from ProblemTag pt where pt.problem.id = :problemId")
     @org.springframework.data.jpa.repository.Modifying
     void deleteAllByProblemId(@Param("problemId") UUID problemId);
+
+    @Query("select count(pt) from ProblemTag pt where pt.tag.id = :tagId")
+    long countByTagId(@Param("tagId") UUID tagId);
+
+    @Query("delete from ProblemTag pt where pt.tag.id = :tagId")
+    @org.springframework.data.jpa.repository.Modifying
+    int deleteAllByTagId(@Param("tagId") UUID tagId);
 }
