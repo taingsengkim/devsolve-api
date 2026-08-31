@@ -1,5 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.common.attachment;
 
+import kh.edu.istad.ite.devsoleapi.feature.virustotal.VirusTotalContentGuard;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,6 +23,8 @@ import java.util.zip.ZipInputStream;
 
 @Component
 public class AttachmentValidator {
+
+    private VirusTotalContentGuard virusTotalContentGuard;
 
     public static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
     public static final long MAX_IMAGE_SIZE = 2L * 1024 * 1024;
@@ -91,6 +95,30 @@ public class AttachmentValidator {
     }
 
     public ValidatedAttachment validate(
+            MultipartFile file,
+            Profile profile
+    ) {
+        ValidatedAttachment attachment = validateLocally(file, profile);
+        if (profile == Profile.ATTACHMENT
+                && virusTotalContentGuard != null) {
+            virusTotalContentGuard.requireSafeFile(attachment);
+        }
+        return attachment;
+    }
+
+    /** Used by the explicit VirusTotal endpoint to avoid submitting twice. */
+    public ValidatedAttachment validateForVirusTotal(MultipartFile file) {
+        return validateLocally(file, Profile.ATTACHMENT);
+    }
+
+    @Autowired
+    void setVirusTotalContentGuard(
+            VirusTotalContentGuard virusTotalContentGuard
+    ) {
+        this.virusTotalContentGuard = virusTotalContentGuard;
+    }
+
+    private ValidatedAttachment validateLocally(
             MultipartFile file,
             Profile profile
     ) {

@@ -127,6 +127,16 @@ app:
     #   {base-url}{invitation-path}/{invitationToken}
     base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
     invitation-path: ${FRONTEND_INVITATION_PATH:/invitations}
+  virus-total:
+    # VirusTotal scans are asynchronous. Submit a file or URL, then poll the
+    # returned analysis id through this API's /api/v1/virus-total/analyses
+    # endpoint. Keep disabled until a server-side key has been configured.
+    enabled: ${VIRUSTOTAL_ENABLED:false}
+    api-key: ${VIRUSTOTAL_API_KEY:}
+    base-url: ${VIRUSTOTAL_BASE_URL:https://www.virustotal.com/api/v3}
+    # One submission plus three polls stays within a typical public-key burst.
+    poll-interval: ${VIRUSTOTAL_POLL_INTERVAL:20s}
+    max-polls: ${VIRUSTOTAL_MAX_POLLS:3}
 logging:
   level:
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG
