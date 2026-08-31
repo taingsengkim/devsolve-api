@@ -4,6 +4,7 @@ package kh.edu.istad.ite.devsoleapi.feature.recognition;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.Hacktivity;
+import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityEventType;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
@@ -19,6 +20,7 @@ import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.CreateRecognitionRequ
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.RecognitionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.ReputationPolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -35,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -193,6 +196,7 @@ public class RecognitionServiceImpl implements RecognitionService {
                         .organization(organization)
                         .report(report)
                         .program(program)
+                        .eventType(eventTypeFor(report))
                         .createdAt(LocalDateTime.now())
                         .build()
         );
@@ -230,6 +234,34 @@ public class RecognitionServiceImpl implements RecognitionService {
         return recognitionRepository
                 .findAllByUserId(userId, pageable)
                 .map(recognitionMapper::toResponse);
+    }
+
+
+    /**
+     * What the feed row says happened.
+     *
+     * <p>Recorded once, here, rather than left for a reader to infer from
+     * which nested object came back non-null. A finding paid in money reads
+     * differently from one recognised alone, and only the write path knows
+     * which this was without going back to the database.
+     *
+     * <p>A points-only reward is not a bounty: it moves the leaderboard, not
+     * anybody's bank, so it stays a plain recognition.
+     */
+    private HacktivityEventType eventTypeFor(Report report) {
+
+        // Null-guarded: Hibernate always hands back a collection, but a Report
+        // built through the no-args constructor has never touched the field.
+        List<ReportReward> rewards = report.getRewards();
+
+        boolean paid = rewards != null && rewards.stream().anyMatch(reward ->
+                reward.getAmount() != null
+                        && reward.getAmount().signum() > 0
+        );
+
+        return paid
+                ? HacktivityEventType.BOUNTY_AWARDED
+                : HacktivityEventType.RECOGNITION_AWARDED;
     }
 
 

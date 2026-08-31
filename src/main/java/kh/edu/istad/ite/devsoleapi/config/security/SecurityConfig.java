@@ -66,6 +66,7 @@ public class SecurityConfig {
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/hacktivity",
+                        "/api/v1/hacktivity/stats",
                         "/api/v1/user-profiles/*/hacktivity"
                 ).permitAll()
                 .requestMatchers(

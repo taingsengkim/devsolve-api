@@ -30,6 +30,10 @@ import java.util.UUID;
                 @Index(
                         name = "idx_hacktivity_program_id",
                         columnList = "program_id"
+                ),
+                @Index(
+                        name = "idx_hacktivity_event_type",
+                        columnList = "event_type"
                 )
         }
 )
@@ -79,6 +83,19 @@ public class Hacktivity {
             nullable = false
     )
     private Program program;
+
+    /**
+     * Kept as a plain varchar rather than a Postgres named enum like the
+     * severity and state columns: those already existed as database types, and
+     * adding a new one costs a CREATE TYPE that has to land before the column
+     * on every environment. A widening of this enum is then an application
+     * change alone.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "event_type", nullable = false, length = 40)
+    @Builder.Default
+    private HacktivityEventType eventType =
+            HacktivityEventType.RECOGNITION_AWARDED;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
