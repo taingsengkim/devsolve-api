@@ -564,6 +564,112 @@ END
 $$^^^
 
 
+-- The rest of the Report entity's columns.
+--
+-- schema.sql never creates public.reports — it only alters it — so the table
+-- on any long-lived database is whatever Hibernate built when ddl-auto was
+-- still "update", plus whatever blocks like this one have added since. A field
+-- added to the entity after that and not listed here exists on a fresh
+-- database and nowhere else.
+--
+-- That is not a hypothetical failure mode. Hibernate names every column of an
+-- entity in its SELECT, so one missing column does not degrade the rows that
+-- use it: it fails the statement. Every read of a Report then 500s, including
+-- the ones that would have matched nothing, and the endpoint that only reads
+-- Reports through a join — the public hacktivity feed — 500s for every caller
+-- and every page while its neighbours stay green.
+--
+-- ADD COLUMN IF NOT EXISTS throughout, so this is a no-op wherever Hibernate
+-- got there first.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL THEN
+
+        -- The two severities either side of triage, and the agreed one that
+        -- reconcile_report_severity() settles between them.
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS severity public.severity_enum;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS triage_severity public.severity_enum;
+
+        -- Who triaged it and when.
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS triaged_by UUID;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS triaged_at TIMESTAMP(6);
+
+        -- The report this one duplicates, once triage has said so.
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS duplicate_of_id UUID;
+
+        -- The in-scope target the finding sits on.
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS asset_id UUID;
+
+        -- Whether the finding is public. NOT NULL in the entity, so it is
+        -- added nullable, backfilled and then tightened — an existing row has
+        -- no answer to a question that was not being asked when it was
+        -- written, and "not disclosed" is the safe one.
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS disclosure_status
+                public.disclosure_status_enum;
+
+        UPDATE public.reports
+        SET disclosure_status = 'not_disclosed'
+        WHERE disclosure_status IS NULL;
+
+        ALTER TABLE public.reports
+            ALTER COLUMN disclosure_status SET DEFAULT 'not_disclosed';
+        ALTER TABLE public.reports
+            ALTER COLUMN disclosure_status SET NOT NULL;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_reports_triaged_by'
+              AND conrelid = 'public.reports'::regclass
+        ) AND to_regclass('public.user_profiles') IS NOT NULL THEN
+            ALTER TABLE public.reports
+                ADD CONSTRAINT fk_reports_triaged_by
+                FOREIGN KEY (triaged_by)
+                REFERENCES public.user_profiles (id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_reports_duplicate_of'
+              AND conrelid = 'public.reports'::regclass
+        ) THEN
+            ALTER TABLE public.reports
+                ADD CONSTRAINT fk_reports_duplicate_of
+                FOREIGN KEY (duplicate_of_id)
+                REFERENCES public.reports (id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_reports_asset'
+              AND conrelid = 'public.reports'::regclass
+        ) AND to_regclass('public.program_assets') IS NOT NULL THEN
+            ALTER TABLE public.reports
+                ADD CONSTRAINT fk_reports_asset
+                FOREIGN KEY (asset_id)
+                REFERENCES public.program_assets (id);
+        END IF;
+
+        -- The public feed filters on disclosure and triage reads the duplicate
+        -- chain; both are lookups over the whole report table without these.
+        CREATE INDEX IF NOT EXISTS idx_reports_disclosure_status
+            ON public.reports (disclosure_status);
+        CREATE INDEX IF NOT EXISTS idx_reports_duplicate_of_id
+            ON public.reports (duplicate_of_id);
+    END IF;
+END
+$$^^^
+
+
 -- Severity disputes. The mediation queue is the only way a report whose two
 -- severity claims disagree ever becomes payable, so the table has to exist
 -- wherever the triggers below do.
@@ -1114,6 +1220,62 @@ BEGIN
 
         CREATE INDEX IF NOT EXISTS idx_hacktivity_program_id
             ON public.hacktivities (program_id);
+    END IF;
+END
+$$^^^
+
+
+-- What each feed row says happened, as a stored fact rather than something a
+-- reader infers from which nested object came back non-null.
+--
+-- Added nullable, backfilled, then tightened, so it applies to a database that
+-- already holds rows. A plain varchar rather than a Postgres enum: widening the
+-- vocabulary is then an application change, with no CREATE TYPE that has to
+-- land before the column on every environment.
+DO $$
+BEGIN
+    IF to_regclass('public.hacktivities') IS NOT NULL THEN
+
+        ALTER TABLE public.hacktivities
+            ADD COLUMN IF NOT EXISTS event_type VARCHAR(40);
+
+        -- Existing rows all came from the recognition path. Which of the two
+        -- kinds they were is still recoverable: a recognised report carrying a
+        -- payout with money on it was a bounty. Points-only is not — it moves
+        -- the leaderboard, not anybody's bank.
+        --
+        -- Guarded separately from the column, and followed by an unconditional
+        -- sweep, so that a database without report_rewards still ends up with
+        -- every row filled in. Skipping the backfill and then asking for NOT
+        -- NULL would fail this script, and a script that fails is a service
+        -- that does not start.
+        IF to_regclass('public.report_rewards') IS NOT NULL THEN
+            UPDATE public.hacktivities hacktivity
+            SET event_type = 'BOUNTY_AWARDED'
+            WHERE hacktivity.event_type IS NULL
+              AND EXISTS (
+                    SELECT 1
+                    FROM public.report_rewards reward
+                    WHERE reward.report_id = hacktivity.report_id
+                      AND reward.amount IS NOT NULL
+                      AND reward.amount > 0
+                );
+        END IF;
+
+        UPDATE public.hacktivities
+        SET event_type = 'RECOGNITION_AWARDED'
+        WHERE event_type IS NULL;
+
+        ALTER TABLE public.hacktivities
+            ALTER COLUMN event_type SET DEFAULT 'RECOGNITION_AWARDED';
+
+        ALTER TABLE public.hacktivities
+            ALTER COLUMN event_type SET NOT NULL;
+
+        -- eventType is a feed filter, so it is a WHERE clause on the same
+        -- scans created_at already carries an index for.
+        CREATE INDEX IF NOT EXISTS idx_hacktivity_event_type
+            ON public.hacktivities (event_type);
     END IF;
 END
 $$^^^

@@ -1,18 +1,13 @@
 spring:
   datasource:
     # The INIT clause creates the PostgreSQL enum types the entities name
-    # through columnDefinition. H2 has no CREATE TYPE ... AS ENUM, so without
-    # these Hibernate's create-drop silently fails on every table using one —
-    # user_profiles and categories — and a repository test touching them dies
-    # with "table not found" that looks like a bug in the query under test.
+    # through columnDefinition — see h2-domains.sql for why they are needed and
+    # why they live on the URL rather than in spring.sql.init.
     #
-    # It lives in the JDBC URL rather than a schema script on purpose. This
-    # profile is shared with the Testcontainers tests, which point at real
-    # PostgreSQL through @ServiceConnection and run the production schema.sql;
-    # anything H2-specific put in spring.sql.init would be executed against
-    # PostgreSQL there and fail. A URL only applies to the datasource that
-    # actually uses it.
-    url: 'jdbc:h2:mem:devsolve;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=CREATE DOMAIN IF NOT EXISTS membership_status_enum AS VARCHAR(50)\;CREATE DOMAIN IF NOT EXISTS category_scope_enum AS VARCHAR(50)\;CREATE DOMAIN IF NOT EXISTS researcher_access_status_enum AS VARCHAR(50)'
+    # The list outgrew a URL once it had to cover reports, programs and
+    # recognitions as well as user_profiles and categories, so it is a script
+    # H2 runs through INIT rather than a chain of escaped statements.
+    url: 'jdbc:h2:mem:devsolve;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=RUNSCRIPT FROM ''classpath:h2-domains.sql'''
     username: sa
     password:
     driver-class-name: org.h2.Driver
