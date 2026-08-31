@@ -9,7 +9,12 @@ class LeaderboardCacheTest {
 
     private Cacheable loadAnnotation() throws NoSuchMethodException {
         return LeaderboardCache.class
-                .getMethod("load", int.class, int.class)
+                .getMethod(
+                        "load",
+                        LeaderboardPeriod.class,
+                        int.class,
+                        int.class
+                )
                 .getAnnotation(Cacheable.class);
     }
 
@@ -27,10 +32,18 @@ class LeaderboardCacheTest {
         );
     }
 
+    /**
+     * Size and period both belong in the key. Without the period, "this week"
+     * and "all time" share one entry and whichever was asked for first is what
+     * both answer with.
+     */
     @Test
-    void pagesAreKeyedBySizeTooSoASizeChangeIsNotAStaleHit()
+    void pagesAreKeyedByPeriodAndSizeTooSoNeitherIsAStaleHit()
             throws NoSuchMethodException {
 
-        assertEquals("#page + ':' + #size", loadAnnotation().key());
+        assertEquals(
+                "#period + ':' + #page + ':' + #size",
+                loadAnnotation().key()
+        );
     }
 }

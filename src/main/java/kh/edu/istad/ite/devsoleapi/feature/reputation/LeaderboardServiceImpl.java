@@ -16,9 +16,13 @@ public class LeaderboardServiceImpl implements LeaderboardService {
     private final LeaderboardCache leaderboardCache;
 
     @Override
-    public Page<LeaderboardResponse> getLeaderboard(Pageable pageable) {
+    public Page<LeaderboardResponse> getLeaderboard(
+            LeaderboardPeriod period,
+            Pageable pageable
+    ) {
 
         LeaderboardSlice slice = leaderboardCache.load(
+                period,
                 pageable.getPageNumber(),
                 pageable.getPageSize()
         );

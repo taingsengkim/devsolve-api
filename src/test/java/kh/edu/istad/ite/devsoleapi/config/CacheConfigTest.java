@@ -113,6 +113,7 @@ class CacheConfigTest {
                 List.of(new LeaderboardResponse(
                         7,
                         UUID.randomUUID(),
+                        "sokdara",
                         "Sok Dara",
                         "https://example.test/avatars/dara.png",
                         "KH",

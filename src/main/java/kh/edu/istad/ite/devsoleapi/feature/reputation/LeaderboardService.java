@@ -6,6 +6,8 @@ import org.springframework.data.domain.Pageable;
 
 public interface LeaderboardService {
 
-    Page<LeaderboardResponse> getLeaderboard(Pageable pageable);
-
+    Page<LeaderboardResponse> getLeaderboard(
+            LeaderboardPeriod period,
+            Pageable pageable
+    );
 }

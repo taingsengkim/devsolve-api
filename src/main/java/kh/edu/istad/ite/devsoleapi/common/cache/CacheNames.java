@@ -18,9 +18,11 @@ public final class CacheNames {
     public static final String CATEGORIES = "categories";
 
     /**
-     * One page of the leaderboard. Nothing evicts it: reputation moves on
-     * votes, accepted reports and recognitions, so a short TTL is more honest
-     * than trying to catch every path.
+     * One page of the leaderboard, keyed by ranking window as well as by page
+     * and size — the windows are different boards, not different views of one.
+     * Nothing evicts it: reputation moves on votes, accepted reports and
+     * recognitions, so a short TTL is more honest than trying to catch every
+     * path.
      */
     public static final String LEADERBOARD = "leaderboard";
 

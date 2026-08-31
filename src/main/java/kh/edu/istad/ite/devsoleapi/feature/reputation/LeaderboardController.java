@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.reputation;
 
+import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
@@ -27,9 +28,21 @@ public class LeaderboardController {
      * Page and size are taken as plain parameters rather than a {@code
      * Pageable} on purpose: the sort is what makes rank mean anything, so it
      * is fixed by the query and not open to a {@code ?sort=} override.
+     *
+     * <p>{@code period} defaults to {@code ALL_TIME}, which is what this
+     * endpoint has always returned, so a caller that does not send one sees no
+     * change.
      */
     @GetMapping("/leaderboard")
     public Page<LeaderboardResponse> getLeaderboard(
+
+            @Parameter(description = "Ranking window: DAY, WEEK, MONTH or "
+                    + "ALL_TIME. Windowed boards score the recognitions "
+                    + "inside the window and leave totalReports and "
+                    + "validReports null, since those are only kept as "
+                    + "lifetime totals.")
+            @RequestParam(defaultValue = "ALL_TIME")
+            LeaderboardPeriod period,
 
             @RequestParam(defaultValue = "0")
             @Min(value = 0, message = "page must be >= 0")
@@ -42,6 +55,7 @@ public class LeaderboardController {
     ) {
 
         return leaderboardService.getLeaderboard(
+                period,
                 PageRequest.of(page, size)
         );
     }
