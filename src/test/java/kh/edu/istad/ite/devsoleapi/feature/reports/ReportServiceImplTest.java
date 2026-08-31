@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.ratelimit.InMemoryRateLimitStore;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.*;
@@ -157,6 +158,37 @@ class ReportServiceImplTest {
         assertNull(report.getTriageSeverity());
         assertNull(report.getSeverity());
         assertEquals(ReportState.NEW, report.getState());
+    }
+
+    /**
+     * The hourly cap is counted from the reports table rather than the burst
+     * store, so this is the half that has to be exact.
+     */
+    @Test
+    void hackerCannotCreateReportPastTheHourlyLimit() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        ProgramAsset asset = program.getAssets().getFirst();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(reportRepository.countByReporterSince(eq(hackerId), any()))
+                .thenReturn((long) ReportRateLimiter.SUSTAINED_LIMIT);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().create(
+                        program.getId(),
+                        reportRequest(Severity.HIGH, asset.getId())
+                )
+        );
+
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.getStatusCode());
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
     }
 
     @Test
@@ -943,7 +975,11 @@ class ReportServiceImplTest {
                 followNotificationService,
                 attachmentValidator,
                 objectStorageService,
-                eventPublisher
+                eventPublisher,
+                // Real, over a store that starts empty for each service(): the
+                // existing cases submit once and should pass through the
+                // limiter rather than around a mock of it.
+                new ReportRateLimiter(new InMemoryRateLimitStore())
         );
     }
 

@@ -115,6 +115,7 @@ public class ReportServiceImpl implements ReportService {
     private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ReportRateLimiter reportRateLimiter;
 
     @Override
     @Transactional
@@ -147,6 +148,17 @@ public class ReportServiceImpl implements ReportService {
             );
         }
         validateCvss(request);
+
+        // Ordered so nothing can fail after the burst window has been
+        // consumed: a rejected report must not spend the reporter's allowance.
+        reportRateLimiter.checkSustained(
+                reportRepository.countByReporterSince(
+                        reporterId,
+                        LocalDateTime.now()
+                                .minus(ReportRateLimiter.SUSTAINED_WINDOW)
+                )
+        );
+        reportRateLimiter.checkBurst(reporterId);
 
         Report report = Report.builder()
                 .program(program)

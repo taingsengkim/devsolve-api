@@ -14,6 +14,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -59,6 +60,22 @@ public interface ReportRepository
             "duplicateOf"
     })
     Page<Report> findByReporterId(UUID reporterId, Pageable pageable);
+
+    /**
+     * Feeds the sustained half of {@link ReportRateLimiter}. Counted across
+     * every program, and across every state: a report withdrawn or rejected
+     * after the fact still cost the triage queue the read.
+     */
+    @Query("""
+            select count(report)
+            from Report report
+            where report.reporter.id = :reporterId
+              and report.submittedAt >= :since
+            """)
+    long countByReporterSince(
+            @Param("reporterId") UUID reporterId,
+            @Param("since") LocalDateTime since
+    );
 
     @Override
     @EntityGraph(attributePaths = {
