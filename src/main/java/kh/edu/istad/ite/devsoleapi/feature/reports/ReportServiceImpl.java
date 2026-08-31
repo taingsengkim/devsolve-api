@@ -36,8 +36,10 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.virustotal.VirusTotalContentGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -116,6 +118,7 @@ public class ReportServiceImpl implements ReportService {
     private final ObjectStorageService objectStorageService;
     private final ApplicationEventPublisher eventPublisher;
     private final ReportRateLimiter reportRateLimiter;
+    private VirusTotalContentGuard virusTotalContentGuard;
 
     @Override
     @Transactional
@@ -148,6 +151,7 @@ public class ReportServiceImpl implements ReportService {
             );
         }
         validateCvss(request);
+        requireSafeSubmittedUrls(request);
 
         // Ordered so nothing can fail after the burst window has been
         // consumed: a rejected report must not spend the reporter's allowance.
@@ -207,6 +211,21 @@ public class ReportServiceImpl implements ReportService {
         ));
 
         return reportMapper.toResponse(saved);
+    }
+
+    @Autowired
+    void setVirusTotalContentGuard(
+            VirusTotalContentGuard virusTotalContentGuard
+    ) {
+        this.virusTotalContentGuard = virusTotalContentGuard;
+    }
+
+    private void requireSafeSubmittedUrls(CreateReportRequest request) {
+        if (virusTotalContentGuard == null) {
+            return;
+        }
+        virusTotalContentGuard.requireSafeUrl(request.targetEndpoint());
+        virusTotalContentGuard.requireSafeUrls(request.referenceLinks());
     }
 
     @Override
