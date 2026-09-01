@@ -37,8 +37,9 @@ public class LeaderboardController {
     public Page<LeaderboardResponse> getLeaderboard(
 
             @Parameter(description = "Ranking window: DAY, WEEK, MONTH or "
-                    + "ALL_TIME. Windowed boards score the recognitions "
-                    + "inside the window and leave totalReports and "
+                    + "ALL_TIME. Windowed boards score the findings resolved "
+                    + "inside the window, report recognitionCount as the count "
+                    + "of those findings, and leave totalReports and "
                     + "validReports null, since those are only kept as "
                     + "lifetime totals.")
             @RequestParam(defaultValue = "ALL_TIME")
