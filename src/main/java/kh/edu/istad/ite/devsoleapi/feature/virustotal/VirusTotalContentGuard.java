@@ -9,23 +9,40 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
 /**
  * Synchronously gates a user submission on VirusTotal's asynchronous result.
- * The deliberately small poll count respects the public API's tight quota.
+ *
+ * <p>Nothing is stored before a verdict exists. Content VirusTotal already
+ * recognises is judged by hash in a single request, so the common upload pays
+ * no waiting at all; content it has never seen is submitted and polled until it
+ * answers. Where no verdict arrives at all — an outage, an exhausted quota, an
+ * analysis still running at the last poll — the upload is refused rather than
+ * kept, because "not scanned" and "scanned and clean" are not the same file.
+ *
+ * <p>{@code fail-open} can invert that last rule for an operator who would
+ * rather accept unscanned content than refuse uploads during an outage. It is
+ * off by default: with it on, the way to get any file past this guard is to
+ * upload something VirusTotal has never seen, which is a description of novel
+ * malware.
  */
 @Service
 @Slf4j
 public class VirusTotalContentGuard {
 
     private final VirusTotalGateway gateway;
+    private final VirusTotalAlertService alertService;
     private final boolean enabled;
     private final Duration pollInterval;
     private final int maxPolls;
@@ -35,14 +52,16 @@ public class VirusTotalContentGuard {
     @Autowired
     public VirusTotalContentGuard(
             VirusTotalGateway gateway,
+            VirusTotalAlertService alertService,
             @Value("${app.virus-total.enabled:false}") boolean enabled,
             @Value("${app.virus-total.poll-interval:20s}")
             Duration pollInterval,
-            @Value("${app.virus-total.max-polls:3}") int maxPolls,
-            @Value("${app.virus-total.fail-open:true}") boolean failOpen
+            @Value("${app.virus-total.max-polls:6}") int maxPolls,
+            @Value("${app.virus-total.fail-open:false}") boolean failOpen
     ) {
         this(
                 gateway,
+                alertService,
                 enabled,
                 pollInterval,
                 maxPolls,
@@ -53,6 +72,7 @@ public class VirusTotalContentGuard {
 
     VirusTotalContentGuard(
             VirusTotalGateway gateway,
+            VirusTotalAlertService alertService,
             boolean enabled,
             Duration pollInterval,
             int maxPolls,
@@ -60,6 +80,7 @@ public class VirusTotalContentGuard {
             Sleeper sleeper
     ) {
         this.gateway = gateway;
+        this.alertService = alertService;
         this.enabled = enabled;
         this.pollInterval = pollInterval;
         this.maxPolls = maxPolls;
@@ -70,17 +91,82 @@ public class VirusTotalContentGuard {
     public void requireSafeFile(
             AttachmentValidator.ValidatedAttachment attachment
     ) {
+        requireSafeFile(attachment, AttachmentScanContext.NONE);
+    }
+
+    /**
+     * Holds the upload until VirusTotal has actually judged the content.
+     *
+     * <p>The hash is asked about first. VirusTotal answers for content it has
+     * seen before straight away, which is the overwhelming majority of what
+     * gets uploaded and all of what is already known to be malware — one
+     * request, no queue, a verdict in well under a second. Only genuinely new
+     * content is submitted and waited on, and that is the case worth waiting
+     * for.
+     */
+    public void requireSafeFile(
+            AttachmentValidator.ValidatedAttachment attachment,
+            AttachmentScanContext context
+    ) {
         if (!enabled) {
             return;
         }
-        requireClean(() -> gateway.submitFile(attachment), "file");
+
+        requireClean(
+                () -> knownVerdictFor(attachment)
+                        .orElseGet(() -> gateway.submitFile(attachment)),
+                "file",
+                attachment,
+                context
+        );
+    }
+
+    /**
+     * What VirusTotal already knows about these bytes, if anything.
+     *
+     * <p>A lookup failure is not fatal here: it only means the fast path is
+     * unavailable for this upload, and the submit-and-poll path behind it
+     * still reaches a verdict. Letting it propagate would turn a degraded
+     * optimisation into a refused upload.
+     */
+    private Optional<VirusTotalScanResponse> knownVerdictFor(
+            AttachmentValidator.ValidatedAttachment attachment
+    ) {
+        try {
+            return gateway.findByHash(sha256(attachment.content()));
+        } catch (VirusTotalUnavailableException exception) {
+            log.debug(
+                    "VirusTotal hash lookup was unavailable, falling back to"
+                            + " submitting the file: {}",
+                    exception.getReason()
+            );
+            return Optional.empty();
+        }
+    }
+
+    private String sha256(byte[] content) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(content)
+            );
+        } catch (NoSuchAlgorithmException exception) {
+            // Every JVM ships SHA-256; this cannot happen on a working runtime.
+            throw new IllegalStateException(
+                    "SHA-256 is not available", exception
+            );
+        }
     }
 
     public void requireSafeUrl(String url) {
         if (!enabled || !isHttpUrl(url)) {
             return;
         }
-        requireClean(() -> gateway.submitUrl(url.trim()), "URL");
+        requireClean(
+                () -> gateway.submitUrl(url.trim()),
+                "URL",
+                null,
+                AttachmentScanContext.NONE
+        );
     }
 
     public void requireSafeUrls(Collection<String> urls) {
@@ -93,22 +179,25 @@ public class VirusTotalContentGuard {
 
     private void requireClean(
             Supplier<VirusTotalScanResponse> submission,
-            String contentType
+            String contentType,
+            AttachmentValidator.ValidatedAttachment attachment,
+            AttachmentScanContext context
     ) {
         VirusTotalScanResponse result;
         try {
             result = awaitVerdict(submission, contentType);
         } catch (VirusTotalUnavailableException exception) {
             if (!failOpen) {
+                // No verdict means the content was never judged, and unjudged
+                // content is not stored. The status already says whether that
+                // was a timeout, a quota, or an outage.
                 throw exception;
             }
-            // Deliberately not fatal: on a public key a burst of uploads hits
-            // the per-minute quota routinely, and refusing every upload while
-            // that lasts is a worse outcome than storing content VirusTotal
-            // declined to look at. Loud enough to notice if it becomes normal.
+            // Only reachable where an operator has explicitly turned the
+            // guarantee off. Loud enough to notice if it becomes normal.
             log.warn(
                     "Accepting an unscanned {} because VirusTotal gave no"
-                            + " verdict: {}",
+                            + " verdict and fail-open is on: {}",
                     contentType,
                     exception.getReason()
             );
@@ -116,6 +205,9 @@ public class VirusTotalContentGuard {
         }
 
         if (result.verdict() != VirusTotalScanResponse.Verdict.CLEAN) {
+            if (attachment != null) {
+                alertService.malicious(attachment, result, context);
+            }
             throw new DetailedApiException(
                     HttpStatus.UNPROCESSABLE_CONTENT,
                     "VirusTotal rejected the submitted " + contentType,

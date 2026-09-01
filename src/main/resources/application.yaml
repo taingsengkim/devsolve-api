@@ -135,15 +135,22 @@ app:
     api-key: ${VIRUSTOTAL_API_KEY:}
     base-url: ${VIRUSTOTAL_BASE_URL:https://www.virustotal.com/api/v3}
     # Upper bound on a single wait between polls, not a flat one: the first
-    # check happens at a quarter of it so recognised content is not made to
-    # wait. One submission plus three polls stays within a public-key burst.
+    # check happens at a quarter of it, the next at a half, the rest at the
+    # full value. Only content VirusTotal has never seen ever gets here --
+    # anything it already knows is answered by hash in one request, with no
+    # wait at all -- so the budget is set for a genuinely new file, which
+    # takes minutes at VirusTotal rather than seconds.
     poll-interval: ${VIRUSTOTAL_POLL_INTERVAL:20s}
-    max-polls: ${VIRUSTOTAL_MAX_POLLS:3}
+    max-polls: ${VIRUSTOTAL_MAX_POLLS:6}
     # Whether an upload proceeds when VirusTotal gives no verdict at all --
     # unreachable, rate limited, or still analysing after the last poll. A
     # returned MALICIOUS or SUSPICIOUS verdict always rejects regardless.
-    # Off makes VirusTotal's availability a hard dependency of every upload.
-    fail-open: ${VIRUSTOTAL_FAIL_OPEN:true}
+    #
+    # Off: unscanned content is not stored. On: it is, which means the way to
+    # get any file past the guard is to upload something VirusTotal has never
+    # seen -- a description of novel malware. Turn it on only to keep uploads
+    # working through a VirusTotal outage, and turn it back off after.
+    fail-open: ${VIRUSTOTAL_FAIL_OPEN:false}
 logging:
   level:
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG

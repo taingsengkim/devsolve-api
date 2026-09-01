@@ -11,10 +11,12 @@ import org.springframework.web.server.ResponseStatusException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withTooManyRequests;
 
@@ -135,6 +137,101 @@ class VirusTotalClientTest {
                 response.verdict()
         );
         assertEquals(2, response.stats().get("malicious"));
+        server.verify();
+    }
+
+    @Test
+    void readsAKnownHashVerdictStraightFromLastAnalysisStats() {
+        server.expect(once(), requestTo(
+                        "https://www.virustotal.com/api/v3/files/abc123"
+                ))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("x-apikey", "test-api-key"))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "data": {
+                            "type": "file",
+                            "id": "abc123",
+                            "attributes": {
+                              "last_analysis_stats": {
+                                "malicious": 58,
+                                "suspicious": 0,
+                                "harmless": 0,
+                                "undetected": 12
+                              }
+                            }
+                          }
+                        }
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+
+        VirusTotalScanResponse response = client.findByHash("abc123")
+                .orElseThrow();
+
+        // Reported as completed even though the payload carries no status:
+        // a stored analysis is by definition one that finished.
+        assertEquals("completed", response.status());
+        assertEquals(
+                VirusTotalScanResponse.Verdict.MALICIOUS,
+                response.verdict()
+        );
+        assertEquals(58, response.stats().get("malicious"));
+        server.verify();
+    }
+
+    /**
+     * The ordinary answer for content VirusTotal has never been shown. It has
+     * to be an empty result rather than the 404 the analyses endpoint raises,
+     * or every first-time upload fails instead of being scanned.
+     */
+    @Test
+    void anUnknownHashIsEmptyRatherThanA404() {
+        server.expect(once(), requestTo(
+                        "https://www.virustotal.com/api/v3/files/unknown"
+                ))
+                .andRespond(withResourceNotFound());
+
+        assertTrue(client.findByHash("unknown").isEmpty());
+        server.verify();
+    }
+
+    @Test
+    void aKnownFileWithNoStoredAnalysisIsTreatedAsUnknown() {
+        server.expect(once(), requestTo(
+                        "https://www.virustotal.com/api/v3/files/abc123"
+                ))
+                .andRespond(withSuccess(
+                        """
+                        {
+                          "data": {
+                            "type": "file",
+                            "id": "abc123",
+                            "attributes": {}
+                          }
+                        }
+                        """,
+                        MediaType.APPLICATION_JSON
+                ));
+
+        assertTrue(client.findByHash("abc123").isEmpty());
+        server.verify();
+    }
+
+    @Test
+    void aRateLimitedHashLookupStillSurfacesAs429() {
+        server.expect(once(), requestTo(
+                        "https://www.virustotal.com/api/v3/files/abc123"
+                ))
+                .andRespond(withTooManyRequests());
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> client.findByHash("abc123")
+        );
+
+        assertEquals(429, exception.getStatusCode().value());
         server.verify();
     }
 

@@ -17,7 +17,11 @@ public enum NotificationType {
     // Notifiable is a person rather than a piece of content — a new follower,
     // where the id to open is the follower's profile.
     USER("user"),
-    REWARD("reward");
+    REWARD("reward"),
+    // A refused upload, a blocked link — the platform stopping something
+    // rather than moving it along. The id to open is whatever the content was
+    // being attached to.
+    SECURITY("security");
 
     @EnumeratedValue
     private final String databaseValue;
@@ -48,7 +52,9 @@ public enum NotificationType {
      */
     public boolean emailedByDefault() {
         return switch (this) {
-            case REPORT, REWARD, DISPUTE, ORGANIZATION, KYC -> true;
+            // SECURITY is mailed because it is the platform reporting that it
+            // refused something dangerous. Nobody opts into hearing that late.
+            case REPORT, REWARD, DISPUTE, ORGANIZATION, KYC, SECURITY -> true;
             case COMMENT, PROGRAM, SOLUTION, PROBLEM,
                  RECOGNITION, SHOWCASE, USER, INVITATION -> false;
         };

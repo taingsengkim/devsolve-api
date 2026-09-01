@@ -36,6 +36,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.virustotal.AttachmentScanContext;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.VirusTotalContentGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -540,7 +541,15 @@ public class ReportServiceImpl implements ReportService {
         }
 
         AttachmentValidator.ValidatedAttachment validated =
-                attachmentValidator.validate(file);
+                attachmentValidator.validate(
+                        file,
+                        new AttachmentScanContext(
+                                report.getProgram().getOrganizationId(),
+                                reportId,
+                                NotificationType.SECURITY,
+                                "a report"
+                        )
+                );
         String storageKey = "reports/"
                 + reportId
                 + "/"

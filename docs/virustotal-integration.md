@@ -14,23 +14,54 @@ VIRUSTOTAL_ENABLED=true
 VIRUSTOTAL_API_KEY=<rotated-api-key>
 VIRUSTOTAL_BASE_URL=https://www.virustotal.com/api/v3
 VIRUSTOTAL_POLL_INTERVAL=20s
-VIRUSTOTAL_MAX_POLLS=3
-VIRUSTOTAL_FAIL_OPEN=true
+VIRUSTOTAL_MAX_POLLS=6
+VIRUSTOTAL_FAIL_OPEN=false
 ```
+
+## How a file is judged
+
+The file's SHA-256 is looked up first. VirusTotal answers for content it has
+seen before immediately, from its stored analysis — one request, no upload, no
+queue, a verdict in well under a second. That covers the overwhelming majority
+of uploads and all content already known to be malware, so the ordinary upload
+pays no waiting at all and uses a quarter of the quota it used to.
+
+Only content VirusTotal has never seen is submitted and polled. That is the
+case worth waiting for, and it is genuinely slow: a new file is dispatched to
+around seventy engines and routinely takes minutes rather than seconds.
 
 `VIRUSTOTAL_POLL_INTERVAL` is the ceiling on one wait, not a flat delay. The
 first check happens at a quarter of it, the next at a half, the rest at the
-full value, because a submission is always reported as PENDING and a flat
-interval made every upload sit out the whole wait even when VirusTotal already
-had a verdict.
+full value. With the defaults above, an unknown file is waited on for about 95
+seconds before the upload is refused.
 
 `VIRUSTOTAL_FAIL_OPEN` decides what happens when VirusTotal returns no verdict
-at all — unreachable, rate limited, or still analysing after the last poll. The
-default lets the upload through and logs a warning; a public API key allows
-four requests a minute, and one upload can consume all four, so refusing every
-upload for the rest of the minute is the worse failure. A returned MALICIOUS or
-SUSPICIOUS verdict still rejects with 422 either way. Set it to `false` only
-where blocking unscanned content matters more than accepting uploads at all.
+at all — unreachable, rate limited, or still analysing after the last poll.
+
+**Leave it `false`.** Unscanned content is not stored, because "not scanned"
+and "scanned and clean" are not the same file. With it on, the reliable way to
+get any file past the guard is to upload something VirusTotal has never seen —
+which is a description of novel malware, the exact category the guard exists
+for. Turn it on only to keep uploads working through a VirusTotal outage, and
+turn it back off afterwards. A returned MALICIOUS or SUSPICIOUS verdict rejects
+with 422 either way.
+
+## Alerting
+
+A file that comes back MALICIOUS or SUSPICIOUS is refused with 422 and never
+stored, and the refusal is reported before the response is sent:
+
+- always written to the application log, with the verdict, the filename, the
+  uploader, the analysis id and the engine counts;
+- delivered as a `SECURITY` notification to every platform administrator, and,
+  when the upload was headed for a company's report, to everyone on that
+  organization with `TRIAGE_REPORTS`.
+
+The alert is dispatched in its own transaction. The upload's transaction is
+rolled back by the 422, so an ordinary after-commit notification would be
+published into a transaction that never commits and would silently never
+arrive. Nothing in the alerting path can turn a refusal into a 500: if the
+notification fails, it is logged and the file is still refused.
 
 Never expose `VIRUSTOTAL_API_KEY` to the frontend or commit it. A public
 VirusTotal API key has strict quotas and usage restrictions. Files submitted to
@@ -38,14 +69,21 @@ the standard `/files` endpoint are shared with VirusTotal; use an appropriate
 VirusTotal license and private-scanning API before sending confidential files.
 
 When enabled, the normal problem, solution, and report attachment upload flows
-automatically wait for a completed VirusTotal verdict before storing a file.
-Report `targetEndpoint` values that are HTTP(S) URLs and every report reference
-link are checked the same way before the report is saved. A suspicious or
-malicious verdict returns HTTP 422. An analysis that remains pending after the
-configured polls is treated as no verdict, so it follows `VIRUSTOTAL_FAIL_OPEN`
-above — HTTP 504 only when that is off. Image-only uploads (avatars, logos,
-covers, and showcase images) are intentionally excluded from public VirusTotal
-file submission because they can contain personal or confidential material.
+wait for a completed VirusTotal verdict before storing a file. Report
+`targetEndpoint` values that are HTTP(S) URLs and every report reference link
+are checked the same way before the report is saved. A suspicious or malicious
+verdict returns HTTP 422. An analysis that remains pending after the configured
+polls is treated as no verdict, so it follows `VIRUSTOTAL_FAIL_OPEN` above —
+HTTP 504 with the default. Image-only uploads (avatars, logos, covers, and
+showcase images) are intentionally excluded from public VirusTotal file
+submission because they can contain personal or confidential material.
+
+Because the wait is synchronous, clients must allow for it. A known file
+returns in well under a second; an unknown one can hold the request for the
+full poll budget. Set the client timeout above `VIRUSTOTAL_MAX_POLLS ×
+VIRUSTOTAL_POLL_INTERVAL`, and any reverse proxy in front of the API to match —
+nginx's default `proxy_read_timeout` of 60s will cut off an unknown-file upload
+that the server goes on to complete.
 
 ## API flow
 

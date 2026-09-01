@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
+import kh.edu.istad.ite.devsoleapi.feature.virustotal.AttachmentScanContext;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.ratelimit.InMemoryRateLimitStore;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
@@ -759,7 +760,10 @@ class ReportServiceImplTest {
                 .thenReturn(Optional.of(report));
         when(reportAttachmentRepository.countByReportId(report.getId()))
                 .thenReturn(0L);
-        when(attachmentValidator.validate(file)).thenReturn(validated);
+        when(attachmentValidator.validate(
+                eq(file),
+                any(AttachmentScanContext.class)
+        )).thenReturn(validated);
         when(reportAttachmentRepository.saveAndFlush(
                 any(ReportAttachment.class)
         )).thenAnswer(invocation -> {
@@ -806,7 +810,10 @@ class ReportServiceImplTest {
                 .thenReturn(Optional.of(report));
         when(reportAttachmentRepository.countByReportId(report.getId()))
                 .thenReturn(0L);
-        when(attachmentValidator.validate(file)).thenReturn(
+        when(attachmentValidator.validate(
+                eq(file),
+                any(AttachmentScanContext.class)
+        )).thenReturn(
                 new AttachmentValidator.ValidatedAttachment(
                         "evidence.txt",
                         "txt",

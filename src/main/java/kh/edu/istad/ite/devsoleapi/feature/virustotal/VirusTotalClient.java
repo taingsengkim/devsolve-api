@@ -21,6 +21,7 @@ import tools.jackson.databind.JsonNode;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @Slf4j
@@ -75,6 +76,55 @@ public class VirusTotalClient implements VirusTotalGateway {
         this.restClient = restClientBuilder.baseUrl(baseUrl).build();
         this.enabled = enabled;
         this.apiKey = apiKey == null ? "" : apiKey.trim();
+    }
+
+    /**
+     * A 404 here is the ordinary answer for content VirusTotal has never been
+     * shown, not a failure, so it is the one upstream status that comes back
+     * as an empty result rather than an exception.
+     */
+    @Override
+    public Optional<VirusTotalScanResponse> findByHash(String sha256) {
+        requireConfigured();
+        if (sha256 == null || sha256.isBlank()) {
+            return Optional.empty();
+        }
+
+        JsonNode response;
+        try {
+            response = restClient.get()
+                    .uri("/files/{hash}", sha256)
+                    .header(API_KEY_HEADER, apiKey)
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            return Optional.of(rethrow(exception));
+        } catch (RestClientException exception) {
+            log.warn("VirusTotal hash lookup could not be completed",
+                    exception);
+            throw upstreamFailure("VirusTotal is currently unavailable");
+        }
+
+        JsonNode attributes = requiredData(response).path("attributes");
+        JsonNode analysisStats = attributes.path("last_analysis_stats");
+
+        // A record with no analysis on it yet is the same as no record: there
+        // is nothing to decide from, so let the caller submit it properly.
+        if (analysisStats.isMissingNode()) {
+            return Optional.empty();
+        }
+
+        Map<String, Integer> stats = statsOf(analysisStats);
+
+        return Optional.of(new VirusTotalScanResponse(
+                sha256,
+                "completed",
+                verdictOf("completed", stats),
+                stats
+        ));
     }
 
     @Override
@@ -222,30 +272,38 @@ public class VirusTotalClient implements VirusTotalGateway {
         try {
             return call.execute();
         } catch (RestClientResponseException exception) {
-            int upstreamStatus = exception.getStatusCode().value();
-            log.warn("VirusTotal API request failed with status {}",
-                    upstreamStatus);
-
-            if (upstreamStatus == 429) {
-                throw new VirusTotalUnavailableException(
-                        HttpStatus.TOO_MANY_REQUESTS,
-                        "VirusTotal rate limit was reached"
-                );
-            }
-            if (upstreamStatus == 404) {
-                throw new VirusTotalUnavailableException(
-                        HttpStatus.NOT_FOUND,
-                        "VirusTotal analysis was not found"
-                );
-            }
-            throw upstreamFailure(
-                    "VirusTotal could not process the scan request"
-            );
+            return rethrow(exception);
         } catch (RestClientException exception) {
             log.warn("VirusTotal API request could not be completed",
                     exception);
             throw upstreamFailure("VirusTotal is currently unavailable");
         }
+    }
+
+    /**
+     * Always throws. Declared with a return type so a caller that has to
+     * produce a value on this branch can hand the result straight back.
+     */
+    private <T> T rethrow(RestClientResponseException exception) {
+        int upstreamStatus = exception.getStatusCode().value();
+        log.warn("VirusTotal API request failed with status {}",
+                upstreamStatus);
+
+        if (upstreamStatus == 429) {
+            throw new VirusTotalUnavailableException(
+                    HttpStatus.TOO_MANY_REQUESTS,
+                    "VirusTotal rate limit was reached"
+            );
+        }
+        if (upstreamStatus == 404) {
+            throw new VirusTotalUnavailableException(
+                    HttpStatus.NOT_FOUND,
+                    "VirusTotal analysis was not found"
+            );
+        }
+        throw upstreamFailure(
+                "VirusTotal could not process the scan request"
+        );
     }
 
     private void requireConfigured() {

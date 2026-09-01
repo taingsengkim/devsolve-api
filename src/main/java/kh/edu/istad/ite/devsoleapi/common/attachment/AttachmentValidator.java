@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.common.attachment;
 
+import kh.edu.istad.ite.devsoleapi.feature.virustotal.AttachmentScanContext;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.VirusTotalContentGuard;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -94,14 +95,34 @@ public class AttachmentValidator {
         return validate(file, Profile.ATTACHMENT);
     }
 
+    /**
+     * As {@link #validate(MultipartFile)}, but naming what the file was being
+     * attached to so a refusal can be reported to the people responsible for
+     * it. Prefer this wherever the caller knows.
+     */
+    public ValidatedAttachment validate(
+            MultipartFile file,
+            AttachmentScanContext context
+    ) {
+        return validate(file, Profile.ATTACHMENT, context);
+    }
+
     public ValidatedAttachment validate(
             MultipartFile file,
             Profile profile
     ) {
+        return validate(file, profile, AttachmentScanContext.NONE);
+    }
+
+    public ValidatedAttachment validate(
+            MultipartFile file,
+            Profile profile,
+            AttachmentScanContext context
+    ) {
         ValidatedAttachment attachment = validateLocally(file, profile);
         if (profile == Profile.ATTACHMENT
                 && virusTotalContentGuard != null) {
-            virusTotalContentGuard.requireSafeFile(attachment);
+            virusTotalContentGuard.requireSafeFile(attachment, context);
         }
         return attachment;
     }
