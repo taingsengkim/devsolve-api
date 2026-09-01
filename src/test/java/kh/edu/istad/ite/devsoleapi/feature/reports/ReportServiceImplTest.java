@@ -999,52 +999,14 @@ class ReportServiceImplTest {
     }
 
     /**
-     * The points on a reward were stored and announced to the researcher --
-     * "You were awarded N points" -- and then went nowhere. A number the
-     * platform says somebody has earned has to be a number they have.
+     * A reward is money and nothing else. It used to be able to carry
+     * reputation points, which let one organization decide where a researcher
+     * sat on a leaderboard spanning every organization -- at 100 points for a
+     * critical finding, one mistyped reward was worth ten thousand of them,
+     * and nothing in the platform ever subtracts reputation again.
      */
     @Test
-    void rewardPointsReachTheResearchersReputation() {
-        UUID ownerId = UUID.randomUUID();
-        Report report = newReport(Severity.HIGH);
-        report.setSeverity(Severity.HIGH);
-        Organization organization = activeOrganization(
-                report.getProgram().getOrganizationId(),
-                ownerId
-        );
-        authenticate(ownerId, "COMPANY");
-
-        stubCompanyOwnedReport(report, organization, ownerId);
-        when(disputeRepository
-                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
-                        eq(report.getId()),
-                        anyCollection()
-                ))
-                .thenReturn(Optional.empty());
-        when(reportRewardRepository.saveAndFlush(any(ReportReward.class)))
-                .thenAnswer(invocation -> {
-                    ReportReward saved = invocation.getArgument(0);
-                    saved.setId(UUID.randomUUID());
-                    return saved;
-                });
-
-        service().recordReward(
-                report.getId(),
-                new RewardReportRequest(null, 40, "Good find")
-        );
-
-        verify(userProfileRepository).applyRewardPoints(
-                report.getReporter().getId(),
-                40
-        );
-    }
-
-    /**
-     * A points-free payout must not move a standing, and must not spend a
-     * write finding that out.
-     */
-    @Test
-    void aMoneyOnlyRewardLeavesReputationAlone() {
+    void aRewardPaysMoneyAndDoesNotTouchReputation() {
         UUID ownerId = UUID.randomUUID();
         Report report = newReport(Severity.HIGH);
         report.setSeverity(Severity.HIGH);
@@ -1072,12 +1034,29 @@ class ReportServiceImplTest {
         service().recordReward(
                 report.getId(),
                 new RewardReportRequest(
-                        new java.math.BigDecimal("1500.00"), null, null
+                        new java.math.BigDecimal("1500.00"),
+                        "Good find"
                 )
         );
 
+        ArgumentCaptor<ReportReward> rewardCaptor =
+                ArgumentCaptor.forClass(ReportReward.class);
+        verify(reportRewardRepository).saveAndFlush(rewardCaptor.capture());
+
+        assertEquals(
+                0,
+                new java.math.BigDecimal("1500.00")
+                        .compareTo(rewardCaptor.getValue().getAmount())
+        );
+
+        // Left unset rather than zeroed: the column still holds the points on
+        // rewards recorded before this stopped being an organization's to
+        // give.
+        assertNull(rewardCaptor.getValue().getPoints());
+
+        // The only writes to reputation are the recognition path's.
         verify(userProfileRepository, never())
-                .applyRewardPoints(any(), anyInt());
+                .applyRecognition(any(), anyInt(), anyInt());
     }
 
     private void stubCompanyOwnedReport(

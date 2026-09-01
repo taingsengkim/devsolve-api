@@ -502,10 +502,12 @@ public class ReportServiceImpl implements ReportService {
         return reportMapper.toResponse(report);
     }
 
-    /** Moves reputation when the reward carries points, so the board drops. */
+    /**
+     * Records a payout. Money only: a reward no longer moves reputation, so
+     * the leaderboard is untouched and is not evicted here.
+     */
     @Override
     @Transactional
-    @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
     public ReportResponse recordReward(
             UUID id,
             RewardReportRequest request
@@ -514,15 +516,9 @@ public class ReportServiceImpl implements ReportService {
                 id,
                 OrganizationPermission.AWARD_REWARDS
         );
-        if (request.amount() == null && request.points() == null) {
-            throw badRequest(
-                    "A reward must contain an amount, points, or both"
-            );
-        }
-        if (request.amount() != null
-                && !Boolean.TRUE.equals(
-                        report.getProgram().getOffersBounties()
-                )) {
+        if (!Boolean.TRUE.equals(
+                report.getProgram().getOffersBounties()
+        )) {
             throw conflict(
                     "This program does not offer monetary bounties"
             );
@@ -534,10 +530,11 @@ public class ReportServiceImpl implements ReportService {
         }
         requireNoActiveDispute(report.getId());
 
+        // points is left unset: the column stays for the rewards recorded
+        // before reputation stopped being an organization's to hand out.
         ReportReward reward = ReportReward.builder()
                 .report(report)
                 .amount(request.amount())
-                .points(request.points())
                 .awardedBy(findUserProfile(currentUserId()))
                 .note(trimToNull(request.note()))
                 .build();
@@ -557,43 +554,16 @@ public class ReportServiceImpl implements ReportService {
                 "report:" + report.getId() + ":reward:" + reward.getId()
         ));
 
-        // Mapped before the points are applied: that update clears the
-        // persistence context, and the response is built from managed
-        // entities.
-        ReportResponse response = reportMapper.toResponse(report);
-        applyRewardPoints(report.getReporter().getId(), reward.getPoints());
-        return response;
+        return reportMapper.toResponse(report);
     }
 
     /**
-     * Moves the reputation a reward's points promised.
-     *
-     * <p>The points were stored on the reward and announced to the researcher
-     * -- "You were awarded N points" -- and then went nowhere: nothing ever
-     * added them to a standing. A number the platform tells somebody they have
-     * earned has to be a number they actually have.
-     *
-     * <p>Distinct from the reputation a recognition grants, which is priced
-     * off the finding's severity by ReputationPolicy. A program that pays
-     * points is topping that up deliberately, so the two add rather than one
-     * replacing the other.
+     * Says only what the reward actually is. It used to promise "and N
+     * points" for a number that never reached anybody's standing, which is a
+     * worse thing to send than nothing at all.
      */
-    private void applyRewardPoints(UUID reporterId, Integer points) {
-        if (points == null || points <= 0) {
-            return;
-        }
-        userProfileRepository.applyRewardPoints(reporterId, points);
-    }
-
     private String describeReward(ReportReward reward) {
-        if (reward.getAmount() != null && reward.getPoints() != null) {
-            return "You were awarded " + reward.getAmount()
-                    + " and " + reward.getPoints() + " points";
-        }
-        if (reward.getAmount() != null) {
-            return "You were awarded " + reward.getAmount();
-        }
-        return "You were awarded " + reward.getPoints() + " points";
+        return "You were awarded " + reward.getAmount();
     }
 
     @Override
