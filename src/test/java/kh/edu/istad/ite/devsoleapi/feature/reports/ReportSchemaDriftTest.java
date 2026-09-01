@@ -5,6 +5,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Transient;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportRetest;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -62,18 +63,40 @@ class ReportSchemaDriftTest {
             "updated_at"
     );
 
-    private static final Pattern ADDED_COLUMN = Pattern.compile(
-            "ALTER TABLE public\\.reports\\s+ADD COLUMN IF NOT EXISTS\\s+"
-                    + "(\\w+)",
-            Pattern.CASE_INSENSITIVE
-    );
-
     @Test
     void everyReportColumnIsEitherOriginalOrAddedBySchemaSql()
             throws IOException {
 
-        Set<String> guaranteed = new java.util.HashSet<>(ORIGINAL_COLUMNS);
-        Matcher matcher = ADDED_COLUMN.matcher(schemaSql());
+        assertNoDrift("reports", Report.class, ORIGINAL_COLUMNS);
+    }
+
+    /**
+     * The same trap one table over. {@code report_retests} is created by
+     * schema.sql, but with {@code CREATE TABLE IF NOT EXISTS} — so on every
+     * database that already ran the release which introduced it, the CREATE is
+     * skipped and a column added to {@link ReportRetest} afterwards arrives
+     * only if an ALTER block carries it. A fresh database gets the column from
+     * the CREATE and shows nothing wrong.
+     */
+    @Test
+    void everyRetestColumnIsEitherCreatedOrAddedBySchemaSql()
+            throws IOException {
+
+        assertNoDrift(
+                "report_retests",
+                ReportRetest.class,
+                createdColumnsOf("report_retests")
+        );
+    }
+
+    private void assertNoDrift(
+            String table,
+            Class<?> entity,
+            Set<String> originalColumns
+    ) throws IOException {
+
+        Set<String> guaranteed = new java.util.HashSet<>(originalColumns);
+        Matcher matcher = addedColumnPattern(table).matcher(schemaSql());
 
         while (matcher.find()) {
             guaranteed.add(matcher.group(1).toLowerCase());
@@ -81,22 +104,63 @@ class ReportSchemaDriftTest {
 
         List<String> drifted = new ArrayList<>();
 
-        for (String column : mappedColumnsOf(Report.class)) {
+        for (String column : mappedColumnsOf(entity)) {
             if (!guaranteed.contains(column)) {
                 drifted.add(column);
             }
         }
 
         assertTrue(drifted.isEmpty(), () ->
-                "reports."
-                        + String.join(", reports.", drifted)
-                        + " is mapped by the Report entity but schema.sql "
-                        + "neither creates nor adds it. A deploy ships the "
-                        + "field with no column to put it in, and every read "
-                        + "of a Report fails — see this test's javadoc. Add an "
-                        + "ALTER TABLE public.reports ADD COLUMN IF NOT EXISTS "
-                        + "block for it."
+                table + "."
+                        + String.join(", " + table + ".", drifted)
+                        + " is mapped by the " + entity.getSimpleName()
+                        + " entity but schema.sql neither creates nor adds it. "
+                        + "A deploy ships the field with no column to put it "
+                        + "in, and every read of the table fails — see this "
+                        + "test's javadoc. Add an ALTER TABLE public." + table
+                        + " ADD COLUMN IF NOT EXISTS block for it."
         );
+    }
+
+    private Pattern addedColumnPattern(String table) {
+        return Pattern.compile(
+                "ALTER TABLE public\\." + table
+                        + "\\s+ADD COLUMN IF NOT EXISTS\\s+(\\w+)",
+                Pattern.CASE_INSENSITIVE
+        );
+    }
+
+    /**
+     * The column names inside a table's {@code CREATE TABLE} block: the ones a
+     * fresh database is guaranteed, and — because the table and its entity
+     * shipped together — the ones every older database already has too.
+     *
+     * <p>Read from the first line of each definition, which is why constraint
+     * and reference continuation lines are skipped rather than parsed.
+     */
+    private Set<String> createdColumnsOf(String table) throws IOException {
+        Matcher block = Pattern.compile(
+                "CREATE TABLE IF NOT EXISTS public\\." + table
+                        + "\\s*\\((.*?)\\n\\s*\\);",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL
+        ).matcher(schemaSql());
+
+        if (!block.find()) {
+            throw new IllegalStateException(
+                    "schema.sql has no CREATE TABLE block for " + table
+            );
+        }
+
+        Set<String> columns = new java.util.HashSet<>();
+        for (String line : block.group(1).split("\\R")) {
+            Matcher name = Pattern.compile("^\\s{12}(\\w+)\\s+\\S")
+                    .matcher(line);
+            if (name.find()
+                    && !name.group(1).equalsIgnoreCase("CONSTRAINT")) {
+                columns.add(name.group(1).toLowerCase());
+            }
+        }
+        return columns;
     }
 
     /**

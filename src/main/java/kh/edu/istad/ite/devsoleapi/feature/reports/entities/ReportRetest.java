@@ -89,7 +89,11 @@ public class ReportRetest extends BasedEntity {
      * A bonus the organization commits to when it asks. Held here rather than
      * paid immediately: it is owed for the verification work, and that work has
      * not happened yet. Paid out as a {@link ReportReward} when the researcher
-     * comes back with a verdict.
+     * comes back with a verdict — either verdict.
+     *
+     * <p>Paying only on VERIFIED_FIXED would be paying a researcher to agree
+     * that the fix worked, which is the one answer they should have no stake
+     * in. The bonus buys the retest, not the result.
      */
     @Column(name = "bounty_reward", precision = 10, scale = 2)
     private BigDecimal bountyReward;
@@ -101,6 +105,21 @@ public class ReportRetest extends BasedEntity {
     @CreationTimestamp
     @Column(name = "requested_at", nullable = false, updatable = false)
     private LocalDateTime requestedAt;
+
+    /**
+     * When the researcher's window to answer runs out. Past this, the attempt
+     * lapses and the report goes back to where it was before it was asked for.
+     *
+     * <p>Stamped on the row rather than derived from {@link #requestedAt} and a
+     * constant, so that both sides can be shown the same deadline and changing
+     * the window later does not silently move the deadline on attempts that
+     * were already outstanding.
+     *
+     * <p>Null on attempts that predate the window, which the expiry sweep reads
+     * as "no deadline" and leaves alone.
+     */
+    @Column(name = "due_at")
+    private LocalDateTime dueAt;
 
     /**
      * Null while the retest is open, and null on a closed one too when triage
@@ -134,5 +153,13 @@ public class ReportRetest extends BasedEntity {
 
     public boolean isOpen() {
         return completedAt == null;
+    }
+
+    /**
+     * Open, and the window to answer has run out. An attempt with no
+     * {@link #dueAt} is never overdue — see the field.
+     */
+    public boolean isOverdue(LocalDateTime asOf) {
+        return isOpen() && dueAt != null && dueAt.isBefore(asOf);
     }
 }

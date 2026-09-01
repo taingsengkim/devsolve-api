@@ -174,6 +174,61 @@ class ReportRetestRepositoryPostgresTest {
         assertEquals(1, first.getAttemptNumber());
     }
 
+    /**
+     * The four states the expiry sweep has to tell apart. The one that matters
+     * most is the attempt with no {@code due_at}: those are the rows written
+     * before there was a window, and expiring them would lapse every retest
+     * outstanding on the deploy that first ran the sweep.
+     */
+    @Test
+    @Transactional
+    void onlyOpenAttemptsPastTheirDeadlineAreOverdue() {
+        Report report = persistedReport();
+        UserProfile requester = persistedProfile();
+        LocalDateTime now = LocalDateTime.now();
+
+        ReportRetest overdue = reportRetestRepository.saveAndFlush(
+                ReportRetest.builder()
+                        .report(report)
+                        .attemptNumber(1)
+                        .requestedBy(requester)
+                        .dueAt(now.minusDays(1))
+                        .build()
+        );
+        reportRetestRepository.saveAndFlush(
+                ReportRetest.builder()
+                        .report(report)
+                        .attemptNumber(2)
+                        .requestedBy(requester)
+                        .dueAt(now.plusDays(7))
+                        .build()
+        );
+        reportRetestRepository.saveAndFlush(
+                ReportRetest.builder()
+                        .report(report)
+                        .attemptNumber(3)
+                        .requestedBy(requester)
+                        .dueAt(now.minusDays(3))
+                        .verdict(RetestVerdict.VERIFIED_FIXED)
+                        .completedBy(report.getReporter())
+                        .completedAt(now.minusDays(4))
+                        .build()
+        );
+        reportRetestRepository.saveAndFlush(
+                ReportRetest.builder()
+                        .report(report)
+                        .attemptNumber(4)
+                        .requestedBy(requester)
+                        .build()
+        );
+        entityManager.clear();
+
+        assertEquals(
+                List.of(overdue.getId()),
+                reportRetestRepository.findOverdueIds(now)
+        );
+    }
+
     @Test
     @Transactional
     void aReportWithNoRetestHasNoAttemptNumberYet() {

@@ -91,7 +91,10 @@ public record ReportResponse(
      *
      * <p>{@code completedAt} is what says whether the attempt is still open;
      * an attempt closed without a {@code verdict} is one triage moved the
-     * report on from before the researcher answered.
+     * report on from, or one whose {@code dueAt} passed unanswered.
+     *
+     * @param dueAt when the researcher's window to answer runs out. Null on
+     *              attempts that predate the window.
      */
     public record RetestSummary(
             UUID id,
@@ -99,6 +102,7 @@ public record ReportResponse(
             ReportEnvironment environment,
             String targetEndpoint,
             LocalDateTime requestedAt,
+            LocalDateTime dueAt,
             ActorSummary requestedBy,
             String requestNotes,
             BigDecimal bountyReward,

@@ -2370,6 +2370,10 @@ BEGIN
             requested_by UUID NOT NULL
                 REFERENCES public.user_profiles (id),
             requested_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            -- When the researcher's window to answer runs out. Nullable: rows
+            -- written before there was a window have no deadline to miss, and
+            -- the expiry sweep skips them rather than lapsing them all at once.
+            due_at TIMESTAMP(6),
             verdict public.retest_verdict_enum,
             result_notes TEXT,
             attachment_ids JSONB,
@@ -2398,10 +2402,23 @@ BEGIN
         ALTER TABLE public.report_retests
             ALTER COLUMN updated_at SET DEFAULT now();
 
+        -- Added after the table shipped, so an existing database reaches the
+        -- column this way rather than through the CREATE above.
+        ALTER TABLE public.report_retests
+            ADD COLUMN IF NOT EXISTS due_at TIMESTAMP(6);
+
         -- Every read of this table is "the history for one report", and the
         -- open-attempt lookup filters that by completed_at.
         CREATE INDEX IF NOT EXISTS idx_report_retests_report_id
             ON public.report_retests (report_id, attempt_number);
+
+        -- The expiry sweep, which runs hourly against the whole table and on
+        -- nearly every run matches nothing. Partial on the open attempts so
+        -- the index stays the size of the outstanding work rather than of
+        -- every retest ever run.
+        CREATE INDEX IF NOT EXISTS idx_report_retests_due_at
+            ON public.report_retests (due_at)
+            WHERE completed_at IS NULL AND due_at IS NOT NULL;
     END IF;
 END
 $$^^^

@@ -17,8 +17,8 @@ import java.math.BigDecimal;
  *
  * @param bountyReward a bonus for the verification work itself, over and above
  *                     whatever the finding was already paid. Committed here and
- *                     paid when the researcher reports back — see
- *                     {@code ReportRetest#bountyReward}.
+ *                     paid when the researcher reports back, whichever way the
+ *                     verdict goes — see {@code ReportRetest#bountyReward}.
  */
 public record RequestRetestRequest(
 

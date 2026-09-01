@@ -128,6 +128,7 @@ public class ReportMapper {
                 retest.getEnvironment(),
                 retest.getTargetEndpoint(),
                 retest.getRequestedAt(),
+                retest.getDueAt(),
                 toActorSummary(retest.getRequestedBy()),
                 retest.getRequestNotes(),
                 retest.getBountyReward(),

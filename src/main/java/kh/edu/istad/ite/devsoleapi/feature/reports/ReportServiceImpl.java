@@ -86,6 +86,16 @@ public class ReportServiceImpl implements ReportService {
     private static final Duration DOWNLOAD_LINK_VALIDITY =
             Duration.ofMinutes(5);
     /**
+     * How long a researcher has to answer a retest before the attempt lapses.
+     *
+     * <p>An attempt with nobody answering it used to sit open for ever and
+     * block every later retest on the report, leaving the organization to
+     * triage its own report out of RETESTING to get the queue moving. Two weeks
+     * is long enough to cover someone being away and short enough that a
+     * program is not held by a researcher who has moved on.
+     */
+    private static final Duration RETEST_RESPONSE_WINDOW = Duration.ofDays(14);
+    /**
      * What counts towards a researcher's valid-report tally: the findings that
      * were agreed to be real. NEW, TRIAGING and NEEDS_MORE_INFO have not been
      * decided; REJECTED and DUPLICATE were decided against.
@@ -374,6 +384,8 @@ public class ReportServiceImpl implements ReportService {
         UserProfile triager = findUserProfile(currentUserId());
         boolean leftRetest = report.getState() == ReportState.RETESTING
                 && targetState != ReportState.RETESTING;
+        boolean reopened = report.getState() == ReportState.RESOLVED
+                && targetState != ReportState.RESOLVED;
         report.setTriageSeverity(request.triageSeverity());
         report.setTriagedBy(triager);
         report.setTriagedAt(LocalDateTime.now());
@@ -413,6 +425,15 @@ public class ReportServiceImpl implements ReportService {
                 );
             }
             report.setResolvedAt(LocalDateTime.now());
+        }
+
+        // The report is not fixed any more, so the date it was fixed has to go
+        // with it — the same clearing a failed retest does. Leaving it behind
+        // would keep every query that reads resolvedAt believing otherwise, and
+        // would stop triage ever setting it again: the branch above only
+        // stamps a report that has none.
+        if (reopened) {
+            report.setResolvedAt(null);
         }
 
         reportRepository.saveAndFlush(report);
@@ -695,6 +716,10 @@ public class ReportServiceImpl implements ReportService {
                 .requestNotes(trimToNull(request.notes()))
                 .bountyReward(request.bountyReward())
                 .requestedBy(requester)
+                // From now rather than from requestedAt, which Hibernate only
+                // fills in on the insert below — reading it here would put the
+                // deadline fourteen days after null.
+                .dueAt(LocalDateTime.now().plus(RETEST_RESPONSE_WINDOW))
                 .build();
         reportRetestRepository.saveAndFlush(retest);
         report.getRetests().add(retest);
@@ -712,6 +737,8 @@ public class ReportServiceImpl implements ReportService {
                         + (retest.getRequestNotes() == null
                                 ? ""
                                 : " " + retest.getRequestNotes())
+                        + " A verdict is due by "
+                        + retest.getDueAt().toLocalDate() + "."
         );
 
         // Keyed on the attempt: a second request after a failed fix is news
@@ -721,7 +748,8 @@ public class ReportServiceImpl implements ReportService {
                 "Retest requested",
                 report.getProgram().getName() + " deployed a fix for \""
                         + report.getTitle()
-                        + "\" and asked you to confirm it holds.",
+                        + "\" and asked you to confirm it holds. Please answer"
+                        + " by " + retest.getDueAt().toLocalDate() + ".",
                 NotificationType.REPORT,
                 report.getId(),
                 "report:" + report.getId() + ":retest:" + retest.getId()
@@ -741,6 +769,10 @@ public class ReportServiceImpl implements ReportService {
      * VALID_CONFIRMED and clears {@code resolvedAt} — the fix did not hold, so
      * the report is not fixed, and leaving the timestamp behind would leave
      * every query that reads it believing otherwise.
+     *
+     * <p>Any bonus promised when the retest was asked for is paid either way:
+     * it buys the verification, not a particular answer. See
+     * {@link #payRetestBounty}.
      */
     @Override
     @Transactional
@@ -786,11 +818,14 @@ public class ReportServiceImpl implements ReportService {
             // rather than caused it. Nothing new reaches the hacktivity feed
             // either — the resolution was announced when it was made.
             report.setState(ReportState.RESOLVED);
-            payRetestBounty(report, retest);
         } else {
             report.setState(ReportState.VALID_CONFIRMED);
             report.setResolvedAt(null);
         }
+
+        // Outside the branch on purpose. The bonus is for running the proof of
+        // concept again, and that was done either way — see payRetestBounty.
+        payRetestBounty(report, retest);
         reportRepository.saveAndFlush(report);
 
         postRetestNotice(
@@ -833,8 +868,103 @@ public class ReportServiceImpl implements ReportService {
         return response;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<UUID> findOverdueRetestIds() {
+        return reportRetestRepository.findOverdueIds(LocalDateTime.now());
+    }
+
+    /**
+     * The researcher never came back, so the attempt lapses.
+     *
+     * <p>The report returns to RESOLVED rather than reopening. The organization
+     * resolved it and nobody has produced any evidence that the fix failed —
+     * silence is not that evidence, and reopening on it would let a researcher
+     * undo a resolution by ignoring it. {@code resolvedAt} is left where it
+     * was for the same reason.
+     *
+     * <p>Nothing is paid. The bonus buys a verdict, and no verdict was given;
+     * it is the one case where the promised bonus does not reach the
+     * researcher. Asking again re-commits it on the new attempt.
+     */
+    @Override
+    @Transactional
+    public void expireRetest(UUID retestId) {
+        ReportRetest retest = reportRetestRepository.findById(retestId)
+                .orElse(null);
+        // Listed and then answered, or closed by triage, between the sweep
+        // reading the ids and reaching this one. Whatever happened to it, it is
+        // no longer outstanding and there is nothing here to lapse.
+        if (retest == null || !retest.isOpen()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        retest.setCompletedAt(now);
+        // completedBy stays null: nobody completed this, the clock did. The
+        // column is nullable precisely so an attempt can be closed by nobody.
+        retest.setResultNotes(
+                "Closed without a verdict: no answer by "
+                        + retest.getDueAt().toLocalDate() + "."
+        );
+        reportRetestRepository.saveAndFlush(retest);
+
+        Report report = retest.getReport();
+        // Guarded rather than assumed. If triage moved the report on without
+        // closing this attempt, its state is triage's decision and not a stale
+        // retest's to overwrite.
+        if (report.getState() == ReportState.RETESTING) {
+            report.setState(ReportState.RESOLVED);
+            reportRepository.saveAndFlush(report);
+        }
+
+        UUID requesterId = retest.getRequestedBy().getId();
+        postRetestNotice(
+                report,
+                requesterId,
+                "The retest window for attempt " + retest.getAttemptNumber()
+                        + " closed on " + retest.getDueAt().toLocalDate()
+                        + " without a verdict. The report stays resolved, and"
+                        + " a further retest can be requested."
+        );
+
+        eventPublisher.publishEvent(NotificationEvent.to(
+                report.getReporter().getId(),
+                "Retest window closed",
+                "The window to verify the fix for \"" + report.getTitle()
+                        + "\" on " + report.getProgram().getName()
+                        + " has closed without your verdict.",
+                NotificationType.REPORT,
+                report.getId(),
+                "report:" + report.getId() + ":retest:" + retest.getId()
+                        + ":expired"
+        ));
+
+        eventPublisher.publishEvent(new NotificationEvent(
+                organizationAuthorization.findUserIdsWithPermission(
+                        report.getProgram().getOrganizationId(),
+                        OrganizationPermission.TRIAGE_REPORTS
+                ),
+                "Retest went unanswered",
+                "Nobody verified the fix for \"" + report.getTitle()
+                        + "\" within the retest window. The report stays"
+                        + " resolved.",
+                NotificationType.REPORT,
+                report.getId(),
+                "report:" + report.getId() + ":retest:" + retest.getId()
+                        + ":expired:organization"
+        ));
+    }
+
     /**
      * Pays what was promised when the retest was asked for, if anything was.
+     *
+     * <p>On either verdict. The bonus is owed for re-running the proof of
+     * concept, and that work is the same whether the fix held or not — paying
+     * only for VERIFIED_FIXED would make the researcher better off saying the
+     * vulnerability is gone, which is the one thing their answer must not
+     * depend on. A fix that failed is the more valuable of the two answers
+     * anyway; it is the one that stops a live bug being filed as fixed.
      *
      * <p>Recorded as an ordinary reward against the report so that it shows up
      * wherever bounties are counted, rather than as money that only exists on
@@ -1396,14 +1526,27 @@ public class ReportServiceImpl implements ReportService {
         report.setDuplicateOf(original);
     }
 
+    /**
+     * <p>REJECTED and DUPLICATE are the end of the line. RESOLVED is not: a fix
+     * can turn out not to have held, whether because a retest was never asked
+     * for or because one came back wrong. Reopening it to VALID_CONFIRMED is
+     * the only move allowed out of RESOLVED — the finding was agreed, so that
+     * is the state it goes back to, and rejecting or duplicating something the
+     * organization has already paid and closed is not a triage decision.
+     */
     private void validateTriageTransition(
             ReportState current,
             ReportState target
     ) {
-        if (current == ReportState.RESOLVED
-                || current == ReportState.REJECTED
+        if (current == ReportState.REJECTED
                 || current == ReportState.DUPLICATE) {
             throw conflict("A terminal report cannot be triaged again");
+        }
+        if (current == ReportState.RESOLVED
+                && target != ReportState.VALID_CONFIRMED) {
+            throw conflict(
+                    "A resolved report can only be reopened to valid confirmed"
+            );
         }
         if (target == ReportState.NEW) {
             throw badRequest(

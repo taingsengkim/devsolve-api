@@ -341,11 +341,10 @@ class ReportRetestWorkflowTest {
 
     /**
      * The bonus is owed for the verification work, so it is paid when that work
-     * comes back — not when it was promised, and not when the answer is that
-     * the fix did not hold.
+     * comes back — not when it was promised.
      */
     @Test
-    void aPromisedBonusIsPaidOnlyWhenTheFixIsVerified() {
+    void aPromisedBonusIsPaidWhenTheVerdictComesBack() {
         UUID researcherId = UUID.randomUUID();
         Report report = retestingReport(researcherId);
         ReportRetest open = openRetest(report, 1, new BigDecimal("50.00"));
@@ -373,17 +372,52 @@ class ReportRetestWorkflowTest {
         );
     }
 
+    /**
+     * The heart of it: the bonus buys the retest, not the answer. Paying only
+     * for VERIFIED_FIXED would leave a researcher better off saying the
+     * vulnerability is gone, which is the one thing their verdict must not
+     * depend on — and a fix that failed is the answer worth more of the two.
+     */
     @Test
-    void aPromisedBonusIsNotPaidWhenTheFixFails() {
+    void aPromisedBonusIsPaidEvenWhenTheFixDidNotHold() {
         UUID researcherId = UUID.randomUUID();
         Report report = retestingReport(researcherId);
         ReportRetest open = openRetest(report, 1, new BigDecimal("50.00"));
         stubResearcherSubmission(researcherId, report, open);
+        when(reportRewardRepository.saveAndFlush(any(ReportReward.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
 
         service().submitRetest(
                 report.getId(),
                 new SubmitRetestRequest(
                         RetestVerdict.STILL_VULNERABLE,
+                        "The payload still works.",
+                        null
+                )
+        );
+
+        ArgumentCaptor<ReportReward> rewardCaptor =
+                ArgumentCaptor.forClass(ReportReward.class);
+        verify(reportRewardRepository).saveAndFlush(rewardCaptor.capture());
+        assertEquals(
+                new BigDecimal("50.00"),
+                rewardCaptor.getValue().getAmount()
+        );
+        assertEquals(ReportState.VALID_CONFIRMED, report.getState());
+    }
+
+    /** Nothing was promised, so nothing is owed either way. */
+    @Test
+    void noBonusIsInventedForARetestThatWasNotPromisedOne() {
+        UUID researcherId = UUID.randomUUID();
+        Report report = retestingReport(researcherId);
+        ReportRetest open = openRetest(report, 1, null);
+        stubResearcherSubmission(researcherId, report, open);
+
+        service().submitRetest(
+                report.getId(),
+                new SubmitRetestRequest(
+                        RetestVerdict.VERIFIED_FIXED,
                         null,
                         null
                 )
@@ -651,6 +685,195 @@ class ReportRetestWorkflowTest {
         assertEquals(ownerId, open.getCompletedBy().getId());
     }
 
+    /**
+     * The deadline is stamped on the attempt rather than worked out later from
+     * a constant, so both sides are shown the same date and changing the window
+     * cannot move a deadline that is already outstanding.
+     */
+    @Test
+    void aRequestedRetestCarriesADeadlineToAnswerBy() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = resolvedReport();
+        stubOwnedReport(report, ownerId);
+        stubRequesterProfile(ownerId);
+        stubNoOpenRetest(report);
+        when(reportRetestRepository.findHighestAttemptNumber(report.getId()))
+                .thenReturn(null);
+        stubRetestSave();
+
+        service().requestRetest(
+                report.getId(),
+                new RequestRetestRequest(null, null, null, null)
+        );
+
+        LocalDateTime dueAt = savedRetest().getDueAt();
+        assertNotNull(dueAt);
+        assertTrue(dueAt.isAfter(LocalDateTime.now()));
+    }
+
+    /**
+     * A fix can turn out not to have held without a retest ever saying so — the
+     * bug resurfaces, or a researcher confirmed a fix that was not one. Triage
+     * reopens the report directly rather than being made to request a retest it
+     * does not want just to get the report out of RESOLVED.
+     */
+    @Test
+    void aResolvedReportCanBeReopenedToValidConfirmed() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = resolvedReport();
+        stubOwnedReport(report, ownerId);
+        stubRequesterProfile(ownerId);
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals(ReportState.VALID_CONFIRMED, report.getState());
+        assertNull(report.getResolvedAt());
+    }
+
+    /**
+     * Reopening is the only way out of RESOLVED. Rejecting or duplicating a
+     * finding the organization has already agreed, fixed and closed is not a
+     * triage decision left to make.
+     */
+    @Test
+    void aResolvedReportCannotBeTriagedToAnythingElse() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = resolvedReport();
+        stubOwnedReport(report, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+
+        assertEquals(
+                HttpStatus.CONFLICT,
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service().triage(
+                                report.getId(),
+                                new TriageReportRequest(
+                                        Severity.HIGH,
+                                        ReportState.REJECTED,
+                                        null,
+                                        null
+                                )
+                        )
+                ).getStatusCode()
+        );
+        assertEquals(ReportState.RESOLVED, report.getState());
+    }
+
+    /**
+     * Silence is not evidence that the fix failed, so the report goes back to
+     * RESOLVED rather than reopening — otherwise a researcher could undo a
+     * resolution by ignoring it. The organization gets its queue back and can
+     * ask again.
+     */
+    @Test
+    void anUnansweredRetestLapsesAndTheReportGoesBackToResolved() {
+        UUID researcherId = UUID.randomUUID();
+        Report report = retestingReport(researcherId);
+        ReportRetest overdue = overdueRetest(report, new BigDecimal("50.00"));
+        stubExpirySweep(overdue);
+
+        service().expireRetest(overdue.getId());
+
+        assertEquals(ReportState.RESOLVED, report.getState());
+        assertEquals(RESOLVED_AT, report.getResolvedAt());
+        assertNotNull(overdue.getCompletedAt());
+        assertNull(overdue.getVerdict());
+        assertNull(overdue.getCompletedBy());
+    }
+
+    /**
+     * The bonus buys a verdict. No verdict arrived, so nothing is owed — the
+     * one case where a promised retest bonus does not reach the researcher.
+     */
+    @Test
+    void anExpiredRetestPaysNothing() {
+        UUID researcherId = UUID.randomUUID();
+        Report report = retestingReport(researcherId);
+        ReportRetest overdue = overdueRetest(report, new BigDecimal("50.00"));
+        stubExpirySweep(overdue);
+
+        service().expireRetest(overdue.getId());
+
+        verify(reportRewardRepository, never())
+                .saveAndFlush(any(ReportReward.class));
+    }
+
+    /**
+     * The sweep reads its ids and then closes each attempt in its own
+     * transaction, so a researcher can answer in between. The answer wins.
+     */
+    @Test
+    void anAttemptAnsweredBeforeTheSweepReachesItIsLeftAlone() {
+        UUID researcherId = UUID.randomUUID();
+        Report report = retestingReport(researcherId);
+        ReportRetest answered = overdueRetest(report, null);
+        answered.setVerdict(RetestVerdict.VERIFIED_FIXED);
+        answered.setCompletedAt(LocalDateTime.now());
+        when(reportRetestRepository.findById(answered.getId()))
+                .thenReturn(Optional.of(answered));
+
+        service().expireRetest(answered.getId());
+
+        assertEquals(RetestVerdict.VERIFIED_FIXED, answered.getVerdict());
+        verify(reportRetestRepository, never())
+                .saveAndFlush(any(ReportRetest.class));
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
+    }
+
+    /**
+     * Triage moved the report on without closing this attempt. Its state is
+     * triage's decision, and a stale retest lapsing does not get to overwrite
+     * it — only the attempt itself closes.
+     */
+    @Test
+    void expiringAnAttemptDoesNotMoveAReportTriageHasMovedOn() {
+        UUID researcherId = UUID.randomUUID();
+        Report report = retestingReport(researcherId);
+        report.setState(ReportState.DUPLICATE);
+        ReportRetest overdue = overdueRetest(report, null);
+        when(reportRetestRepository.findById(overdue.getId()))
+                .thenReturn(Optional.of(overdue));
+        when(reportRetestRepository.saveAndFlush(any(ReportRetest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().expireRetest(overdue.getId());
+
+        assertEquals(ReportState.DUPLICATE, report.getState());
+        assertNotNull(overdue.getCompletedAt());
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
+    }
+
+    private void stubExpirySweep(ReportRetest overdue) {
+        when(reportRetestRepository.findById(overdue.getId()))
+                .thenReturn(Optional.of(overdue));
+        when(reportRetestRepository.saveAndFlush(any(ReportRetest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
     private void stubOwnedReport(Report report, UUID ownerId) {
         Organization organization = new Organization();
         organization.setId(report.getProgram().getOrganizationId());
@@ -734,7 +957,16 @@ class ReportRetestWorkflowTest {
                 .bountyReward(bountyReward)
                 .requestedBy(user(UUID.randomUUID()))
                 .requestedAt(LocalDateTime.now().minusDays(1))
+                .dueAt(LocalDateTime.now().plusDays(13))
                 .build();
+    }
+
+    /** Open, and asked for long enough ago that the window has run out. */
+    private ReportRetest overdueRetest(Report report, BigDecimal bountyReward) {
+        ReportRetest retest = openRetest(report, 1, bountyReward);
+        retest.setRequestedAt(LocalDateTime.now().minusDays(20));
+        retest.setDueAt(LocalDateTime.now().minusDays(6));
+        return retest;
     }
 
     /** Resolved, severity settled, on a program that pays bounties. */
