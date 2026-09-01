@@ -63,6 +63,41 @@ published into a transaction that never commits and would silently never
 arrive. Nothing in the alerting path can turn a refusal into a 500: if the
 notification fails, it is logged and the file is still refused.
 
+## Incident history
+
+Every refusal is also persisted to `security_incidents`, written with
+`REQUIRES_NEW` for the same reason the notification is dispatched that way.
+The file itself is never stored; `sha256_hash` is what identifies it, and is
+the value to paste into VirusTotal or a threat feed to see what it was.
+
+The uploader's handle and email and the organization's name are copied onto
+the row rather than joined at read time. An incident has to stay readable
+after the account that caused it is deleted or renamed — a foreign key with
+`ON DELETE CASCADE` would erase the record of what somebody did by deleting
+them, and one without it would block the deletion.
+
+Two endpoints read it, both authenticated and neither public — a row names a
+researcher, the company they were testing, and a file hash:
+
+```text
+GET /api/v1/admin/security/incidents
+GET /api/v1/organizations/{orgId}/security/incidents
+```
+
+The first requires the platform `ADMIN` role. The second requires
+`TRIAGE_REPORTS` on that organization, with platform admins exempt — somebody
+who cannot see the finding has no business seeing what was uploaded to it.
+
+Both accept `search` (free text over uploader handle and email, filename and
+SHA-256), `verdict` (`MALICIOUS` or `SUSPICIOUS`; only refused uploads are
+recorded, so `CLEAN` and `PENDING` never match), `page`, `size` (default 20,
+capped at 100) and `sort` (`blockedAt`, `filename` or `verdict`, newest-first
+by default; any other name is a 400). The admin endpoint also accepts
+`organizationId` to narrow to one company.
+
+The table is created by `schema.sql`. The VPS does not run
+`ddl-auto=update`, so it would otherwise ship without its table.
+
 Never expose `VIRUSTOTAL_API_KEY` to the frontend or commit it. A public
 VirusTotal API key has strict quotas and usage restrictions. Files submitted to
 the standard `/files` endpoint are shared with VirusTotal; use an appropriate

@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -301,7 +302,17 @@ class VirusTotalContentGuardTest {
                 () -> guard.requireSafeFile(attachment, context)
         );
 
-        verify(alertService).malicious(attachment, verdict, context);
+        ArgumentCaptor<String> hash = ArgumentCaptor.forClass(String.class);
+        verify(alertService).malicious(
+                eq(attachment),
+                hash.capture(),
+                eq(verdict),
+                eq(context)
+        );
+
+        // The alert carries the digest of what was refused: the file is never
+        // stored, so this is the only thing left that identifies it.
+        assertTrue(hash.getValue().matches("[0-9a-f]{64}"));
     }
 
     @Test
@@ -312,7 +323,8 @@ class VirusTotalContentGuardTest {
 
         guard.requireSafeFile(attachment);
 
-        verify(alertService, never()).malicious(any(), any(), any());
+        verify(alertService, never())
+                .malicious(any(), any(), any(), any());
     }
 
     /**
@@ -331,7 +343,8 @@ class VirusTotalContentGuardTest {
                 () -> guard.requireSafeFile(attachment)
         );
 
-        verify(alertService, never()).malicious(any(), any(), any());
+        verify(alertService, never())
+                .malicious(any(), any(), any(), any());
     }
 
     private AttachmentValidator.ValidatedAttachment attachment() {

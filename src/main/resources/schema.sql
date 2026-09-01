@@ -2102,6 +2102,63 @@ BEGIN
 END
 $$^^^
 
+-- Refused uploads ----------------------------------------------------------
+--
+-- One row per upload a scanner called dangerous. The file is never stored;
+-- sha256_hash is what identifies it, and is the value an operator pastes into
+-- VirusTotal or a threat feed to see what it was.
+--
+-- The uploader and organization columns are copies, not foreign keys. An
+-- incident has to stay readable after the account that caused it is deleted or
+-- renamed -- that is most of what an audit trail is for. A key with ON DELETE
+-- CASCADE would erase the record of what somebody did by deleting them, and
+-- one without it would block the deletion.
+DO $$
+BEGIN
+    CREATE TABLE IF NOT EXISTS public.security_incidents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        uploader_user_id UUID NOT NULL,
+        uploader_username VARCHAR(255),
+        uploader_email VARCHAR(255),
+        organization_id UUID,
+        organization_name VARCHAR(255),
+        report_id UUID,
+        filename VARCHAR(255) NOT NULL,
+        file_size_bytes BIGINT NOT NULL,
+        sha256_hash VARCHAR(64) NOT NULL,
+        verdict VARCHAR(20) NOT NULL,
+        malicious_engines_count INTEGER NOT NULL DEFAULT 0,
+        suspicious_engines_count INTEGER NOT NULL DEFAULT 0,
+        total_engines_count INTEGER NOT NULL DEFAULT 0,
+        analysis_id VARCHAR(255),
+        blocked_at TIMESTAMP(6) NOT NULL DEFAULT now()
+    );
+
+    IF to_regclass('public.security_incidents') IS NOT NULL THEN
+        -- The CREATE above is skipped on a database where Hibernate built this
+        -- table first, taking its column defaults with it. Setting them here is
+        -- what makes the two paths agree.
+        ALTER TABLE public.security_incidents
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.security_incidents
+            ALTER COLUMN blocked_at SET DEFAULT now();
+
+        -- The table is read newest-first, and filtered by company on the
+        -- organization's own view.
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_blocked_at
+            ON public.security_incidents (blocked_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_organization_id
+            ON public.security_incidents (organization_id);
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_uploader_user_id
+            ON public.security_incidents (uploader_user_id);
+        -- Looking up every other time the same content was seen is the first
+        -- thing anybody does with a hash.
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_sha256
+            ON public.security_incidents (sha256_hash);
+    END IF;
+END
+$$^^^
+
 -- Profile usernames -------------------------------------------------------
 --
 -- The handle a profile is shared by. Registration has always collected one and

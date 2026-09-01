@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.CompanyIdentityService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
+import kh.edu.istad.ite.devsoleapi.feature.security.SecurityIncidentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,14 +42,16 @@ public class VirusTotalAlertService {
     private final NotificationDispatcher notificationDispatcher;
     private final CompanyIdentityService companyIdentityService;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final SecurityIncidentService securityIncidentService;
 
     public void malicious(
             AttachmentValidator.ValidatedAttachment attachment,
+            String sha256,
             VirusTotalScanResponse result,
             AttachmentScanContext context
     ) {
         try {
-            alert(attachment, result, context);
+            alert(attachment, sha256, result, context);
         } catch (RuntimeException exception) {
             // The upload is already refused; this is only the telling.
             log.error(
@@ -64,23 +67,38 @@ public class VirusTotalAlertService {
 
     private void alert(
             AttachmentValidator.ValidatedAttachment attachment,
+            String sha256,
             VirusTotalScanResponse result,
             AttachmentScanContext context
     ) {
+        UUID uploaderId = currentUserId();
+
         // Logged unconditionally, before any lookup that could fail or return
         // nobody. An alert nobody was available to receive still has to leave
         // a trace somewhere an operator can find it.
         log.warn(
-                "Refused a {} upload: \"{}\" ({} bytes) by user {} to {}"
-                        + " -- VirusTotal analysis {}, stats {}",
+                "Refused a {} upload: \"{}\" ({} bytes, sha256 {}) by user {}"
+                        + " to {} -- VirusTotal analysis {}, stats {}",
                 result.verdict(),
                 attachment.originalFileName(),
                 attachment.sizeBytes(),
-                currentUserId(),
+                sha256,
+                uploaderId == null ? "unknown" : uploaderId,
                 context.location() == null ? "an unknown target"
                         : context.location(),
                 result.analysisId(),
                 result.stats()
+        );
+
+        // Recorded before the notification and before the reportable check: an
+        // incident on a path that names nobody to notify is still an incident,
+        // and the table is what an administrator searches later.
+        securityIncidentService.record(
+                uploaderId,
+                attachment,
+                sha256,
+                result,
+                context
         );
 
         if (!context.isReportable()) {
@@ -163,11 +181,11 @@ public class VirusTotalAlertService {
      * Best effort: the guard also runs on paths reached outside a request, and
      * an alert must not fail because nobody was authenticated.
      */
-    private String currentUserId() {
+    private UUID currentUserId() {
         try {
-            return AuthUtils.extractUserId();
+            return UUID.fromString(AuthUtils.extractUserId());
         } catch (RuntimeException exception) {
-            return "unknown";
+            return null;
         }
     }
 }

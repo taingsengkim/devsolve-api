@@ -112,11 +112,16 @@ public class VirusTotalContentGuard {
             return;
         }
 
+        // Computed once and carried through: it is both the lookup key and,
+        // on a refusal, the only identifier of a file that is never stored.
+        String sha256 = sha256(attachment.content());
+
         requireClean(
-                () -> knownVerdictFor(attachment)
+                () -> knownVerdictFor(sha256)
                         .orElseGet(() -> gateway.submitFile(attachment)),
                 "file",
                 attachment,
+                sha256,
                 context
         );
     }
@@ -129,11 +134,9 @@ public class VirusTotalContentGuard {
      * still reaches a verdict. Letting it propagate would turn a degraded
      * optimisation into a refused upload.
      */
-    private Optional<VirusTotalScanResponse> knownVerdictFor(
-            AttachmentValidator.ValidatedAttachment attachment
-    ) {
+    private Optional<VirusTotalScanResponse> knownVerdictFor(String sha256) {
         try {
-            return gateway.findByHash(sha256(attachment.content()));
+            return gateway.findByHash(sha256);
         } catch (VirusTotalUnavailableException exception) {
             log.debug(
                     "VirusTotal hash lookup was unavailable, falling back to"
@@ -165,6 +168,7 @@ public class VirusTotalContentGuard {
                 () -> gateway.submitUrl(url.trim()),
                 "URL",
                 null,
+                null,
                 AttachmentScanContext.NONE
         );
     }
@@ -181,6 +185,7 @@ public class VirusTotalContentGuard {
             Supplier<VirusTotalScanResponse> submission,
             String contentType,
             AttachmentValidator.ValidatedAttachment attachment,
+            String sha256,
             AttachmentScanContext context
     ) {
         VirusTotalScanResponse result;
@@ -206,7 +211,7 @@ public class VirusTotalContentGuard {
 
         if (result.verdict() != VirusTotalScanResponse.Verdict.CLEAN) {
             if (attachment != null) {
-                alertService.malicious(attachment, result, context);
+                alertService.malicious(attachment, sha256, result, context);
             }
             throw new DetailedApiException(
                     HttpStatus.UNPROCESSABLE_CONTENT,
