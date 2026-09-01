@@ -1,6 +1,8 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.AttachmentScanContext;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.ratelimit.InMemoryRateLimitStore;
@@ -66,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -993,6 +996,88 @@ class ReportServiceImplTest {
         verify(reportAttachmentRepository).delete(attachment);
         verify(reportAttachmentRepository).flush();
         verify(objectStorageService).delete(attachment.getStorageKey());
+    }
+
+    /**
+     * The points on a reward were stored and announced to the researcher --
+     * "You were awarded N points" -- and then went nowhere. A number the
+     * platform says somebody has earned has to be a number they have.
+     */
+    @Test
+    void rewardPointsReachTheResearchersReputation() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        report.setSeverity(Severity.HIGH);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRewardRepository.saveAndFlush(any(ReportReward.class)))
+                .thenAnswer(invocation -> {
+                    ReportReward saved = invocation.getArgument(0);
+                    saved.setId(UUID.randomUUID());
+                    return saved;
+                });
+
+        service().recordReward(
+                report.getId(),
+                new RewardReportRequest(null, 40, "Good find")
+        );
+
+        verify(userProfileRepository).applyRewardPoints(
+                report.getReporter().getId(),
+                40
+        );
+    }
+
+    /**
+     * A points-free payout must not move a standing, and must not spend a
+     * write finding that out.
+     */
+    @Test
+    void aMoneyOnlyRewardLeavesReputationAlone() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        report.setSeverity(Severity.HIGH);
+        report.getProgram().setOffersBounties(true);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRewardRepository.saveAndFlush(any(ReportReward.class)))
+                .thenAnswer(invocation -> {
+                    ReportReward saved = invocation.getArgument(0);
+                    saved.setId(UUID.randomUUID());
+                    return saved;
+                });
+
+        service().recordReward(
+                report.getId(),
+                new RewardReportRequest(
+                        new java.math.BigDecimal("1500.00"), null, null
+                )
+        );
+
+        verify(userProfileRepository, never())
+                .applyRewardPoints(any(), anyInt());
     }
 
     private void stubCompanyOwnedReport(

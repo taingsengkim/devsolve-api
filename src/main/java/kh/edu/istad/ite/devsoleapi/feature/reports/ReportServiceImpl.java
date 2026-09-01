@@ -502,8 +502,10 @@ public class ReportServiceImpl implements ReportService {
         return reportMapper.toResponse(report);
     }
 
+    /** Moves reputation when the reward carries points, so the board drops. */
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
     public ReportResponse recordReward(
             UUID id,
             RewardReportRequest request
@@ -555,7 +557,32 @@ public class ReportServiceImpl implements ReportService {
                 "report:" + report.getId() + ":reward:" + reward.getId()
         ));
 
-        return reportMapper.toResponse(report);
+        // Mapped before the points are applied: that update clears the
+        // persistence context, and the response is built from managed
+        // entities.
+        ReportResponse response = reportMapper.toResponse(report);
+        applyRewardPoints(report.getReporter().getId(), reward.getPoints());
+        return response;
+    }
+
+    /**
+     * Moves the reputation a reward's points promised.
+     *
+     * <p>The points were stored on the reward and announced to the researcher
+     * -- "You were awarded N points" -- and then went nowhere: nothing ever
+     * added them to a standing. A number the platform tells somebody they have
+     * earned has to be a number they actually have.
+     *
+     * <p>Distinct from the reputation a recognition grants, which is priced
+     * off the finding's severity by ReputationPolicy. A program that pays
+     * points is topping that up deliberately, so the two add rather than one
+     * replacing the other.
+     */
+    private void applyRewardPoints(UUID reporterId, Integer points) {
+        if (points == null || points <= 0) {
+            return;
+        }
+        userProfileRepository.applyRewardPoints(reporterId, points);
     }
 
     private String describeReward(ReportReward reward) {

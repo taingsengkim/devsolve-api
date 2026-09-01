@@ -139,6 +139,30 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
     );
 
     /**
+     * Adds the points on a reward to a researcher's standing.
+     *
+     * <p>Separate from {@link #applyRecognition} because a reward is not a
+     * recognition: it moves reputation but must not move recognitionCount or
+     * criticalReports, which count recognitions.
+     *
+     * <p>The same single-UPDATE reasoning applies — two payouts recorded at
+     * the same moment would otherwise read the same old total and the second
+     * write would erase the first.
+     *
+     * @return rows updated — zero means the profile disappeared mid-award
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update UserProfile profile
+               set profile.reputation = profile.reputation + :points
+             where profile.id = :userId
+            """)
+    int applyRewardPoints(
+            @Param("userId") UUID userId,
+            @Param("points") int points
+    );
+
+    /**
      * Recomputes one researcher's report counters from the reports themselves.
      *
      * <p>Recomputed rather than incremented, unlike {@link #applyRecognition}
