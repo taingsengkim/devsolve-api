@@ -134,9 +134,16 @@ app:
     enabled: ${VIRUSTOTAL_ENABLED:false}
     api-key: ${VIRUSTOTAL_API_KEY:}
     base-url: ${VIRUSTOTAL_BASE_URL:https://www.virustotal.com/api/v3}
-    # One submission plus three polls stays within a typical public-key burst.
+    # Upper bound on a single wait between polls, not a flat one: the first
+    # check happens at a quarter of it so recognised content is not made to
+    # wait. One submission plus three polls stays within a public-key burst.
     poll-interval: ${VIRUSTOTAL_POLL_INTERVAL:20s}
     max-polls: ${VIRUSTOTAL_MAX_POLLS:3}
+    # Whether an upload proceeds when VirusTotal gives no verdict at all --
+    # unreachable, rate limited, or still analysing after the last poll. A
+    # returned MALICIOUS or SUSPICIOUS verdict always rejects regardless.
+    # Off makes VirusTotal's availability a hard dependency of every upload.
+    fail-open: ${VIRUSTOTAL_FAIL_OPEN:true}
 logging:
   level:
     org.springframework.web.filter.CommonsRequestLoggingFilter: DEBUG

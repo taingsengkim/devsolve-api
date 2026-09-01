@@ -3,9 +3,11 @@ package kh.edu.istad.ite.devsoleapi.feature.virustotal;
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.exception.DetailedApiException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -13,20 +15,26 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class VirusTotalContentGuardTest {
 
     private final VirusTotalGateway gateway = mock(VirusTotalGateway.class);
-    private final VirusTotalContentGuard guard = new VirusTotalContentGuard(
-            gateway,
-            true,
-            Duration.ZERO,
-            3,
-            duration -> {
-            }
-    );
+    private final VirusTotalContentGuard guard = guard(true, false);
+
+    private VirusTotalContentGuard guard(boolean enabled, boolean failOpen) {
+        return new VirusTotalContentGuard(
+                gateway,
+                enabled,
+                Duration.ZERO,
+                3,
+                failOpen,
+                duration -> {
+                }
+        );
+    }
 
     @Test
     void allowsAFileOnlyAfterVirusTotalCompletesCleanly() {
@@ -69,8 +77,8 @@ class VirusTotalContentGuardTest {
         when(gateway.getAnalysis("scan-id"))
                 .thenReturn(pending("scan-id"));
 
-        DetailedApiException exception = assertThrows(
-                DetailedApiException.class,
+        VirusTotalUnavailableException exception = assertThrows(
+                VirusTotalUnavailableException.class,
                 () -> guard.requireSafeFile(attachment)
         );
 
@@ -95,15 +103,75 @@ class VirusTotalContentGuardTest {
     }
 
     @Test
-    void disabledGuardNeverCallsVirusTotal() {
-        VirusTotalContentGuard disabled = new VirusTotalContentGuard(
-                gateway,
-                false,
-                Duration.ZERO,
-                3,
-                duration -> {
-                }
+    void failsOpenWhenVirusTotalGivesNoVerdict() {
+        AttachmentValidator.ValidatedAttachment attachment = attachment();
+        when(gateway.submitFile(attachment))
+                .thenThrow(new VirusTotalUnavailableException(
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "VirusTotal rate limit was reached"
+                ));
+
+        guard(true, true).requireSafeFile(attachment);
+
+        verify(gateway).submitFile(attachment);
+    }
+
+    @Test
+    void failsOpenWhenAnalysisNeverCompletes() {
+        AttachmentValidator.ValidatedAttachment attachment = attachment();
+        when(gateway.submitFile(attachment)).thenReturn(pending("scan-id"));
+        when(gateway.getAnalysis("scan-id")).thenReturn(pending("scan-id"));
+
+        guard(true, true).requireSafeFile(attachment);
+
+        verify(gateway, times(3)).getAnalysis("scan-id");
+    }
+
+    @Test
+    void failOpenStillRejectsAMaliciousVerdict() {
+        when(gateway.submitUrl("https://malicious.example"))
+                .thenReturn(pending("scan-id"));
+        when(gateway.getAnalysis("scan-id")).thenReturn(
+                new VirusTotalScanResponse(
+                        "scan-id",
+                        "completed",
+                        VirusTotalScanResponse.Verdict.MALICIOUS,
+                        Map.of("malicious", 4)
+                )
         );
+
+        DetailedApiException exception = assertThrows(
+                DetailedApiException.class,
+                () -> guard(true, true)
+                        .requireSafeUrl("https://malicious.example")
+        );
+
+        assertEquals(422, exception.getStatusCode().value());
+    }
+
+    @Test
+    void checksBeforeWaitingTheFullPollInterval() {
+        AttachmentValidator.ValidatedAttachment attachment = attachment();
+        List<Duration> waits = new ArrayList<>();
+        VirusTotalContentGuard slow = new VirusTotalContentGuard(
+                gateway,
+                true,
+                Duration.ofSeconds(20),
+                3,
+                false,
+                waits::add
+        );
+        when(gateway.submitFile(attachment)).thenReturn(pending("scan-id"));
+        when(gateway.getAnalysis("scan-id")).thenReturn(clean("scan-id"));
+
+        slow.requireSafeFile(attachment);
+
+        assertEquals(List.of(Duration.ofSeconds(5)), waits);
+    }
+
+    @Test
+    void disabledGuardNeverCallsVirusTotal() {
+        VirusTotalContentGuard disabled = guard(false, false);
 
         disabled.requireSafeFile(attachment());
         disabled.requireSafeUrl("https://example.com");

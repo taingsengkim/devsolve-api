@@ -7,7 +7,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
@@ -16,6 +18,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -24,6 +27,8 @@ import java.util.Map;
 public class VirusTotalClient implements VirusTotalGateway {
 
     private static final String API_KEY_HEADER = "x-apikey";
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
 
     private final RestClient restClient;
     private final boolean enabled;
@@ -36,7 +41,29 @@ public class VirusTotalClient implements VirusTotalGateway {
             @Value("${app.virus-total.enabled:false}") boolean enabled,
             @Value("${app.virus-total.api-key:}") String apiKey
     ) {
-        this(RestClient.builder(), baseUrl, enabled, apiKey);
+        this(
+                RestClient.builder().requestFactory(timeoutFactory()),
+                baseUrl,
+                enabled,
+                apiKey
+        );
+    }
+
+    /**
+     * Applied on the injected path only, because the test constructor is
+     * handed a builder whose request factory {@code MockRestServiceServer}
+     * already owns.
+     *
+     * <p>Without these an unresponsive VirusTotal holds the request thread —
+     * and, on the attachment paths, the database connection its transaction
+     * owns — for as long as the socket stays open.
+     */
+    private static ClientHttpRequestFactory timeoutFactory() {
+        SimpleClientHttpRequestFactory factory =
+                new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(READ_TIMEOUT);
+        return factory;
     }
 
     VirusTotalClient(
@@ -200,13 +227,13 @@ public class VirusTotalClient implements VirusTotalGateway {
                     upstreamStatus);
 
             if (upstreamStatus == 429) {
-                throw new ResponseStatusException(
+                throw new VirusTotalUnavailableException(
                         HttpStatus.TOO_MANY_REQUESTS,
                         "VirusTotal rate limit was reached"
                 );
             }
             if (upstreamStatus == 404) {
-                throw new ResponseStatusException(
+                throw new VirusTotalUnavailableException(
                         HttpStatus.NOT_FOUND,
                         "VirusTotal analysis was not found"
                 );
@@ -223,7 +250,7 @@ public class VirusTotalClient implements VirusTotalGateway {
 
     private void requireConfigured() {
         if (!enabled || apiKey.isBlank()) {
-            throw new ResponseStatusException(
+            throw new VirusTotalUnavailableException(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "VirusTotal scanning is not configured"
             );
@@ -231,7 +258,10 @@ public class VirusTotalClient implements VirusTotalGateway {
     }
 
     private ResponseStatusException upstreamFailure(String message) {
-        return new ResponseStatusException(HttpStatus.BAD_GATEWAY, message);
+        return new VirusTotalUnavailableException(
+                HttpStatus.BAD_GATEWAY,
+                message
+        );
     }
 
     @FunctionalInterface
