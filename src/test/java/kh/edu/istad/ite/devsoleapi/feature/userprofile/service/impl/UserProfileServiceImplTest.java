@@ -39,6 +39,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -92,7 +93,7 @@ class UserProfileServiceImplTest {
                 ArgumentCaptor.forClass(Pageable.class);
         when(userProfileRepository.findForAdmin(
                 eq("%sokha chan%"),
-                eq(UserStatus.ACTIVE),
+                eq(EnumSet.of(UserStatus.ACTIVE)),
                 pageableCaptor.capture()
         )).thenReturn(new PageImpl<>(List.of(profile)));
 
@@ -114,6 +115,37 @@ class UserProfileServiceImplTest {
                 pageableCaptor.getValue().getSort()
                         .getOrderFor("createdAt")
                         .getDirection()
+        );
+    }
+
+    /**
+     * Searching without a status filter is the common case from the admin
+     * table, and it used to reach the repository with a null status. Postgres
+     * cannot type an untyped named-enum parameter that only appears in an
+     * "is null" test, so the query failed to parse and the endpoint answered
+     * 500. "Any status" now travels as every status.
+     */
+    @Test
+    void adminSearchWithoutStatusAsksForEveryStatusRatherThanANullOne() {
+        authenticate(UUID.randomUUID(), "ADMIN");
+        when(userProfileRepository.findForAdmin(
+                eq("%kim%"),
+                eq(EnumSet.allOf(UserStatus.class)),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        Page<AdminUserSummaryResponse> result = service().getAllForAdmin(
+                "kim",
+                null,
+                0,
+                20
+        );
+
+        assertEquals(0, result.getTotalElements());
+        verify(userProfileRepository).findForAdmin(
+                eq("%kim%"),
+                eq(EnumSet.allOf(UserStatus.class)),
+                any(Pageable.class)
         );
     }
 

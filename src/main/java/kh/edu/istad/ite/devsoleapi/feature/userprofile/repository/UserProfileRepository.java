@@ -15,13 +15,24 @@ import java.util.UUID;
 
 public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> {
 
+    /**
+     * Admin user search, optionally narrowed to one account status.
+     *
+     * <p>"Any status" is passed as every status rather than as a null status
+     * guarded by {@code :status is null}. {@code status} is a Postgres named
+     * enum ({@code membership_status_enum}), and Hibernate binds those with
+     * {@code Types.OTHER}, which the driver sends as an untyped parameter. In
+     * {@code profile.status = :status} the column tells Postgres what the type
+     * is; standing alone in {@code :status is null} nothing does, and the
+     * server rejects the statement at parse time with "could not determine data
+     * type of parameter $1" — so the guard failed the query whether a status
+     * was supplied or not. Every parameter here sits against the column it is
+     * compared to, which is what keeps it inferable.
+     */
     @Query("""
             select profile
             from UserProfile profile
-            where (
-                    :status is null
-                    or profile.status = :status
-            )
+            where profile.status in :statuses
               and (
                     lower(profile.fullName)
                         like :queryPattern
@@ -31,7 +42,7 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             """)
     Page<UserProfile> findForAdmin(
             @Param("queryPattern") String queryPattern,
-            @Param("status") UserStatus status,
+            @Param("statuses") Collection<UserStatus> statuses,
             Pageable pageable
     );
 

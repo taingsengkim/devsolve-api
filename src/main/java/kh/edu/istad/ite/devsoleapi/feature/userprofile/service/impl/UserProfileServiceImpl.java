@@ -42,6 +42,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.Locale;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.Map;
 
 @Service
@@ -211,7 +212,9 @@ public class UserProfileServiceImpl implements UserProfileService {
         } else {
             profiles = userProfileRepository.findForAdmin(
                     containsPattern(normalizedQuery),
-                    status,
+                    status == null
+                            ? EnumSet.allOf(UserStatus.class)
+                            : EnumSet.of(status),
                     pageable
             );
         }
