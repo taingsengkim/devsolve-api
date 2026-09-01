@@ -2159,6 +2159,48 @@ BEGIN
 END
 $$^^^
 
+-- Researcher report counters ------------------------------------------------
+--
+-- total_reports and valid_reports are denormalised onto the profile and are
+-- read by the leaderboard, the public profile and the admin user list. Nothing
+-- ever wrote them, so every row has carried zero since the columns were added
+-- and every one of those screens showed a researcher with no reports.
+--
+-- The application keeps them current now, on submission and on every triage
+-- decision. This brings the rows that predate that back in line.
+--
+-- Written as a correction rather than a one-shot migration: it only touches
+-- rows whose stored counts disagree with the reports themselves, so it is
+-- idempotent, costs nothing on a database that is already correct, and repairs
+-- any row that drifts later.
+DO $$
+BEGIN
+    IF to_regclass('public.user_profiles') IS NOT NULL
+       AND to_regclass('public.reports') IS NOT NULL THEN
+
+        UPDATE public.user_profiles profile
+           SET total_reports = counted.total_reports,
+               valid_reports = counted.valid_reports
+          FROM (
+              SELECT candidate.id,
+                     count(report.id) AS total_reports,
+                     count(report.id) FILTER (
+                         WHERE report.state IN ('valid_confirmed', 'resolved')
+                     ) AS valid_reports
+                FROM public.user_profiles candidate
+                LEFT JOIN public.reports report
+                       ON report.reporter_id = candidate.id
+               GROUP BY candidate.id
+          ) counted
+         WHERE profile.id = counted.id
+           AND (
+                   profile.total_reports IS DISTINCT FROM counted.total_reports
+                OR profile.valid_reports IS DISTINCT FROM counted.valid_reports
+           );
+    END IF;
+END
+$$^^^
+
 -- Profile usernames -------------------------------------------------------
 --
 -- The handle a profile is shared by. Registration has always collected one and

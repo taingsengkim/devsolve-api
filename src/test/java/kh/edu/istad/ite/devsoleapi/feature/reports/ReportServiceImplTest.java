@@ -162,6 +162,41 @@ class ReportServiceImplTest {
     }
 
     /**
+     * total_reports and valid_reports are read by the leaderboard, the public
+     * profile and the admin user list, and nothing used to write them — every
+     * researcher showed zero reports for ever. Submission is one of the two
+     * moments that can change them.
+     */
+    @Test
+    void submittingAReportRefreshesTheReportersCounters() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        ProgramAsset asset = program.getAssets().getFirst();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().create(
+                program.getId(),
+                reportRequest(Severity.HIGH, asset.getId())
+        );
+
+        verify(userProfileRepository).refreshReportCounts(
+                eq(hackerId),
+                eq(Set.of(
+                        ReportState.VALID_CONFIRMED,
+                        ReportState.RESOLVED
+                ))
+        );
+    }
+
+    /**
      * The hourly cap is counted from the reports table rather than the burst
      * store, so this is the half that has to be exact.
      */
@@ -366,6 +401,16 @@ class ReportServiceImplTest {
         );
 
         assertSame(corrected, report.getWeakness());
+
+        // Triage is the other moment the reporter's counters can change: this
+        // is the transition that turns a submission into a valid report.
+        verify(userProfileRepository).refreshReportCounts(
+                eq(report.getReporter().getId()),
+                eq(Set.of(
+                        ReportState.VALID_CONFIRMED,
+                        ReportState.RESOLVED
+                ))
+        );
     }
 
     /**

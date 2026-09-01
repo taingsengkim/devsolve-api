@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.userprofile.repository;
 
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
@@ -9,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.UUID;
 
 public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> {
@@ -134,5 +136,42 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             @Param("userId") UUID userId,
             @Param("points") int points,
             @Param("criticalDelta") int criticalDelta
+    );
+
+    /**
+     * Recomputes one researcher's report counters from the reports themselves.
+     *
+     * <p>Recomputed rather than incremented, unlike {@link #applyRecognition}
+     * above. A recognition happens once and only ever adds; a report's state
+     * moves back and forth — confirmed, then rejected, then confirmed again on
+     * appeal — and a counter nudged on each transition drifts away from the
+     * truth and never comes back. Counting is exact whenever it runs, and
+     * running it twice is harmless.
+     *
+     * <p>{@code validReports} is the findings that were agreed to be real:
+     * confirmed or resolved. NEW, TRIAGING and NEEDS_MORE_INFO have not been
+     * decided yet, and REJECTED and DUPLICATE were decided against.
+     *
+     * @return rows updated — zero means the profile no longer exists
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update UserProfile profile
+               set profile.totalReports = (
+                       select count(report)
+                         from Report report
+                        where report.reporter.id = :userId
+                   ),
+                   profile.validReports = (
+                       select count(report)
+                         from Report report
+                        where report.reporter.id = :userId
+                          and report.state in :validStates
+                   )
+             where profile.id = :userId
+            """)
+    int refreshReportCounts(
+            @Param("userId") UUID userId,
+            @Param("validStates") Collection<ReportState> validStates
     );
 }

@@ -73,6 +73,16 @@ public class ReportServiceImpl implements ReportService {
     private static final int MAX_REPORT_ATTACHMENTS = 10;
     private static final Duration DOWNLOAD_LINK_VALIDITY =
             Duration.ofMinutes(5);
+    /**
+     * What counts towards a researcher's valid-report tally: the findings that
+     * were agreed to be real. NEW, TRIAGING and NEEDS_MORE_INFO have not been
+     * decided; REJECTED and DUPLICATE were decided against.
+     */
+    private static final Set<ReportState> VALID_REPORT_STATES = Set.of(
+            ReportState.VALID_CONFIRMED,
+            ReportState.RESOLVED
+    );
+
     private static final Set<ReportState> ATTACHMENT_EDITABLE_STATES =
             EnumSet.of(ReportState.NEW, ReportState.NEEDS_MORE_INFO);
     private static final Set<String> REPORT_SORT_PROPERTIES = Set.of(
@@ -211,7 +221,12 @@ public class ReportServiceImpl implements ReportService {
                 "report:" + saved.getId() + ":submitted"
         ));
 
-        return reportMapper.toResponse(saved);
+        // Mapped before the counters are refreshed: that query clears the
+        // persistence context, and everything the response needs has to be
+        // read while the entities are still managed.
+        ReportResponse response = reportMapper.toResponse(saved);
+        refreshReportCounts(reporterId);
+        return response;
     }
 
     @Autowired
@@ -389,7 +404,26 @@ public class ReportServiceImpl implements ReportService {
             notifyAdministratorsOfDispute(report, request.triageSeverity());
         }
 
-        return reportMapper.toResponse(report);
+        // Same ordering as create(): the refresh clears the persistence
+        // context, so the response is built while the report is still managed.
+        ReportResponse response = reportMapper.toResponse(report);
+        refreshReportCounts(report.getReporter().getId());
+        return response;
+    }
+
+    /**
+     * Brings the reporter's report counters back in line with their reports.
+     *
+     * <p>Called on submission and on every triage decision, which between them
+     * are the only two things that can change either number. A profile that
+     * has been deleted since is not an error worth failing the triage over —
+     * there is simply nothing left to count for.
+     */
+    private void refreshReportCounts(UUID reporterId) {
+        userProfileRepository.refreshReportCounts(
+                reporterId,
+                VALID_REPORT_STATES
+        );
     }
 
     private String describe(ReportState state) {
