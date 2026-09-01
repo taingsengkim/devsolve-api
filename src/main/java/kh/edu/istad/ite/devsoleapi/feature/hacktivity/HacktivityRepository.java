@@ -74,6 +74,20 @@ public interface HacktivityRepository
     );
 
     /**
+     * Whether this report has already reached the feed for this milestone.
+     *
+     * <p>Both milestones can now happen to a report more than once: a retest
+     * that fails reopens a resolved report, which can then be resolved again,
+     * and a disclosure can be withdrawn and remade. Neither is a second thing
+     * happening to a reader of the feed, and the entry carries no state that a
+     * repeat would update — so the first one stands.
+     */
+    boolean existsByReportIdAndEventType(
+            UUID reportId,
+            HacktivityEventType eventType
+    );
+
+    /**
      * The payout on each of a page's reports, totalled.
      *
      * <p>Read separately rather than fetched with the row because rewards are

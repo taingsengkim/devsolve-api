@@ -62,6 +62,16 @@ public class HacktivityRecorder {
     private void write(Report report, HacktivityEventType eventType) {
         Program program = report.getProgram();
 
+        // A failed retest reopens a resolved report, so a report can reach
+        // RESOLVED more than once. The feed should say it was resolved, not
+        // count how many attempts it took to make that stick.
+        if (hacktivityRepository.existsByReportIdAndEventType(
+                report.getId(),
+                eventType
+        )) {
+            return;
+        }
+
         Optional<Organization> organization = organizationRepository
                 .findById(program.getOrganizationId());
 

@@ -34,11 +34,11 @@ import java.util.UUID;
  * One round of "we deployed a fix, please check it".
  *
  * <p>A row per attempt rather than a pair of columns on the report, because a
- * fix that does not hold is normal: the report goes back to confirmed and the
- * organization tries again. Overwriting the previous attempt would erase the
- * evidence that the first fix failed, which is exactly what a researcher
- * arguing about a bounty, and an organization reviewing its own remediation,
- * need to be able to point at.
+ * fix that does not hold is normal: a failed retest reopens the report and the
+ * organization fixes and resolves it again. Overwriting the previous attempt
+ * would erase the evidence that the first fix failed, which is exactly what a
+ * researcher arguing about a bounty, and an organization reviewing its own
+ * remediation, need to be able to point at.
  *
  * <p>A retest is open while {@link #completedAt} is null. At most one attempt
  * on a report is open at a time.

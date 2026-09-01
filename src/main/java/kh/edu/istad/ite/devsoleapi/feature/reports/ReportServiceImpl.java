@@ -622,11 +622,12 @@ public class ReportServiceImpl implements ReportService {
     /**
      * Opens a round of fix verification.
      *
-     * <p>Only from VALID_CONFIRMED. A retest asks "does this fix hold", which
-     * is a question about a finding both sides already agree is real — asking
-     * it about a report still in triage, or one already rejected, has no
-     * answer. Resolution comes after the retest, not before, which is why
-     * RESOLVED is not a starting point either.
+     * <p>Only from RESOLVED. Resolving a report is the organization's claim
+     * that it fixed the vulnerability; a retest is the researcher checking that
+     * claim. Asking before the report is resolved would be asking about a fix
+     * nobody has said is finished, and it would hold the organization's queue
+     * open against a researcher who may never reply — the organization closes
+     * its own report, and the verification happens against what it closed.
      *
      * <p>Evicts the leaderboard for the same reason triage does: the state
      * moves, and the board prints counts derived from it.
@@ -641,9 +642,9 @@ public class ReportServiceImpl implements ReportService {
         Report report = findReportForRetestRequest(id);
         requireNoActiveDispute(report.getId());
 
-        if (report.getState() != ReportState.VALID_CONFIRMED) {
+        if (report.getState() != ReportState.RESOLVED) {
             throw conflict(
-                    "Only a confirmed report can be sent for retest, and this "
+                    "Only a resolved report can be sent for retest, and this "
                             + "one is " + describe(report.getState())
             );
         }
@@ -660,9 +661,10 @@ public class ReportServiceImpl implements ReportService {
                     );
                 });
 
-        // The severity decides what the finding is worth, and resolving the
-        // report is the next step after a passing retest. Starting one while
-        // that is still unsettled builds a queue that cannot be cleared.
+        // Triage will not resolve a report without one, so this only catches a
+        // row that predates that rule. Left in because a failed retest reopens
+        // the report, and reopening it into a state triage cannot move it out
+        // of would strand it.
         if (report.getSeverity() == null) {
             throw conflict(
                     "A final severity is required before requesting a retest"
@@ -734,9 +736,11 @@ public class ReportServiceImpl implements ReportService {
     /**
      * The researcher's verdict on an open retest.
      *
-     * <p>A pass resolves the report; a fail sends it back to VALID_CONFIRMED so
-     * the organization can fix it again and ask again. Either way the attempt
-     * is closed, so the history reads as the sequence of fixes that were tried.
+     * <p>A pass confirms what the organization already claimed, so the report
+     * stays resolved and only the attempt closes. A fail reopens it to
+     * VALID_CONFIRMED and clears {@code resolvedAt} — the fix did not hold, so
+     * the report is not fixed, and leaving the timestamp behind would leave
+     * every query that reads it believing otherwise.
      */
     @Override
     @Transactional
@@ -775,21 +779,19 @@ public class ReportServiceImpl implements ReportService {
         reportRetestRepository.saveAndFlush(retest);
 
         boolean fixed = request.verdict() == RetestVerdict.VERIFIED_FIXED;
-        boolean newlyResolved = fixed && report.getResolvedAt() == null;
-        report.setState(
-                fixed ? ReportState.RESOLVED : ReportState.VALID_CONFIRMED
-        );
         if (fixed) {
-            report.setResolvedAt(LocalDateTime.now());
+            // Back to where the report was before the retest was asked for.
+            // resolvedAt is deliberately left alone: the organization resolved
+            // this report on the day it says, and the retest confirmed that
+            // rather than caused it. Nothing new reaches the hacktivity feed
+            // either — the resolution was announced when it was made.
+            report.setState(ReportState.RESOLVED);
+            payRetestBounty(report, retest);
+        } else {
+            report.setState(ReportState.VALID_CONFIRMED);
+            report.setResolvedAt(null);
         }
         reportRepository.saveAndFlush(report);
-
-        if (newlyResolved) {
-            hacktivityRecorder.recordResolved(report);
-        }
-        if (fixed) {
-            payRetestBounty(report, retest);
-        }
 
         postRetestNotice(
                 report,
@@ -799,7 +801,8 @@ public class ReportServiceImpl implements ReportService {
                                 ? " verified the fix. The finding is no longer"
                                         + " reproducible."
                                 : " retested the fix and the finding is still"
-                                        + " reproducible.")
+                                        + " reproducible. The report has been"
+                                        + " reopened.")
                         + (retest.getResultNotes() == null
                                 ? ""
                                 : " " + retest.getResultNotes())
@@ -815,8 +818,10 @@ public class ReportServiceImpl implements ReportService {
                 researcher.getFullName()
                         + (fixed
                                 ? " confirmed the fix for \""
-                                : " could still reproduce \"")
-                        + report.getTitle() + "\".",
+                                        + report.getTitle() + "\"."
+                                : " could still reproduce \""
+                                        + report.getTitle()
+                                        + "\". The report has been reopened."),
                 NotificationType.REPORT,
                 report.getId(),
                 "report:" + report.getId() + ":retest:" + retest.getId()

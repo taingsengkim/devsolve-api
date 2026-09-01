@@ -74,6 +74,10 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ReportRetestWorkflowTest {
 
+    /** When the organization resolved the report, before asking for a check. */
+    private static final LocalDateTime RESOLVED_AT =
+            LocalDateTime.of(2026, 8, 10, 14, 30);
+
     @Mock
     private ReportRepository reportRepository;
     @Mock
@@ -121,7 +125,7 @@ class ReportRetestWorkflowTest {
     @Test
     void requestingARetestMovesTheReportAndRecordsTheFirstAttempt() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         stubOwnedReport(report, ownerId);
         stubRequesterProfile(ownerId);
         stubNoOpenRetest(report);
@@ -161,7 +165,7 @@ class ReportRetestWorkflowTest {
     @Test
     void anUnspecifiedEnvironmentDefaultsToStaging() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         stubOwnedReport(report, ownerId);
         stubRequesterProfile(ownerId);
         stubNoOpenRetest(report);
@@ -183,7 +187,7 @@ class ReportRetestWorkflowTest {
     @Test
     void aSecondRetestTakesTheNextAttemptNumber() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         stubOwnedReport(report, ownerId);
         stubRequesterProfile(ownerId);
         stubNoOpenRetest(report);
@@ -202,7 +206,7 @@ class ReportRetestWorkflowTest {
     @Test
     void aReportStillInTriageCannotBeSentForRetest() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         report.setState(ReportState.TRIAGING);
         stubOwnedReport(report, ownerId);
 
@@ -220,14 +224,16 @@ class ReportRetestWorkflowTest {
     }
 
     /**
-     * Resolution is the step after a passing retest, so a report that has
-     * already been resolved has nothing left for one to decide.
+     * A retest checks the organization's claim that it fixed the finding, and
+     * resolving the report is how that claim is made. Until then there is no
+     * fix on record to check.
      */
     @Test
-    void aResolvedReportCannotBeSentForRetest() {
+    void aConfirmedButUnresolvedReportCannotBeSentForRetest() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
-        report.setState(ReportState.RESOLVED);
+        Report report = resolvedReport();
+        report.setState(ReportState.VALID_CONFIRMED);
+        report.setResolvedAt(null);
         stubOwnedReport(report, ownerId);
 
         assertEquals(
@@ -250,7 +256,7 @@ class ReportRetestWorkflowTest {
     @Test
     void aRetestBonusIsRefusedOnAProgramThatPaysNoBounties() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         report.getProgram().setOffersBounties(false);
         stubOwnedReport(report, ownerId);
         stubNoOpenRetest(report);
@@ -272,8 +278,14 @@ class ReportRetestWorkflowTest {
         );
     }
 
+    /**
+     * The verdict confirms a resolution that already happened, so the report
+     * does not move and {@code resolvedAt} keeps the date the organization
+     * actually resolved it. Nothing new reaches the hacktivity feed either —
+     * the resolution was announced there when it was made.
+     */
     @Test
-    void aVerifiedFixResolvesTheReportAndClosesTheAttempt() {
+    void aVerifiedFixLeavesTheReportResolvedAndClosesTheAttempt() {
         UUID researcherId = UUID.randomUUID();
         Report report = retestingReport(researcherId);
         ReportRetest open = openRetest(report, 1, null);
@@ -289,16 +301,21 @@ class ReportRetestWorkflowTest {
         );
 
         assertEquals(ReportState.RESOLVED, report.getState());
-        assertNotNull(report.getResolvedAt());
+        assertEquals(RESOLVED_AT, report.getResolvedAt());
         assertEquals(RetestVerdict.VERIFIED_FIXED, open.getVerdict());
         assertEquals("The endpoint now returns 403.", open.getResultNotes());
         assertEquals(researcherId, open.getCompletedBy().getId());
         assertNotNull(open.getCompletedAt());
-        verify(hacktivityRecorder).recordResolved(report);
+        verify(hacktivityRecorder, never()).recordResolved(any(Report.class));
     }
 
+    /**
+     * The fix did not hold, so the report is not fixed. Clearing
+     * {@code resolvedAt} is what stops every query that reads it — the feed,
+     * the counters, the admin lists — from still believing it was.
+     */
     @Test
-    void aStillVulnerableVerdictSendsTheReportBackToConfirmed() {
+    void aStillVulnerableVerdictReopensTheReportAndClearsResolvedAt() {
         UUID researcherId = UUID.randomUUID();
         Report report = retestingReport(researcherId);
         ReportRetest open = openRetest(report, 1, null);
@@ -491,7 +508,7 @@ class ReportRetestWorkflowTest {
     @Test
     void bothHalvesOfTheLoopAreWrittenIntoTheReportThread() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         stubOwnedReport(report, ownerId);
         stubRequesterProfile(ownerId);
         stubNoOpenRetest(report);
@@ -516,7 +533,7 @@ class ReportRetestWorkflowTest {
     @Test
     void theResearcherIsToldWhenARetestIsRequested() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         stubOwnedReport(report, ownerId);
         stubRequesterProfile(ownerId);
         stubNoOpenRetest(report);
@@ -541,6 +558,55 @@ class ReportRetestWorkflowTest {
     }
 
     /**
+     * Closing the loop: a failed retest reopens the report, and the
+     * organization can fix it, resolve it again, and ask again. Clearing
+     * {@code resolvedAt} on the reopen is what makes the second resolution
+     * possible — triage only sets it on a report that has none.
+     */
+    @Test
+    void aReopenedReportCanBeResolvedAgain() {
+        UUID researcherId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        Report report = retestingReport(researcherId);
+        ReportRetest open = openRetest(report, 1, null);
+        stubResearcherSubmission(researcherId, report, open);
+
+        service().submitRetest(
+                report.getId(),
+                new SubmitRetestRequest(
+                        RetestVerdict.STILL_VULNERABLE,
+                        null,
+                        null
+                )
+        );
+        assertEquals(ReportState.VALID_CONFIRMED, report.getState());
+        assertNull(report.getResolvedAt());
+
+        SecurityContextHolder.clearContext();
+        stubOwnedReport(report, ownerId);
+        stubRequesterProfile(ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.RESOLVED,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals(ReportState.RESOLVED, report.getState());
+        assertNotNull(report.getResolvedAt());
+    }
+
+    /**
      * Triage does not have to wait for a researcher who never comes back — a
      * finding turning out to be a duplicate is not their call. The attempt is
      * closed with no verdict rather than left open, or it would block every
@@ -549,7 +615,7 @@ class ReportRetestWorkflowTest {
     @Test
     void triagingOutOfRetestClosesTheOpenAttemptWithoutAVerdict() {
         UUID ownerId = UUID.randomUUID();
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         report.setState(ReportState.RETESTING);
         ReportRetest open = openRetest(report, 1, null);
         stubOwnedReport(report, ownerId);
@@ -671,8 +737,8 @@ class ReportRetestWorkflowTest {
                 .build();
     }
 
-    /** Confirmed, severity settled, on a program that pays bounties. */
-    private Report confirmedReport() {
+    /** Resolved, severity settled, on a program that pays bounties. */
+    private Report resolvedReport() {
         Program program = new Program();
         program.setId(UUID.randomUUID());
         program.setOrganizationId(UUID.randomUUID());
@@ -689,12 +755,18 @@ class ReportRetestWorkflowTest {
                 .vulnerabilityInformation("A user can read another account.")
                 .reportedSeverity(Severity.HIGH)
                 .severity(Severity.HIGH)
-                .state(ReportState.VALID_CONFIRMED)
+                .state(ReportState.RESOLVED)
+                .resolvedAt(RESOLVED_AT)
                 .build();
     }
 
+    /**
+     * A report already resolved, now out for verification. It keeps its
+     * {@code resolvedAt} — the organization resolved it before asking, and a
+     * failed retest is what clears that again.
+     */
     private Report retestingReport(UUID researcherId) {
-        Report report = confirmedReport();
+        Report report = resolvedReport();
         report.setReporter(user(researcherId));
         report.setState(ReportState.RETESTING);
         return report;
