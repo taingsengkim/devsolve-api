@@ -44,6 +44,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportEnvironment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.RetestVerdict;
+import kh.edu.istad.ite.devsoleapi.feature.reputation.ReputationPolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.AttachmentScanContext;
@@ -361,7 +362,10 @@ public class ReportServiceImpl implements ReportService {
                 .map(reportMapper::toResponse);
     }
 
-    /** Moves validReports, so the board it is printed on has to be dropped. */
+    /**
+     * Moves validReports, and on a resolution the reporter's reputation as
+     * well, so the board both are printed on has to be dropped.
+     */
     @Override
     @Transactional
     @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
@@ -445,12 +449,24 @@ public class ReportServiceImpl implements ReportService {
         // Only the first time it lands on RESOLVED. Re-triaging a resolved
         // report to the same state is not a second thing happening, and the
         // feed should not say it was.
+        int reputationEarned = 0;
         if (newlyResolved) {
             hacktivityRecorder.recordResolved(report);
+            reputationEarned = settleResolutionReputation(report);
         }
 
         if (opensDispute) {
             ensureSeverityDispute(report);
+        }
+
+        // The standing is named in the same notice rather than a second one.
+        // What the researcher earned is part of the news that their finding
+        // was fixed, and a bare "resolved" leaves them to go and look.
+        String news = "Your report \"" + report.getTitle() + "\" on "
+                + report.getProgram().getName() + " is now "
+                + describe(targetState) + ".";
+        if (reputationEarned > 0) {
+            news += " You earned " + reputationEarned + " reputation.";
         }
 
         // Keyed on the state, not on the act of triaging: moving a report to
@@ -460,9 +476,7 @@ public class ReportServiceImpl implements ReportService {
                 List.of(report.getReporter().getId()),
                 triager.getId(),
                 "Report " + describe(targetState),
-                "Your report \"" + report.getTitle() + "\" on "
-                        + report.getProgram().getName() + " is now "
-                        + describe(targetState) + ".",
+                news,
                 NotificationType.REPORT,
                 report.getId(),
                 "report:" + report.getId() + ":state:"
@@ -493,8 +507,76 @@ public class ReportServiceImpl implements ReportService {
         // Same ordering as create(): the refresh clears the persistence
         // context, so the response is built while the report is still managed.
         ReportResponse response = reportMapper.toResponse(report);
+        if (reputationEarned > 0) {
+            payReputation(report, reputationEarned);
+        }
         refreshReportCounts(report.getReporter().getId());
         return response;
+    }
+
+    /**
+     * Prices the resolution and stamps it on the report, once ever.
+     *
+     * <p>This is the whole of what a researcher earns for a finding. The
+     * organization pays the bounty — their budget, their call — and the
+     * platform pays the standing, by severity, so that no organization can
+     * decide where a researcher sits on a board that spans all of them.
+     *
+     * <p>Only the stamp happens here. The profile update itself clears the
+     * persistence context, which would detach the report before it has been
+     * mapped, so it is left to {@link #payReputation} at the end of the
+     * transaction — the same ordering {@link #refreshReportCounts} needs.
+     *
+     * @return what the reporter earned, or zero if this report's reputation was
+     *         already settled or the severity scores nothing
+     */
+    private int settleResolutionReputation(Report report) {
+        if (report.getReputationAwardedAt() != null) {
+            return 0;
+        }
+
+        // Stamped even when the finding is worth nothing. The stamp records
+        // that this report's standing has been settled, so an informational
+        // finding cannot be re-priced by a later severity correction.
+        int points = ReputationPolicy.pointsFor(report.getSeverity());
+        report.setReputationPoints(points);
+        report.setReputationAwardedAt(LocalDateTime.now());
+        return points;
+    }
+
+    /**
+     * Adds the settled points to the researcher's standing.
+     *
+     * <p>A profile that has gone since the report was read is logged rather
+     * than thrown: the finding really was fixed, and failing the organization's
+     * triage over a missing profile would undo that. The stamp on the report
+     * says what was owed either way.
+     */
+    private void payReputation(Report report, int points) {
+        UUID reporterId = report.getReporter().getId();
+        int updated = userProfileRepository.awardReputation(
+                reporterId,
+                points,
+                report.getSeverity() == Severity.CRITICAL ? 1 : 0
+        );
+
+        if (updated != 1) {
+            log.warn(
+                    "Could not award {} reputation to {} for report {}:"
+                            + " no such profile",
+                    points,
+                    reporterId,
+                    report.getId()
+            );
+            return;
+        }
+
+        log.info(
+                "Awarded {} reputation to {} for resolving a {} finding",
+                points,
+                reporterId,
+                report.getSeverity()
+        );
     }
 
     /**
@@ -577,8 +659,10 @@ public class ReportServiceImpl implements ReportService {
     }
 
     /**
-     * Records a payout. Money only: a reward no longer moves reputation, so
-     * the leaderboard is untouched and is not evicted here.
+     * Records a payout. Money only: the researcher's standing was already
+     * settled by severity when the report was resolved, so a reward moves
+     * nothing on the leaderboard and does not evict it. Paying here as well
+     * would be a second award for one finding.
      */
     @Override
     @Transactional

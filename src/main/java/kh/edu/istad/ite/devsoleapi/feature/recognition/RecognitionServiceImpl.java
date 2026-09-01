@@ -23,7 +23,6 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
-import kh.edu.istad.ite.devsoleapi.feature.reputation.ReputationPolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -69,19 +68,26 @@ public class RecognitionServiceImpl implements RecognitionService {
 
 
     /**
-     * Awards a recognition and moves the researcher's standing in the same
-     * transaction: the recognition row, the public hacktivity entry and the
-     * reputation increment either all land or none do. Splitting them would
-     * let a crash leave a recognition nobody was paid for, or points nobody
-     * can trace back to a finding.
+     * Awards a recognition: the organization's public credit for a finding it
+     * has already fixed.
      *
-     * <p>The leaderboard is dropped wholesale rather than by key. This award
-     * changes one researcher's score, but a score is a rank, and a rank is a
-     * position among everybody else — one person moving up rewrites every page
-     * below them. Evicting the page they happen to sit on would leave the rest
-     * of the board disagreeing with it. Without this the board served the
-     * pre-award standings for up to the cache TTL, which is what made a
-     * recognition look like it had not counted.
+     * <p>It does not move reputation. The researcher was paid for this finding
+     * when the report was resolved, priced by severity, and nothing on this
+     * platform subtracts reputation — so paying again here would be a second,
+     * irreversible award for one bug. What a recognition adds is the credit
+     * itself: a titled entry on the researcher's profile, a row on the public
+     * feed, and one more on their recognition count.
+     *
+     * <p>The recognition row, the hacktivity entry and the counter land in one
+     * transaction or not at all. Splitting them would let a crash leave a
+     * recognition that never reached the feed, or a count nobody can trace back
+     * to a finding.
+     *
+     * <p>The leaderboard is dropped wholesale rather than by key. The board
+     * prints recognition and critical counts, and a count is read alongside a
+     * rank — a rank being a position among everybody else, so one row changing
+     * rewrites every page below it. Evicting only the page the researcher sits
+     * on would leave the rest of the board disagreeing with it.
      */
     @Override
     @Transactional
@@ -212,16 +218,18 @@ public class RecognitionServiceImpl implements RecognitionService {
                         .build()
         );
 
-        awardReputation(user.getId(), severity);
+        countRecognition(user.getId());
 
+        // No points quoted. The message used to promise reputation this award
+        // no longer hands out — the researcher was paid when the report was
+        // resolved — and a notice that names a number twice is worse than one
+        // that names it once.
         eventPublisher.publishEvent(NotificationEvent.to(
                 user.getId(),
                 "You have been recognised",
                 organization.getName() + " recognised your work on \""
                         + report.getTitle() + "\": " + recognition.getTitle()
-                        + ". Worth "
-                        + ReputationPolicy.pointsFor(severity)
-                        + " reputation.",
+                        + ".",
                 NotificationType.RECOGNITION,
                 recognition.getId(),
                 "recognition:" + recognition.getId()
@@ -309,32 +317,27 @@ public class RecognitionServiceImpl implements RecognitionService {
     }
 
 
-    private void awardReputation(UUID userId, Severity severity) {
+    /**
+     * Counts the recognition on the researcher's profile.
+     *
+     * <p>Reputation is untouched: it was priced by severity and paid when the
+     * report was resolved. This is the count of times an organization has
+     * credited them by name, which is a different thing to say about a
+     * researcher and is why the leaderboard prints both.
+     */
+    private void countRecognition(UUID userId) {
 
-        int points = ReputationPolicy.pointsFor(severity);
-        int criticalDelta = severity == Severity.CRITICAL ? 1 : 0;
-
-        int updated = userProfileRepository.applyRecognition(
-                userId,
-                points,
-                criticalDelta
-        );
+        int updated = userProfileRepository.incrementRecognitionCount(userId);
 
         if (updated != 1) {
             // The profile was read at the top of this method, so losing it now
             // means it was deleted mid-award. Rolling back is the only honest
-            // answer: the alternative is a recognition whose points went
-            // nowhere.
+            // answer: the alternative is a recognition credited to nobody.
             throw new ResourceNotFoundException(
                     "User profile not found: " + userId
             );
         }
 
-        log.info(
-                "Awarded {} reputation to {} for a {} finding",
-                points,
-                userId,
-                severity
-        );
+        log.info("Recorded a recognition for {}", userId);
     }
 }

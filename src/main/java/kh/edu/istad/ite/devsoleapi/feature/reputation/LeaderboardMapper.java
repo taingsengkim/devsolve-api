@@ -40,6 +40,12 @@ public class LeaderboardMapper {
      * A windowed board: the three figures the window can answer come from the
      * window, and the two it cannot are left null rather than quietly filled
      * in from the profile's lifetime totals.
+     *
+     * <p>The last of the three is the count of findings that scored inside the
+     * window. On the all-time board the same slot carries the profile's
+     * recognition count — a window has no lifetime recognitions to report, and
+     * the findings that earned its points are the number that belongs beside
+     * them.
      */
     public LeaderboardResponse toWindowedResponse(
             UserProfile user,
@@ -69,7 +75,7 @@ public class LeaderboardMapper {
 
                 standing.criticals(),
 
-                standing.recognitions()
+                standing.findings()
         );
     }
 }

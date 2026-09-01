@@ -12,6 +12,9 @@ import java.util.UUID;
  * that claims to be about this week is worse than printing nothing.
  *
  * @param username the handle a profile URL is built from
+ * @param recognitionCount lifetime recognitions on the all-time board; on a
+ *                         windowed one, the findings resolved inside the
+ *                         window — the ones that earned {@code reputation}
  */
 public record LeaderboardResponse(
         Integer rank,

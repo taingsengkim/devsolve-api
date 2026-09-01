@@ -13,6 +13,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * @param reputationPoints what resolving this finding earned its reporter,
+ *                         priced by severity by the platform rather than by
+ *                         the organization. Null until the report is resolved,
+ *                         and on reports resolved before reputation was paid on
+ *                         resolution. Zero on an informational finding, which
+ *                         is credited but does not move the leaderboard.
+ */
 public record ReportResponse(
         UUID id,
         UUID programId,
@@ -45,6 +53,8 @@ public record ReportResponse(
         LocalDateTime submittedAt,
         LocalDateTime triagedAt,
         LocalDateTime resolvedAt,
+        Integer reputationPoints,
+        LocalDateTime reputationAwardedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {

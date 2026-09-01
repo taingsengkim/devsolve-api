@@ -59,6 +59,8 @@ public class ReportMapper {
                 report.getSubmittedAt(),
                 report.getTriagedAt(),
                 report.getResolvedAt(),
+                report.getReputationPoints(),
+                report.getReputationAwardedAt(),
                 report.getCreatedAt(),
                 report.getUpdatedAt()
         );

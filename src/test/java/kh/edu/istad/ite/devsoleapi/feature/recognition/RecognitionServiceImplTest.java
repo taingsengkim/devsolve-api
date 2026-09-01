@@ -123,7 +123,7 @@ class RecognitionServiceImplTest {
                 .thenReturn(false);
         when(recognitionRepository.saveAndFlush(any(Recognition.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(userProfileRepository.applyRecognition(any(), anyInt(), anyInt()))
+        when(userProfileRepository.incrementRecognitionCount(any()))
                 .thenReturn(1);
     }
 
@@ -146,14 +146,12 @@ class RecognitionServiceImplTest {
     }
 
     @Test
-    void awardMovesReputationBySeverityAndRecordsTheFinding() {
+    void awardCountsTheRecognitionAndRecordsTheFinding() {
 
         recognitionService.awardRecognition(request(), triagerId);
 
-        // HIGH is worth 40, and it is not critical, so criticalReports must
-        // not move.
         verify(userProfileRepository)
-                .applyRecognition(researcherId, 40, 0);
+                .incrementRecognitionCount(researcherId);
 
         ArgumentCaptor<Recognition> saved =
                 ArgumentCaptor.forClass(Recognition.class);
@@ -164,26 +162,32 @@ class RecognitionServiceImplTest {
         verify(hacktivityRepository).save(any(Hacktivity.class));
     }
 
+    /**
+     * The researcher was paid for this finding when the report was resolved.
+     * Paying again for the organization's public thank-you would be a second
+     * award for one bug -- and an irreversible one, because nothing on this
+     * platform subtracts reputation.
+     */
     @Test
-    void criticalFindingAlsoIncrementsTheCriticalCounter() {
+    void awardDoesNotPayReputationASecondTime() {
 
         report.setSeverity(Severity.CRITICAL);
 
         recognitionService.awardRecognition(request(), triagerId);
 
-        verify(userProfileRepository)
-                .applyRecognition(researcherId, 100, 1);
+        verify(userProfileRepository, never())
+                .awardReputation(any(), anyInt(), anyInt());
     }
 
     @Test
-    void informationalFindingIsRecordedButScoresNothing() {
+    void informationalFindingIsStillRecognised() {
 
         report.setSeverity(Severity.NONE);
 
         recognitionService.awardRecognition(request(), triagerId);
 
         verify(userProfileRepository)
-                .applyRecognition(researcherId, 0, 0);
+                .incrementRecognitionCount(researcherId);
         verify(hacktivityRepository).save(any(Hacktivity.class));
     }
 
@@ -203,7 +207,7 @@ class RecognitionServiceImplTest {
         verify(recognitionRepository, never())
                 .saveAndFlush(any(Recognition.class));
         verify(userProfileRepository, never())
-                .applyRecognition(any(), anyInt(), anyInt());
+                .incrementRecognitionCount(any());
     }
 
     @Test
@@ -239,7 +243,7 @@ class RecognitionServiceImplTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, failure.getStatusCode());
         verify(userProfileRepository, never())
-                .applyRecognition(any(), anyInt(), anyInt());
+                .incrementRecognitionCount(any());
     }
 
     @Test
@@ -256,7 +260,7 @@ class RecognitionServiceImplTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, failure.getStatusCode());
         verify(userProfileRepository, never())
-                .applyRecognition(any(), anyInt(), anyInt());
+                .incrementRecognitionCount(any());
     }
 
     @Test
@@ -286,7 +290,7 @@ class RecognitionServiceImplTest {
 
         assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
         verify(userProfileRepository, never())
-                .applyRecognition(any(), anyInt(), anyInt());
+                .incrementRecognitionCount(any());
     }
 
     @Test
@@ -302,7 +306,7 @@ class RecognitionServiceImplTest {
 
         assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
         verify(userProfileRepository, never())
-                .applyRecognition(any(), anyInt(), anyInt());
+                .incrementRecognitionCount(any());
     }
 
     @Test
@@ -322,13 +326,13 @@ class RecognitionServiceImplTest {
 
         assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
         verify(userProfileRepository, never())
-                .applyRecognition(any(), anyInt(), anyInt());
+                .incrementRecognitionCount(any());
     }
 
     @Test
     void profileVanishingMidAwardRollsTheAwardBack() {
 
-        when(userProfileRepository.applyRecognition(any(), anyInt(), anyInt()))
+        when(userProfileRepository.incrementRecognitionCount(any()))
                 .thenReturn(0);
 
         assertThrows(
@@ -355,3 +359,4 @@ class RecognitionServiceImplTest {
                 .findAllByUserId(eq(unknown), any());
     }
 }
+

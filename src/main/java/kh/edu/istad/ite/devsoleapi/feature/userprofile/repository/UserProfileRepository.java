@@ -122,13 +122,12 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
     );
 
     /**
-     * Applies one recognition to a profile's standing.
+     * Moves a researcher's standing by what one resolved finding was worth.
      *
      * <p>Written as a single UPDATE rather than read-modify-write on a loaded
-     * entity: two triagers awarding recognitions to the same researcher at the
-     * same moment would otherwise both read the old total and the second write
-     * would erase the first. The database does the arithmetic, so concurrent
-     * awards add up.
+     * entity: two of a researcher's reports resolved at the same moment would
+     * otherwise both read the old total and the second write would erase the
+     * first. The database does the arithmetic, so concurrent awards add up.
      *
      * @return rows updated — zero means the profile disappeared mid-award
      */
@@ -137,17 +136,35 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             update UserProfile profile
                set profile.reputation =
                        profile.reputation + :points,
-                   profile.recognitionCount =
-                       profile.recognitionCount + 1,
                    profile.criticalReports =
                        profile.criticalReports + :criticalDelta
              where profile.id = :userId
             """)
-    int applyRecognition(
+    int awardReputation(
             @Param("userId") UUID userId,
             @Param("points") int points,
             @Param("criticalDelta") int criticalDelta
     );
+
+    /**
+     * Counts one recognition against a profile.
+     *
+     * <p>Split out of {@link #awardReputation} because the two no longer happen
+     * together. Reputation is priced by severity and paid when the report is
+     * resolved; a recognition is the organization's public credit for the work,
+     * which may follow later, or never. Folding them back into one statement
+     * would pay a researcher twice for one finding.
+     *
+     * @return rows updated — zero means the profile disappeared mid-award
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update UserProfile profile
+               set profile.recognitionCount =
+                       profile.recognitionCount + 1
+             where profile.id = :userId
+            """)
+    int incrementRecognitionCount(@Param("userId") UUID userId);
 
     /**
      * Recomputes one researcher's report counters from the reports themselves.

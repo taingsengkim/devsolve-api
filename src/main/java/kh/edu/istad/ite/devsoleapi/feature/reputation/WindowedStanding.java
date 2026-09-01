@@ -12,7 +12,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 final class WindowedStanding {
 
     private int points;
-    private int recognitions;
+    private int findings;
     private int criticals;
 
     void add(Severity severity, long count) {
@@ -20,7 +20,7 @@ final class WindowedStanding {
         int times = (int) count;
 
         points += ReputationPolicy.pointsFor(severity) * times;
-        recognitions += times;
+        findings += times;
 
         if (severity == Severity.CRITICAL) {
             criticals += times;
@@ -31,8 +31,9 @@ final class WindowedStanding {
         return points;
     }
 
-    int recognitions() {
-        return recognitions;
+    /** Findings resolved inside the window — what earned the points above. */
+    int findings() {
+        return findings;
     }
 
     int criticals() {

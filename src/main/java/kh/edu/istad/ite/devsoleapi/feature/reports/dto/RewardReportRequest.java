@@ -18,8 +18,9 @@ import java.math.BigDecimal;
  *
  * <p>A bounty is the organization's to set: it comes out of their budget and
  * concerns only them and the researcher. Reputation is a shared ranking, so it
- * is priced in one place, by severity, when a finding is recognised — see
- * {@code ReputationPolicy}.
+ * is priced in one place, by severity, and paid automatically when the report
+ * is resolved — see {@code ReputationPolicy}. A researcher on a paying program
+ * earns both; this is only the half the organization decides.
  */
 public record RewardReportRequest(
 

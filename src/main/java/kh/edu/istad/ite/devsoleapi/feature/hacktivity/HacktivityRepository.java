@@ -1,13 +1,11 @@
 package kh.edu.istad.ite.devsoleapi.feature.hacktivity;
 
-import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -134,34 +132,6 @@ public interface HacktivityRepository
             """)
     BigDecimal sumPaidOut();
 
-    /**
-     * Recognitions per researcher per severity since a cut-off, for the
-     * windowed leaderboards.
-     *
-     * <p>The points themselves are deliberately not computed here.
-     * {@code ReputationPolicy} is the single place that prices a severity, and
-     * a CASE expression mirroring it in JPQL is a second copy that drifts the
-     * day the curve is retuned. The window is small enough that folding the
-     * counts in Java costs nothing.
-     *
-     * <p>Recognition-bearing rows only. The feed also carries resolutions and
-     * disclosures, and a report that was resolved, then recognised, has two
-     * rows — counting both would pay the researcher twice for one finding and
-     * silently double every windowed score.
-     */
-    @Query("""
-            select hacktivity.user.id as userId,
-                   hacktivity.report.severity as severity,
-                   count(hacktivity) as recognitions
-            from Hacktivity hacktivity
-            where hacktivity.createdAt >= :since
-              and hacktivity.recognition is not null
-            group by hacktivity.user.id, hacktivity.report.severity
-            """)
-    List<SeverityTally> tallyRecognitionsSince(
-            @Param("since") LocalDateTime since
-    );
-
     interface ReportPayout {
 
         UUID getReportId();
@@ -182,13 +152,4 @@ public interface HacktivityRepository
         long getPrograms();
     }
 
-    interface SeverityTally {
-
-        UUID getUserId();
-
-        /** Null while a severity dispute on the report is open. */
-        Severity getSeverity();
-
-        long getRecognitions();
-    }
 }

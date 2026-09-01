@@ -266,19 +266,20 @@ class HacktivityFeedIntegrationTest {
     }
 
     /**
-     * The windowed leaderboard scores recognitions. A report that was
-     * resolved and then recognised has two rows, and counting both would pay
-     * the researcher twice for one finding.
+     * The windowed leaderboard scores what was actually paid, and reputation is
+     * paid when a report is resolved -- so it reads the stamp on the report
+     * rather than the feed. A feed entry is written on a best-effort basis and
+     * swallows its own failures, and a report that was resolved and then
+     * recognised has two rows: scoring off the feed would both miss points that
+     * were paid and double points that were not.
      */
     @Test
-    void aResolvedRowDoesNotScoreOnTheWindowedLeaderboard() {
+    void theWindowScoresStampedResolutionsNotFeedRows() {
 
-        long before = hacktivityRepository
-                .tallyRecognitionsSince(LocalDateTime.now().minusDays(1))
-                .stream()
-                .mapToLong(HacktivityRepository.SeverityTally::getRecognitions)
-                .sum();
+        LocalDateTime since = LocalDateTime.now().minusDays(1);
+        long before = findingsScoredSince(since);
 
+        // A feed row on its own is worth nothing.
         hacktivityRepository.save(entryWithoutRecognition(
                 reportRepository.findAll().getFirst(),
                 dara,
@@ -286,13 +287,25 @@ class HacktivityFeedIntegrationTest {
                 LocalDateTime.now()
         ));
 
-        long after = hacktivityRepository
-                .tallyRecognitionsSince(LocalDateTime.now().minusDays(1))
-                .stream()
-                .mapToLong(HacktivityRepository.SeverityTally::getRecognitions)
-                .sum();
+        assertEquals(before, findingsScoredSince(since));
 
-        assertEquals(before, after);
+        // The stamp the resolution leaves is what scores.
+        Report paid = report(
+                gateway, dara, "Paid on resolution", Severity.HIGH,
+                DisclosureStatus.DISCLOSED, null
+        );
+        paid.setReputationPoints(40);
+        paid.setReputationAwardedAt(LocalDateTime.now());
+        reportRepository.saveAndFlush(paid);
+
+        assertEquals(before + 1, findingsScoredSince(since));
+    }
+
+    private long findingsScoredSince(LocalDateTime since) {
+        return reportRepository.tallyReputationAwardedSince(since)
+                .stream()
+                .mapToLong(ReportRepository.SeverityTally::getFindings)
+                .sum();
     }
 
     // ------------------------------------------------- disclosure privacy

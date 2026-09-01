@@ -1075,9 +1075,181 @@ class ReportServiceImplTest {
         // give.
         assertNull(rewardCaptor.getValue().getPoints());
 
-        // The only writes to reputation are the recognition path's.
+        // Reputation was settled when the report was resolved. Paying again
+        // here would let the organization decide a standing twice over.
         verify(userProfileRepository, never())
-                .applyRecognition(any(), anyInt(), anyInt());
+                .awardReputation(any(), anyInt(), anyInt());
+    }
+
+    /**
+     * The two halves of what a researcher earns. The organization pays the
+     * bounty out of its own budget; the platform pays the standing, priced by
+     * severity, the moment the finding is resolved -- so accepting a report on
+     * a paying program hands over both.
+     */
+    @Test
+    void resolvingAReportPaysReputationPricedBySeverity() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        report.setState(ReportState.VALID_CONFIRMED);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+        when(userProfileRepository.awardReputation(any(), anyInt(), anyInt()))
+                .thenReturn(1);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.RESOLVED,
+                        null,
+                        null
+                )
+        );
+
+        // HIGH is worth 40, and it is not critical, so criticalReports must
+        // not move.
+        verify(userProfileRepository).awardReputation(
+                report.getReporter().getId(),
+                40,
+                0
+        );
+
+        // Stamped on the report itself, which is what makes the award
+        // traceable and stops it happening twice.
+        assertEquals(40, report.getReputationPoints());
+        assertNotNull(report.getReputationAwardedAt());
+    }
+
+    @Test
+    void resolvingACriticalAlsoMovesTheCriticalCounter() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.CRITICAL);
+        report.setState(ReportState.VALID_CONFIRMED);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+        when(userProfileRepository.awardReputation(any(), anyInt(), anyInt()))
+                .thenReturn(1);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.CRITICAL,
+                        ReportState.RESOLVED,
+                        null,
+                        null
+                )
+        );
+
+        verify(userProfileRepository).awardReputation(
+                report.getReporter().getId(),
+                100,
+                1
+        );
+    }
+
+    /**
+     * A failed retest reopens a resolved report, and the fix that follows
+     * resolves it again. That is one finding being paid for, not two -- and
+     * nothing on this platform subtracts reputation, so a second award could
+     * not be taken back.
+     */
+    @Test
+    void reResolvingAReportDoesNotPayItsReputationTwice() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        report.setState(ReportState.VALID_CONFIRMED);
+        report.setReputationPoints(40);
+        report.setReputationAwardedAt(LocalDateTime.now().minusDays(2));
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.RESOLVED,
+                        null,
+                        null
+                )
+        );
+
+        verify(userProfileRepository, never())
+                .awardReputation(any(), anyInt(), anyInt());
+    }
+
+    /**
+     * Confirming a report is not fixing it. The standing is paid for a finding
+     * the organization has actually resolved.
+     */
+    @Test
+    void confirmingAReportPaysNoReputation() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        null
+                )
+        );
+
+        verify(userProfileRepository, never())
+                .awardReputation(any(), anyInt(), anyInt());
+        assertNull(report.getReputationAwardedAt());
     }
 
     /**

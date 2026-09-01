@@ -188,6 +188,27 @@ public class Report extends BasedEntity {
     @Column(name = "resolved_at")
     private LocalDateTime resolvedAt;
 
+    /**
+     * What resolving this finding was worth to its reporter, and when that was
+     * settled. Both null until the organization first resolves the report.
+     *
+     * <p>Stamped once and never again. A failed retest reopens a resolved
+     * report, and the fix that follows resolves it a second time — but that is
+     * one finding being paid for, not two, and nothing on this platform ever
+     * subtracts reputation, so a second award could not be taken back. This
+     * stamp is what makes every later resolution a no-op.
+     *
+     * <p>The points are recorded rather than recomputed from {@link #severity}
+     * on demand: an administrator can still settle a severity dispute
+     * afterwards, and the standing the researcher was actually given is the
+     * number this has to answer for.
+     */
+    @Column(name = "reputation_points")
+    private Integer reputationPoints;
+
+    @Column(name = "reputation_awarded_at")
+    private LocalDateTime reputationAwardedAt;
+
     @OneToMany(
             mappedBy = "report",
             cascade = CascadeType.ALL,

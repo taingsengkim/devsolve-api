@@ -1,6 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.reputation;
 
-import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -35,14 +35,14 @@ class LeaderboardServiceImplTest {
     private UserProfileRepository userProfileRepository;
 
     @Mock
-    private HacktivityRepository hacktivityRepository;
+    private ReportRepository reportRepository;
 
     private final LeaderboardMapper leaderboardMapper = new LeaderboardMapper();
 
     private LeaderboardServiceImpl leaderboardService() {
         return new LeaderboardServiceImpl(new LeaderboardCache(
                 userProfileRepository,
-                hacktivityRepository,
+                reportRepository,
                 leaderboardMapper
         ));
     }
@@ -61,12 +61,12 @@ class LeaderboardServiceImplTest {
         return profile;
     }
 
-    private HacktivityRepository.SeverityTally tally(
+    private ReportRepository.SeverityTally tally(
             UUID userId,
             Severity severity,
-            long recognitions
+            long findings
     ) {
-        return new HacktivityRepository.SeverityTally() {
+        return new ReportRepository.SeverityTally() {
 
             @Override
             public UUID getUserId() {
@@ -79,8 +79,8 @@ class LeaderboardServiceImplTest {
             }
 
             @Override
-            public long getRecognitions() {
-                return recognitions;
+            public long getFindings() {
+                return findings;
             }
         };
     }
@@ -166,7 +166,7 @@ class LeaderboardServiceImplTest {
 
         // One critical this week outscores five lows, even though the lows
         // belong to the researcher with the bigger all-time total.
-        when(hacktivityRepository.tallyRecognitionsSince(any()))
+        when(reportRepository.tallyReputationAwardedSince(any()))
                 .thenReturn(List.of(
                         tally(prolific, Severity.LOW, 5),
                         tally(deep, Severity.CRITICAL, 1)
@@ -209,7 +209,7 @@ class LeaderboardServiceImplTest {
         UUID researcher =
                 UUID.fromString("00000000-0000-0000-0000-0000000000c3");
 
-        when(hacktivityRepository.tallyRecognitionsSince(any()))
+        when(reportRepository.tallyReputationAwardedSince(any()))
                 .thenReturn(List.of(
                         tally(researcher, Severity.CRITICAL, 2),
                         tally(researcher, Severity.HIGH, 1)
@@ -235,7 +235,7 @@ class LeaderboardServiceImplTest {
     @Test
     void anEmptyWindowIsAnEmptyBoardRatherThanAFallbackToAllTime() {
 
-        when(hacktivityRepository.tallyRecognitionsSince(any()))
+        when(reportRepository.tallyReputationAwardedSince(any()))
                 .thenReturn(List.of());
 
         Page<LeaderboardResponse> leaderboard = leaderboardService()
@@ -273,3 +273,4 @@ class LeaderboardServiceImplTest {
         assertEquals(0, ReputationPolicy.pointsFor(null));
     }
 }
+

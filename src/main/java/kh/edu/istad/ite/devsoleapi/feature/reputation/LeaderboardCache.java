@@ -1,7 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reputation;
 
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
-import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityRepository;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -42,7 +42,7 @@ public class LeaderboardCache {
     public static final int CACHED_PAGES = 10;
 
     private final UserProfileRepository userProfileRepository;
-    private final HacktivityRepository hacktivityRepository;
+    private final ReportRepository reportRepository;
     private final LeaderboardMapper leaderboardMapper;
 
     /**
@@ -99,7 +99,7 @@ public class LeaderboardCache {
      * nothing for SQL to sort on without a second copy of the curve written as
      * a CASE expression. What is read instead is one grouped row per
      * researcher and severity inside the window, which is bounded by how many
-     * people were recognised that week, not by the size of the feed.
+     * people had a finding resolved that week, not by the size of the feed.
      */
     private LeaderboardSlice loadWindow(
             LeaderboardPeriod period,
@@ -109,14 +109,14 @@ public class LeaderboardCache {
 
         Map<UUID, WindowedStanding> standings = new LinkedHashMap<>();
 
-        hacktivityRepository
-                .tallyRecognitionsSince(period.since(LocalDateTime.now()))
+        reportRepository
+                .tallyReputationAwardedSince(period.since(LocalDateTime.now()))
                 .forEach(tally -> standings
                         .computeIfAbsent(
                                 tally.getUserId(),
                                 id -> new WindowedStanding()
                         )
-                        .add(tally.getSeverity(), tally.getRecognitions()));
+                        .add(tally.getSeverity(), tally.getFindings()));
 
         if (standings.isEmpty()) {
             return new LeaderboardSlice(List.of(), 0);

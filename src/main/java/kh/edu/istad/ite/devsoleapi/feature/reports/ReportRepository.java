@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 
 import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
@@ -136,6 +137,48 @@ public interface ReportRepository
             @Param("rejectedState") ReportState rejectedState,
             @Param("duplicateState") ReportState duplicateState
     );
+
+    /**
+     * Findings per researcher per severity that earned reputation since a
+     * cut-off, for the windowed leaderboards.
+     *
+     * <p>Read from the reports themselves rather than from the hacktivity feed.
+     * The stamp on the report is the record of the award — it is written in the
+     * same transaction as the payment, whereas a feed entry is written on a
+     * best-effort basis and swallows its own failures. Scoring a window off the
+     * feed would credit points that were never paid, and miss points that were.
+     *
+     * <p>The points themselves are deliberately not summed here.
+     * {@link kh.edu.istad.ite.devsoleapi.feature.reputation.ReputationPolicy}
+     * is the single place that prices a severity, and a CASE expression
+     * mirroring it in JPQL is a second copy that drifts the day the curve is
+     * retuned. The window is small enough that folding the counts in Java costs
+     * nothing.
+     */
+    @Query("""
+            select report.reporter.id as userId,
+                   report.severity as severity,
+                   count(report) as findings
+            from Report report
+            where report.reputationAwardedAt >= :since
+            group by report.reporter.id, report.severity
+            """)
+    List<SeverityTally> tallyReputationAwardedSince(
+            @Param("since") LocalDateTime since
+    );
+
+    interface SeverityTally {
+
+        UUID getUserId();
+
+        /**
+         * Never null in practice — a report cannot be resolved without a
+         * settled severity — but declared as the nullable column it reads.
+         */
+        Severity getSeverity();
+
+        long getFindings();
+    }
 
     interface AdminReportCounts {
 

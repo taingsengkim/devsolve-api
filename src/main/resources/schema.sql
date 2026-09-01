@@ -606,6 +606,21 @@ BEGIN
         ALTER TABLE public.reports
             ADD COLUMN IF NOT EXISTS asset_id UUID;
 
+        -- What resolving the finding was worth to its reporter, stamped once
+        -- when the report is first resolved. Left NULL on reports resolved
+        -- before reputation was paid on resolution: backfilling them would
+        -- hand out standing for findings that were closed under the older
+        -- rule, and nothing here ever subtracts reputation again.
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS reputation_points INTEGER;
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS reputation_awarded_at TIMESTAMP(6);
+
+        -- The windowed leaderboards group by this over a cut-off date, which
+        -- without an index is a scan of every report on the platform per page.
+        CREATE INDEX IF NOT EXISTS idx_reports_reputation_awarded_at
+            ON public.reports (reputation_awarded_at);
+
         -- Whether the finding is public. NOT NULL in the entity, so it is
         -- added nullable, backfilled and then tightened — an existing row has
         -- no answer to a question that was not being asked when it was
