@@ -1,9 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.security;
 
 import io.swagger.v3.oas.annotations.Parameter;
-import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.security.dto.SecurityIncidentResponse;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.VirusTotalScanResponse;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +8,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -20,7 +16,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 
@@ -35,8 +30,6 @@ import java.util.UUID;
 @RequestMapping("/api/v1")
 public class SecurityIncidentController {
 
-    private static final String PLATFORM_ADMIN_ROLE = "ADMIN";
-
     private static final String SEARCH_DESCRIPTION =
             "Free text over uploader handle and email, filename, and SHA-256.";
 
@@ -45,7 +38,6 @@ public class SecurityIncidentController {
                     + "recorded, so CLEAN and PENDING never match.";
 
     private final SecurityIncidentService securityIncidentService;
-    private final OrganizationAuthorizationService organizationAuthorization;
 
     /** Every incident on the platform. */
     @GetMapping("/admin/security/incidents")
@@ -103,39 +95,15 @@ public class SecurityIncidentController {
             )
             Pageable pageable
     ) {
-        requireTriageAccess(orgId, UUID.fromString(jwt.getSubject()));
-
-        return securityIncidentService.search(
+        // Authorisation is the service's, not this method's: deciding it
+        // reads a member's lazily-loaded permissions, and a controller runs
+        // with no Hibernate session open to load them through.
+        return securityIncidentService.searchForOrganization(
                 orgId,
+                UUID.fromString(jwt.getSubject()),
                 search,
                 verdict,
                 SecurityIncidentPaging.resolve(pageable)
         );
-    }
-
-    private void requireTriageAccess(UUID organizationId, UUID userId) {
-        // Platform admins reach every company's incidents, the same exemption
-        // recognitions make, so support can act on a report they were shown.
-        if (AuthUtils.hasRole(PLATFORM_ADMIN_ROLE)) {
-            return;
-        }
-
-        boolean permitted = organizationAuthorization
-                .findUserIdsWithPermission(
-                        organizationId,
-                        OrganizationPermission.TRIAGE_REPORTS
-                )
-                .contains(userId);
-
-        if (!permitted) {
-            // 403 rather than 404: the organization is not a secret, and
-            // pretending it does not exist would make a permissions problem
-            // look like a broken link.
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "You do not have permission to view security incidents "
-                            + "for this organization"
-            );
-        }
     }
 }

@@ -2,8 +2,11 @@ package kh.edu.istad.ite.devsoleapi.feature.security;
 
 import jakarta.persistence.criteria.Predicate;
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
+import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.security.dto.SecurityIncidentResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
@@ -15,8 +18,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -36,9 +41,12 @@ public class SecurityIncidentServiceImpl implements SecurityIncidentService {
     /** See {@code HacktivityServiceImpl}: an underscore is a LIKE wildcard. */
     private static final char LIKE_ESCAPE = '\\';
 
+    private static final String PLATFORM_ADMIN_ROLE = "ADMIN";
+
     private final SecurityIncidentRepository securityIncidentRepository;
     private final UserProfileRepository userProfileRepository;
     private final OrganizationRepository organizationRepository;
+    private final OrganizationAuthorizationService organizationAuthorization;
 
     /**
      * REQUIRES_NEW because the caller is on its way to a 422: the upload's
@@ -110,6 +118,50 @@ public class SecurityIncidentServiceImpl implements SecurityIncidentService {
                 .findAll(specificationFor(organizationId, search, verdict),
                         pageable)
                 .map(this::toResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<SecurityIncidentResponse> searchForOrganization(
+            UUID organizationId,
+            UUID userId,
+            String search,
+            VirusTotalScanResponse.Verdict verdict,
+            Pageable pageable
+    ) {
+        requireTriageAccess(organizationId, userId);
+        return search(organizationId, search, verdict, pageable);
+    }
+
+    /**
+     * Answered inside this transaction on purpose: deciding it reads a
+     * member's permissions, which are lazily loaded, so asking outside a
+     * session throws instead of refusing.
+     */
+    private void requireTriageAccess(UUID organizationId, UUID userId) {
+        // Platform admins reach every company's incidents, the same exemption
+        // recognitions make, so support can act on a report they were shown.
+        if (AuthUtils.hasRole(PLATFORM_ADMIN_ROLE)) {
+            return;
+        }
+
+        boolean permitted = organizationAuthorization
+                .findUserIdsWithPermission(
+                        organizationId,
+                        OrganizationPermission.TRIAGE_REPORTS
+                )
+                .contains(userId);
+
+        if (!permitted) {
+            // 403 rather than 404: the organization is not a secret, and
+            // pretending it does not exist would make a permissions problem
+            // look like a broken link.
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You do not have permission to view security incidents "
+                            + "for this organization"
+            );
+        }
     }
 
     private Specification<SecurityIncident> specificationFor(

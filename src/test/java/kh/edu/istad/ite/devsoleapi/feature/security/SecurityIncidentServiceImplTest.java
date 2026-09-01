@@ -3,21 +3,31 @@ package kh.edu.istad.ite.devsoleapi.feature.security;
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.AttachmentScanContext;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.VirusTotalScanResponse;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -25,7 +35,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -38,12 +50,21 @@ class SecurityIncidentServiceImplTest {
     private final OrganizationRepository organizationRepository =
             mock(OrganizationRepository.class);
 
+    private final OrganizationAuthorizationService organizationAuthorization =
+            mock(OrganizationAuthorizationService.class);
+
     private final SecurityIncidentServiceImpl service =
             new SecurityIncidentServiceImpl(
                     incidentRepository,
                     userProfileRepository,
-                    organizationRepository
+                    organizationRepository,
+                    organizationAuthorization
             );
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void recordsEverythingNeededToActOnTheIncident() {
@@ -158,6 +179,108 @@ class SecurityIncidentServiceImplTest {
         );
 
         assertNull(captureSaved().getUploaderUserId());
+    }
+
+    // ------------------------------------------------------ authorisation
+
+    /**
+     * The check lives on the service rather than the controller because
+     * answering it walks a member's lazily-loaded permissions, and a
+     * controller method runs with no Hibernate session: asking there threw a
+     * LazyInitializationException — a 500 — instead of refusing or allowing.
+     * Keeping it behind the service's transaction is what makes it answerable
+     * at all.
+     */
+    @Test
+    void anOrganizationSearchIsRefusedWithoutTriagePermission() {
+        UUID organizationId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        when(organizationAuthorization.findUserIdsWithPermission(
+                organizationId,
+                OrganizationPermission.TRIAGE_REPORTS
+        )).thenReturn(Set.of(UUID.randomUUID()));
+
+        ResponseStatusException refused = assertThrows(
+                ResponseStatusException.class,
+                () -> service.searchForOrganization(
+                        organizationId,
+                        userId,
+                        null,
+                        null,
+                        PageRequest.of(0, 20)
+                )
+        );
+
+        assertEquals(403, refused.getStatusCode().value());
+        verify(incidentRepository, never()).findAll(
+                ArgumentMatchers.<Specification<SecurityIncident>>any(),
+                any(PageRequest.class)
+        );
+    }
+
+    @Test
+    void aTriagerReachesTheirOwnOrganizationsIncidents() {
+        UUID organizationId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        when(organizationAuthorization.findUserIdsWithPermission(
+                organizationId,
+                OrganizationPermission.TRIAGE_REPORTS
+        )).thenReturn(Set.of(userId));
+        when(incidentRepository.findAll(
+                ArgumentMatchers.<Specification<SecurityIncident>>any(),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        service.searchForOrganization(
+                organizationId,
+                userId,
+                null,
+                null,
+                PageRequest.of(0, 20)
+        );
+
+        verify(incidentRepository).findAll(
+                ArgumentMatchers.<Specification<SecurityIncident>>any(),
+                any(Pageable.class)
+        );
+    }
+
+    /**
+     * Platform admins reach every company's incidents without a membership
+     * row, the same exemption recognitions make.
+     */
+    @Test
+    void aPlatformAdminNeedsNoMembership() {
+        UUID organizationId = UUID.randomUUID();
+        authenticateAsPlatformAdmin();
+
+        when(incidentRepository.findAll(
+                ArgumentMatchers.<Specification<SecurityIncident>>any(),
+                any(Pageable.class)
+        )).thenReturn(Page.empty());
+
+        service.searchForOrganization(
+                organizationId,
+                UUID.randomUUID(),
+                null,
+                null,
+                PageRequest.of(0, 20)
+        );
+
+        verify(organizationAuthorization, never())
+                .findUserIdsWithPermission(any(), any());
+    }
+
+    private void authenticateAsPlatformAdmin() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new TestingAuthenticationToken(
+                        "admin",
+                        "n/a",
+                        "ROLE_ADMIN"
+                )
+        );
     }
 
     // -------------------------------------------------------------- paging
