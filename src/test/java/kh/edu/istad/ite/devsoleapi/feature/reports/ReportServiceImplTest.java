@@ -106,6 +106,10 @@ class ReportServiceImplTest {
     private OrganizationMemberRepository organizationMemberRepository;
 
     @Mock
+    private kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityRecorder
+            hacktivityRecorder;
+
+    @Mock
     private ReportMapper reportMapper;
 
     @Mock
@@ -1059,6 +1063,121 @@ class ReportServiceImplTest {
                 .applyRecognition(any(), anyInt(), anyInt());
     }
 
+    /**
+     * A resolution is the first thing that reaches the public feed without a
+     * recognition behind it. Safe to publish precisely because the finding is
+     * fixed -- unlike a submission or a confirmation, which would announce a
+     * live vulnerability in a named program.
+     */
+    @Test
+    void resolvingAReportPutsItOnTheFeed() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        report.setState(ReportState.VALID_CONFIRMED);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.RESOLVED,
+                        null,
+                        null
+                )
+        );
+
+        verify(hacktivityRecorder).recordResolved(report);
+    }
+
+    /**
+     * A report that was resolved, reopened for more work, and resolved again
+     * is one finding fixed, not two. The feed already has its row.
+     */
+    @Test
+    void reResolvingAnAlreadyResolvedReportAddsNoSecondFeedRow() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        report.setState(ReportState.VALID_CONFIRMED);
+        report.setResolvedAt(LocalDateTime.now().minusDays(1));
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.RESOLVED,
+                        null,
+                        null
+                )
+        );
+
+        verify(hacktivityRecorder, never()).recordResolved(any());
+    }
+
+    /**
+     * Confirming is not resolving. A confirmed report is one somebody has
+     * agreed is real and has not fixed, which is the last thing to announce
+     * on a feed anonymous callers read.
+     */
+    @Test
+    void confirmingAReportPutsNothingOnTheFeed() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.HIGH);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        null
+                )
+        );
+
+        verify(hacktivityRecorder, never()).recordResolved(any());
+        verify(hacktivityRecorder, never()).recordDisclosed(any());
+    }
+
     private void stubCompanyOwnedReport(
             Report report,
             Organization organization,
@@ -1095,7 +1214,8 @@ class ReportServiceImplTest {
                 // Real, over a store that starts empty for each service(): the
                 // existing cases submit once and should pass through the
                 // limiter rather than around a mock of it.
-                new ReportRateLimiter(new InMemoryRateLimitStore())
+                new ReportRateLimiter(new InMemoryRateLimitStore()),
+                hacktivityRecorder
         );
     }
 

@@ -230,6 +230,71 @@ class HacktivityFeedIntegrationTest {
         assertNull(row.report().weakness());
     }
 
+    // --------------------------------------------- rows without recognition
+
+    /**
+     * A resolution reaches the feed with no recognition behind it: the report
+     * was fixed whether or not anybody was credited for it. The row still has
+     * to hydrate — an inner join on the recognition would leave it in the page
+     * and out of the fetch, which fails on the first association read.
+     */
+    @Test
+    void aResolvedRowCarriesNoRecognitionButStillRenders() {
+
+        Report fixed = reportRepository.save(report(
+                gateway, dara, "Fixed already", Severity.LOW,
+                DisclosureStatus.DISCLOSED, null
+        ));
+        hacktivityRepository.save(entryWithoutRecognition(
+                fixed, dara, HacktivityEventType.REPORT_RESOLVED,
+                LocalDateTime.now()
+        ));
+
+        HacktivityResponse row = newestFirst().getFirst();
+
+        assertEquals(
+                HacktivityEventType.REPORT_RESOLVED,
+                row.eventType()
+        );
+        assertNull(row.recognition());
+
+        // Everything else the card needs is still there.
+        assertEquals("Fixed already", row.report().title());
+        assertEquals(Severity.LOW, row.report().severity());
+        assertEquals("dara", row.user().username());
+        assertEquals("acme-web", row.program().handle());
+    }
+
+    /**
+     * The windowed leaderboard scores recognitions. A report that was
+     * resolved and then recognised has two rows, and counting both would pay
+     * the researcher twice for one finding.
+     */
+    @Test
+    void aResolvedRowDoesNotScoreOnTheWindowedLeaderboard() {
+
+        long before = hacktivityRepository
+                .tallyRecognitionsSince(LocalDateTime.now().minusDays(1))
+                .stream()
+                .mapToLong(HacktivityRepository.SeverityTally::getRecognitions)
+                .sum();
+
+        hacktivityRepository.save(entryWithoutRecognition(
+                reportRepository.findAll().getFirst(),
+                dara,
+                HacktivityEventType.REPORT_RESOLVED,
+                LocalDateTime.now()
+        ));
+
+        long after = hacktivityRepository
+                .tallyRecognitionsSince(LocalDateTime.now().minusDays(1))
+                .stream()
+                .mapToLong(HacktivityRepository.SeverityTally::getRecognitions)
+                .sum();
+
+        assertEquals(before, after);
+    }
+
     // ------------------------------------------------- disclosure privacy
 
     /**
@@ -574,6 +639,24 @@ class HacktivityFeedIntegrationTest {
 
         return Hacktivity.builder()
                 .recognition(recognitionRepository.save(recognition))
+                .user(user)
+                .organization(acme)
+                .report(report)
+                .program(report.getProgram())
+                .eventType(eventType)
+                .createdAt(createdAt)
+                .build();
+    }
+
+    /** A resolution or a disclosure: a feed row with no recognition. */
+    private Hacktivity entryWithoutRecognition(
+            Report report,
+            UserProfile user,
+            HacktivityEventType eventType,
+            LocalDateTime createdAt
+    ) {
+        return Hacktivity.builder()
+                .recognition(null)
                 .user(user)
                 .organization(acme)
                 .report(report)

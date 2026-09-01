@@ -49,8 +49,14 @@ public interface HacktivityRepository
         JpaSpecificationExecutor<Hacktivity> {
 
     /**
-     * Step two above. {@code weakness} is left-joined because a report may
-     * never have been classified; the other five are NOT NULL.
+     * Step two above. {@code weakness} and {@code recognition} are left-joined
+     * because a report may never have been classified and a row may be about
+     * a resolution or a disclosure rather than a recognition; the other four
+     * are NOT NULL.
+     *
+     * <p>An inner join on the recognition would drop exactly those rows from
+     * the hydration pass while leaving them in the page — present, unloaded,
+     * and failing on the first association the mapper touched.
      */
     @Query("""
             select hacktivity
@@ -58,8 +64,8 @@ public interface HacktivityRepository
               join fetch hacktivity.user
               join fetch hacktivity.organization
               join fetch hacktivity.report report
-              join fetch hacktivity.recognition
               join fetch hacktivity.program
+              left join fetch hacktivity.recognition
               left join fetch report.weakness
             where hacktivity.id in :ids
             """)
@@ -123,6 +129,11 @@ public interface HacktivityRepository
      * a CASE expression mirroring it in JPQL is a second copy that drifts the
      * day the curve is retuned. The window is small enough that folding the
      * counts in Java costs nothing.
+     *
+     * <p>Recognition-bearing rows only. The feed also carries resolutions and
+     * disclosures, and a report that was resolved, then recognised, has two
+     * rows — counting both would pay the researcher twice for one finding and
+     * silently double every windowed score.
      */
     @Query("""
             select hacktivity.user.id as userId,
@@ -130,6 +141,7 @@ public interface HacktivityRepository
                    count(hacktivity) as recognitions
             from Hacktivity hacktivity
             where hacktivity.createdAt >= :since
+              and hacktivity.recognition is not null
             group by hacktivity.user.id, hacktivity.report.severity
             """)
     List<SeverityTally> tallyRecognitionsSince(

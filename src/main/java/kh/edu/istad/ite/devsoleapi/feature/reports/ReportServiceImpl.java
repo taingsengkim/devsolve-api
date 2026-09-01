@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
+import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityRecorder;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
@@ -131,6 +132,7 @@ public class ReportServiceImpl implements ReportService {
     private final ObjectStorageService objectStorageService;
     private final ApplicationEventPublisher eventPublisher;
     private final ReportRateLimiter reportRateLimiter;
+    private final HacktivityRecorder hacktivityRecorder;
     private VirusTotalContentGuard virusTotalContentGuard;
 
     /**
@@ -365,6 +367,9 @@ public class ReportServiceImpl implements ReportService {
 
         boolean opensDispute = ruledSeverity == null && !severityMatches;
 
+        boolean newlyResolved = targetState == ReportState.RESOLVED
+                && report.getResolvedAt() == null;
+
         if (targetState == ReportState.RESOLVED) {
             if (report.getSeverity() == null) {
                 throw conflict(
@@ -375,6 +380,13 @@ public class ReportServiceImpl implements ReportService {
         }
 
         reportRepository.saveAndFlush(report);
+
+        // Only the first time it lands on RESOLVED. Re-triaging a resolved
+        // report to the same state is not a second thing happening, and the
+        // feed should not say it was.
+        if (newlyResolved) {
+            hacktivityRecorder.recordResolved(report);
+        }
 
         if (opensDispute) {
             ensureSeverityDispute(report);
@@ -488,6 +500,7 @@ public class ReportServiceImpl implements ReportService {
                 && request.disclosureStatus() == DisclosureStatus.DISCLOSED;
         report.setDisclosureStatus(request.disclosureStatus());
         if (newlyDisclosed) {
+            hacktivityRecorder.recordDisclosed(report);
             followNotificationService.notifyFollowers(
                     FollowType.USER,
                     report.getReporter().getId(),

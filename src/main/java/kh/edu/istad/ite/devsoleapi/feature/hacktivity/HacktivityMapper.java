@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.hacktivity;
 
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.dto.HacktivityResponse;
+import kh.edu.istad.ite.devsoleapi.feature.recognition.Recognition;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Weakness;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
@@ -74,11 +75,7 @@ public class HacktivityMapper {
                         toWeakness(report.getWeakness())
                 ),
 
-                new HacktivityResponse.Recognition(
-                        recognition.getId(),
-                        recognition.getTitle(),
-                        recognition.getDescription()
-                ),
+                toRecognition(recognition),
 
                 toReward(payout),
 
@@ -106,6 +103,25 @@ public class HacktivityMapper {
         return report.getDisclosureStatus() == DisclosureStatus.DISCLOSED
                 ? report.getTitle()
                 : null;
+    }
+
+    /**
+     * Null on a row that is about a resolution or a disclosure rather than a
+     * recognition. {@code eventType} says which, so a card does not have to
+     * infer it from what came back empty.
+     */
+    private HacktivityResponse.Recognition toRecognition(
+            Recognition recognition
+    ) {
+        if (recognition == null) {
+            return null;
+        }
+
+        return new HacktivityResponse.Recognition(
+                recognition.getId(),
+                recognition.getTitle(),
+                recognition.getDescription()
+        );
     }
 
     private HacktivityResponse.Weakness toWeakness(Weakness weakness) {

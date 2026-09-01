@@ -36,6 +36,12 @@ public record HacktivityResponse(
 
         Report report,
 
+        /**
+         * Null on a {@code REPORT_RESOLVED} or {@code REPORT_DISCLOSED} row:
+         * the report was fixed or published whether or not anybody was
+         * credited for it. Read {@code eventType} rather than inferring the
+         * kind of row from this being absent.
+         */
         Recognition recognition,
 
         /**

@@ -48,10 +48,22 @@ public class Hacktivity {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    /**
+     * The recognition this row is about, or null when the row is about
+     * something else that happened to the report.
+     *
+     * <p>Every entry used to be a recognition, so this was mandatory. A
+     * resolution and a disclosure are also things the feed should carry, and
+     * neither has a recognition behind it — the report was fixed or published
+     * whether or not anybody was credited for it.
+     *
+     * <p>Still unique: two recognitions cannot share a row. Postgres does not
+     * count NULLs as equal in a unique index, so any number of rows may have
+     * none.
+     */
+    @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(
             name = "recognition_id",
-            nullable = false,
             unique = true
     )
     private Recognition recognition;

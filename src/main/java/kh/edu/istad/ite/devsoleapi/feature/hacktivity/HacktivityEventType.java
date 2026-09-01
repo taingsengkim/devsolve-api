@@ -8,13 +8,17 @@ package kh.edu.istad.ite.devsoleapi.feature.hacktivity;
  * made every new kind of entry a breaking change for anybody who had guessed
  * differently.
  *
- * <p>{@link #RECOGNITION_AWARDED} and {@link #BOUNTY_AWARDED} are the two the
- * platform writes today — every hacktivity row is created when a triager
- * recognises a resolved report, and which of the two it is depends on whether
- * that report also carries a payout. {@link #REPORT_DISCLOSED} and
- * {@link #REPORT_RESOLVED} are declared because they are part of the published
- * filter vocabulary and the disclosure and resolution paths are the obvious
- * next writers; filtering on them today is well-formed and returns nothing.
+ * <p>{@link #RECOGNITION_AWARDED} and {@link #BOUNTY_AWARDED} are written when
+ * a triager recognises a resolved report, and which of the two it is depends
+ * on whether that report also carries a payout. Those rows carry a
+ * recognition; {@link #REPORT_RESOLVED} and {@link #REPORT_DISCLOSED} do not,
+ * because a report is fixed or published whether or not anybody was credited
+ * for it.
+ *
+ * <p>Nothing is written when a report is submitted or merely confirmed. Both
+ * would announce, on a feed served to anonymous callers, that a named program
+ * has a live vulnerability nobody has fixed yet. A resolution is safe to
+ * publish for the opposite reason: it says the thing is closed.
  */
 public enum HacktivityEventType {
 
@@ -24,9 +28,9 @@ public enum HacktivityEventType {
     /** A recognised report that also carries a reward with an amount on it. */
     BOUNTY_AWARDED,
 
-    /** Reserved: a report became publicly disclosed. Not written yet. */
+    /** A report became publicly disclosed. Carries no recognition. */
     REPORT_DISCLOSED,
 
-    /** Reserved: a report reached the resolved state. Not written yet. */
+    /** An organization fixed a reported vulnerability. No recognition. */
     REPORT_RESOLVED
 }

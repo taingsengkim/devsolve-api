@@ -2159,6 +2159,25 @@ BEGIN
 END
 $$^^^
 
+-- Hacktivity rows without a recognition --------------------------------------
+--
+-- Every feed entry used to be a recognition, so recognition_id was NOT NULL.
+-- A resolution and a disclosure are also things the feed carries now, and
+-- neither has a recognition behind it: the report was fixed or published
+-- whether or not anybody was credited for it.
+--
+-- The unique constraint stays. Postgres does not treat NULLs as equal in a
+-- unique index, so any number of rows may have none while two recognitions
+-- still cannot share one.
+DO $$
+BEGIN
+    IF to_regclass('public.hacktivities') IS NOT NULL THEN
+        ALTER TABLE public.hacktivities
+            ALTER COLUMN recognition_id DROP NOT NULL;
+    END IF;
+END
+$$^^^
+
 -- Researcher report counters ------------------------------------------------
 --
 -- total_reports and valid_reports are denormalised onto the profile and are
