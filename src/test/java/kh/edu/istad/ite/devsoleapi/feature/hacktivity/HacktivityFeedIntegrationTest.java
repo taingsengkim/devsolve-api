@@ -34,6 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
@@ -229,6 +230,59 @@ class HacktivityFeedIntegrationTest {
         assertNull(row.report().weakness());
     }
 
+    // ------------------------------------------------- disclosure privacy
+
+    /**
+     * The feed is anonymous, and a recognition is not a disclosure. Every row
+     * carries the finding's severity and payout, but only a disclosed one may
+     * carry the sentence that names the bug.
+     */
+    @Test
+    void anUndisclosedRowWithholdsItsTitleButKeepsTheRestOfTheCard() {
+
+        HacktivityResponse row = newestFirst().get(1);
+
+        assertEquals(
+                DisclosureStatus.NOT_DISCLOSED,
+                row.report().disclosureStatus()
+        );
+        assertNull(row.report().title());
+
+        // Withholding the title does not empty the card.
+        assertNotNull(row.report().id());
+        assertEquals(Severity.MEDIUM, row.report().severity());
+        assertEquals("sokha", row.user().username());
+        assertEquals("acme-web", row.program().handle());
+    }
+
+    @Test
+    void aDisclosedRowStillCarriesItsTitle() {
+
+        HacktivityResponse row = newestFirst().getFirst();
+
+        assertEquals(
+                DisclosureStatus.DISCLOSED,
+                row.report().disclosureStatus()
+        );
+        assertEquals("RCE in gateway", row.report().title());
+    }
+
+    /**
+     * Nulling the title in the response is not enough on its own. If the
+     * search still matched undisclosed titles, a caller could recover one a
+     * guess at a time by watching which terms return the row.
+     */
+    @Test
+    void searchDoesNotMatchTheTitleOfAnUndisclosedReport() {
+
+        assertEquals(0, count("Stored XSS"));
+        assertEquals(0, count("stored"));
+        assertEquals(0, count("profile"));
+
+        // The same row is still reachable by everything that is public.
+        assertEquals(1, count("sokha"));
+    }
+
     // ------------------------------------------------ the server-side query
 
     @Test
@@ -269,8 +323,10 @@ class HacktivityFeedIntegrationTest {
                 ))
         );
 
+        // The undisclosed row, so its title is withheld — the filter is what
+        // is under test here, not the title.
         assertEquals(
-                List.of("Stored XSS in profile"),
+                Collections.singletonList(null),
                 titles(new HacktivityFilter(
                         null, null, null, null, null,
                         List.of(HacktivityEventType.RECOGNITION_AWARDED)
@@ -322,13 +378,15 @@ class HacktivityFeedIntegrationTest {
     @Test
     void theFeedIsNewestFirstByDefault() {
 
+        // By researcher rather than title: the older row is undisclosed, so
+        // its title is withheld and cannot carry the ordering.
         assertEquals(
-                List.of("RCE in gateway", "Stored XSS in profile"),
+                List.of("dara", "sokha"),
                 hacktivityService.search(
                         filter(),
                         HacktivityPaging.resolve(PageRequest.of(0, 10))
                 ).getContent().stream()
-                        .map(row -> row.report().title())
+                        .map(row -> row.user().username())
                         .toList()
         );
     }

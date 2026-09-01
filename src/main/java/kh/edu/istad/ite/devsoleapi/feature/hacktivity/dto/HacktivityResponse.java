@@ -79,10 +79,13 @@ public record HacktivityResponse(
      * it is always one of NONE, LOW, MEDIUM, HIGH, CRITICAL. It is nullable
      * because a database trigger clears it while a severity dispute is open.
      *
-     * <p>{@code disclosureStatus} says whether the title is safe to print.
-     * A row is on the feed because it was recognised, which is not the same as
-     * being disclosed, so a client that prints titles unconditionally is
-     * publishing the titles of undisclosed findings.
+     * <p>{@code title} is null unless {@code disclosureStatus} is
+     * {@code DISCLOSED}. A row is on the feed because it was recognised, which
+     * is not the same as being disclosed, and the feed is served to anonymous
+     * callers — so the server withholds the title rather than trusting every
+     * client to check the status before printing it. A card should render the
+     * severity, weakness and payout it still has, and say the finding is not
+     * yet disclosed in place of the title.
      */
     public record Report(
             UUID id,

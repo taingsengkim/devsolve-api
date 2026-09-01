@@ -42,6 +42,11 @@ import static kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAutho
 @RequestMapping("/api/v1")
 public class HacktivityController {
 
+    private static final String SEARCH_DESCRIPTION =
+            "Free text over researcher handle and name, program name, and the "
+                    + "title of reports that are DISCLOSED. Undisclosed titles "
+                    + "are neither searched nor returned.";
+
     private static final String SEVERITY_DESCRIPTION =
             "Repeatable. One of NONE, LOW, MEDIUM, HIGH, CRITICAL.";
 
@@ -60,8 +65,7 @@ public class HacktivityController {
     @GetMapping("/hacktivity")
     public Page<HacktivityResponse> getHacktivity(
 
-            @Parameter(description = "Free text over researcher handle and "
-                    + "name, program name and report title")
+            @Parameter(description = SEARCH_DESCRIPTION)
             @RequestParam(required = false) String q,
 
             @Parameter(description = SEVERITY_DESCRIPTION)

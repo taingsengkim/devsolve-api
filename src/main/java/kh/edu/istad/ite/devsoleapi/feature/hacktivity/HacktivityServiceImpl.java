@@ -5,6 +5,7 @@ import jakarta.persistence.criteria.Predicate;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.dto.HacktivityFilter;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.dto.HacktivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.dto.HacktivityStatsResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -169,7 +170,21 @@ public class HacktivityServiceImpl implements HacktivityService {
                         like(builder, user.get("username"), term),
                         like(builder, user.get("fullName"), term),
                         like(builder, program.get("name"), term),
-                        like(builder, report.get("title"), term)
+                        // Only over titles the caller is allowed to read back.
+                        // Searching an undisclosed title is a way of reading it
+                        // one guess at a time: the row is returned or it is
+                        // not, so a caller who cannot see "SQL injection in
+                        // payments" can still confirm every word of it by
+                        // watching which searches match. Nulling the title in
+                        // the response alone closes the window and leaves the
+                        // door.
+                        builder.and(
+                                builder.equal(
+                                        report.get("disclosureStatus"),
+                                        DisclosureStatus.DISCLOSED
+                                ),
+                                like(builder, report.get("title"), term)
+                        )
                 ));
             }
 

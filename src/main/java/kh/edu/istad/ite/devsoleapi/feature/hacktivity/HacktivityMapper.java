@@ -1,7 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.hacktivity;
 
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.dto.HacktivityResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Weakness;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -64,7 +66,7 @@ public class HacktivityMapper {
 
                 new HacktivityResponse.Report(
                         report.getId(),
-                        report.getTitle(),
+                        publishableTitle(report),
                         // Not .name(): the enum itself goes on the wire, so a
                         // client cannot be handed a casing that drifts.
                         report.getSeverity(),
@@ -82,6 +84,28 @@ public class HacktivityMapper {
 
                 toInstant(hacktivity.getCreatedAt())
         );
+    }
+
+    /**
+     * The report title, but only once the report is actually disclosed.
+     *
+     * <p>A row reaches the feed because it was recognised, which happens as
+     * soon as a triager credits the finder — typically long before, and often
+     * without ever, the report being disclosed. The feed is served to anonymous
+     * callers, so returning the raw title here publishes the one-line summary
+     * of a live vulnerability to whoever asks: "SQL injection in the payments
+     * export" names the bug, the component, and the company on a finding the
+     * engineering team may not have shipped a fix for.
+     *
+     * <p>Null rather than a placeholder so a client cannot print it by
+     * accident, and {@code disclosureStatus} still travels beside it so the
+     * card can say why the title is missing.
+     */
+    private String publishableTitle(Report report) {
+
+        return report.getDisclosureStatus() == DisclosureStatus.DISCLOSED
+                ? report.getTitle()
+                : null;
     }
 
     private HacktivityResponse.Weakness toWeakness(Weakness weakness) {
