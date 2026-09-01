@@ -88,6 +88,13 @@ class ReportServiceImplTest {
     private ReportRewardRepository reportRewardRepository;
 
     @Mock
+    private ReportRetestRepository reportRetestRepository;
+
+    @Mock
+    private kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository
+            commentRepository;
+
+    @Mock
     private DisputeRepository disputeRepository;
 
     @Mock
@@ -196,8 +203,13 @@ class ReportServiceImplTest {
 
         verify(userProfileRepository).refreshReportCounts(
                 eq(hackerId),
+                // RETESTING counts as valid: a report only reaches it from
+                // VALID_CONFIRMED, so the finding was already agreed and the
+                // researcher should not lose the credit for it while the
+                // company has its fix checked.
                 eq(Set.of(
                         ReportState.VALID_CONFIRMED,
+                        ReportState.RETESTING,
                         ReportState.RESOLVED
                 ))
         );
@@ -413,8 +425,13 @@ class ReportServiceImplTest {
         // is the transition that turns a submission into a valid report.
         verify(userProfileRepository).refreshReportCounts(
                 eq(report.getReporter().getId()),
+                // RETESTING counts as valid: a report only reaches it from
+                // VALID_CONFIRMED, so the finding was already agreed and the
+                // researcher should not lose the credit for it while the
+                // company has its fix checked.
                 eq(Set.of(
                         ReportState.VALID_CONFIRMED,
+                        ReportState.RETESTING,
                         ReportState.RESOLVED
                 ))
         );
@@ -1196,6 +1213,7 @@ class ReportServiceImplTest {
                 reportRepository,
                 reportAttachmentRepository,
                 reportRewardRepository,
+                reportRetestRepository,
                 disputeRepository,
                 weaknessRepository,
                 programRepository,
@@ -1215,7 +1233,8 @@ class ReportServiceImplTest {
                 // existing cases submit once and should pass through the
                 // limiter rather than around a mock of it.
                 new ReportRateLimiter(new InMemoryRateLimitStore()),
-                hacktivityRecorder
+                hacktivityRecorder,
+                commentRepository
         );
     }
 

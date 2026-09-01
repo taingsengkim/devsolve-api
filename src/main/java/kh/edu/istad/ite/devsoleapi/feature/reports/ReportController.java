@@ -3,7 +3,9 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.SubmitRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
@@ -127,6 +129,27 @@ public class ReportController {
             @Valid @RequestBody RewardReportRequest request
     ) {
         return reportService.recordReward(id, request);
+    }
+
+    /**
+     * The program's side of a retest: a fix is deployed, please check it.
+     * Needs TRIAGE_REPORTS or MANAGE_PROGRAM_STATE on the owning organization.
+     */
+    @PostMapping("/reports/{id}/retest/request")
+    public ReportResponse requestRetest(
+            @PathVariable UUID id,
+            @Valid @RequestBody RequestRetestRequest request
+    ) {
+        return reportService.requestRetest(id, request);
+    }
+
+    /** The researcher's verdict. Only the reporter may submit one. */
+    @PostMapping("/reports/{id}/retest/submit")
+    public ReportResponse submitRetest(
+            @PathVariable UUID id,
+            @Valid @RequestBody SubmitRetestRequest request
+    ) {
+        return reportService.submitRetest(id, request);
     }
 
     @PostMapping(

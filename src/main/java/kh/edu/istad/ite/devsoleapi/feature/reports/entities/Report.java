@@ -12,6 +12,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import kh.edu.istad.ite.devsoleapi.common.entity.BasedEntity;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
@@ -209,4 +210,17 @@ public class Report extends BasedEntity {
     @BatchSize(size = 20)
     @Builder.Default
     private List<Dispute> disputes = new ArrayList<>();
+
+    /**
+     * Every round of fix verification this report has been through, oldest
+     * first. Read-only from here — a retest is written through
+     * {@code ReportRetestRepository} so that its attempt number is allocated
+     * against what the table already holds rather than against a collection
+     * that may not be loaded.
+     */
+    @OneToMany(mappedBy = "report")
+    @OrderBy("attemptNumber ASC")
+    @BatchSize(size = 20)
+    @Builder.Default
+    private List<ReportRetest> retests = new ArrayList<>();
 }

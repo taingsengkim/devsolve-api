@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportEnvironment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.RetestVerdict;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -40,6 +41,7 @@ public record ReportResponse(
         DisputeSummary dispute,
         List<AttachmentSummary> attachments,
         List<RewardSummary> rewards,
+        List<RetestSummary> retestHistory,
         LocalDateTime submittedAt,
         LocalDateTime triagedAt,
         LocalDateTime resolvedAt,
@@ -81,6 +83,42 @@ public record ReportResponse(
             UUID awardedBy,
             LocalDateTime awardedAt,
             String note
+    ) {
+    }
+
+    /**
+     * One round of fix verification, oldest attempt first.
+     *
+     * <p>{@code completedAt} is what says whether the attempt is still open;
+     * an attempt closed without a {@code verdict} is one triage moved the
+     * report on from before the researcher answered.
+     */
+    public record RetestSummary(
+            UUID id,
+            int attemptNumber,
+            ReportEnvironment environment,
+            String targetEndpoint,
+            LocalDateTime requestedAt,
+            ActorSummary requestedBy,
+            String requestNotes,
+            BigDecimal bountyReward,
+            LocalDateTime completedAt,
+            ActorSummary completedBy,
+            RetestVerdict verdict,
+            String resultNotes,
+            List<UUID> attachmentIds
+    ) {
+    }
+
+    /**
+     * Who did something, named. The rest of this response carries bare ids,
+     * but a retest history is read as a chronology of people acting on the
+     * report, and resolving every id to a name client-side to render it is a
+     * request per row.
+     */
+    public record ActorSummary(
+            UUID id,
+            String name
     ) {
     }
 

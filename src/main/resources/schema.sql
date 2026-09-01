@@ -2313,3 +2313,95 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Retest lifecycle ---------------------------------------------------------
+--
+-- A report goes to 'retesting' when a fix is deployed and the researcher who
+-- found the bug is asked to confirm it holds. Kept outside a DO block: ALTER
+-- TYPE ... ADD VALUE must not run inside a subtransaction.
+ALTER TYPE public.report_state_enum
+    ADD VALUE IF NOT EXISTS 'retesting' AFTER 'valid_confirmed'^^^
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type t
+        JOIN pg_namespace n
+            ON n.oid = t.typnamespace
+        WHERE t.typname = 'retest_verdict_enum'
+          AND n.nspname = 'public'
+    ) THEN
+        CREATE TYPE public.retest_verdict_enum AS ENUM (
+            'verified_fixed',
+            'still_vulnerable'
+        );
+    END IF;
+END
+$$^^^
+
+-- One row per round of fix verification.
+--
+-- A table rather than a pair of columns on reports, because a fix that does
+-- not hold is normal: the report goes back to valid_confirmed and the company
+-- tries again. Overwriting the last attempt would erase the evidence that the
+-- first fix failed, which is what both sides argue from later.
+--
+-- An attempt is open while completed_at is null, and at most one per report is
+-- open at a time -- the application holds that, not a constraint, because
+-- closing one is also what triage does when it moves a report on without
+-- waiting for the researcher.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.report_retests (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            report_id UUID NOT NULL
+                REFERENCES public.reports (id) ON DELETE CASCADE,
+            attempt_number INTEGER NOT NULL DEFAULT 1,
+            environment public.report_environment_enum,
+            target_endpoint VARCHAR(1000),
+            request_notes TEXT,
+            bounty_reward NUMERIC(10, 2),
+            -- Not ON DELETE CASCADE: deleting the member who asked for a
+            -- retest must not delete the record that it was asked for.
+            requested_by UUID NOT NULL
+                REFERENCES public.user_profiles (id),
+            requested_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            verdict public.retest_verdict_enum,
+            result_notes TEXT,
+            attachment_ids JSONB,
+            completed_by UUID
+                REFERENCES public.user_profiles (id),
+            completed_at TIMESTAMP(6),
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            CONSTRAINT uq_report_retests_attempt
+                UNIQUE (report_id, attempt_number)
+        );
+    END IF;
+
+    IF to_regclass('public.report_retests') IS NOT NULL THEN
+        -- The CREATE above is skipped on a database where Hibernate built this
+        -- table first, taking its column defaults with it. Setting them here is
+        -- what makes the two paths agree.
+        ALTER TABLE public.report_retests
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.report_retests
+            ALTER COLUMN attempt_number SET DEFAULT 1;
+        ALTER TABLE public.report_retests
+            ALTER COLUMN requested_at SET DEFAULT now();
+        ALTER TABLE public.report_retests
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.report_retests
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        -- Every read of this table is "the history for one report", and the
+        -- open-attempt lookup filters that by completed_at.
+        CREATE INDEX IF NOT EXISTS idx_report_retests_report_id
+            ON public.report_retests (report_id, attempt_number);
+    END IF;
+END
+$$^^^

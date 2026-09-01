@@ -22,20 +22,28 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
+import kh.edu.istad.ite.devsoleapi.feature.comments.Comment;
+import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
+import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.SubmitRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.UpdateDisclosureStateRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportRetest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Weakness;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportEnvironment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.RetestVerdict;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import kh.edu.istad.ite.devsoleapi.feature.virustotal.AttachmentScanContext;
@@ -65,6 +73,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -80,14 +89,29 @@ public class ReportServiceImpl implements ReportService {
      * What counts towards a researcher's valid-report tally: the findings that
      * were agreed to be real. NEW, TRIAGING and NEEDS_MORE_INFO have not been
      * decided; REJECTED and DUPLICATE were decided against.
+     *
+     * <p>RETESTING belongs here. A report only reaches it from VALID_CONFIRMED,
+     * so the finding was agreed before the retest started; leaving it out would
+     * quietly dock a researcher a valid report for the days an organization
+     * takes to have its fix checked.
      */
     private static final Set<ReportState> VALID_REPORT_STATES = Set.of(
             ReportState.VALID_CONFIRMED,
+            ReportState.RETESTING,
             ReportState.RESOLVED
     );
 
+    /**
+     * RETESTING is editable because verifying a fix produces new evidence — the
+     * screenshot of the request now being refused — and the researcher has
+     * nowhere to put it otherwise.
+     */
     private static final Set<ReportState> ATTACHMENT_EDITABLE_STATES =
-            EnumSet.of(ReportState.NEW, ReportState.NEEDS_MORE_INFO);
+            EnumSet.of(
+                    ReportState.NEW,
+                    ReportState.NEEDS_MORE_INFO,
+                    ReportState.RETESTING
+            );
     private static final Set<String> REPORT_SORT_PROPERTIES = Set.of(
             "id",
             "submittedAt",
@@ -119,6 +143,7 @@ public class ReportServiceImpl implements ReportService {
     private final ReportRepository reportRepository;
     private final ReportAttachmentRepository reportAttachmentRepository;
     private final ReportRewardRepository reportRewardRepository;
+    private final ReportRetestRepository reportRetestRepository;
     private final DisputeRepository disputeRepository;
     private final WeaknessRepository weaknessRepository;
     private final ProgramRepository programRepository;
@@ -133,6 +158,15 @@ public class ReportServiceImpl implements ReportService {
     private final ApplicationEventPublisher eventPublisher;
     private final ReportRateLimiter reportRateLimiter;
     private final HacktivityRecorder hacktivityRecorder;
+    /**
+     * The repository rather than CommentService: comments already depend on
+     * this service to decide who may read a report's thread, and injecting the
+     * service back would close that loop into a bean cycle. Retest notices are
+     * written straight to the table anyway — they are a record of something the
+     * platform did, so the rate limits, profanity review and duplicate check
+     * that guard what a person types do not apply to them.
+     */
+    private final CommentRepository commentRepository;
     private VirusTotalContentGuard virusTotalContentGuard;
 
     /**
@@ -338,6 +372,8 @@ public class ReportServiceImpl implements ReportService {
         applyDuplicate(report, targetState, request.duplicateOfId());
 
         UserProfile triager = findUserProfile(currentUserId());
+        boolean leftRetest = report.getState() == ReportState.RETESTING
+                && targetState != ReportState.RETESTING;
         report.setTriageSeverity(request.triageSeverity());
         report.setTriagedBy(triager);
         report.setTriagedAt(LocalDateTime.now());
@@ -380,6 +416,10 @@ public class ReportServiceImpl implements ReportService {
         }
 
         reportRepository.saveAndFlush(report);
+
+        if (leftRetest) {
+            closeOpenRetest(report, triager);
+        }
 
         // Only the first time it lands on RESOLVED. Re-triaging a resolved
         // report to the same state is not a second thing happening, and the
@@ -577,6 +617,368 @@ public class ReportServiceImpl implements ReportService {
      */
     private String describeReward(ReportReward reward) {
         return "You were awarded " + reward.getAmount();
+    }
+
+    /**
+     * Opens a round of fix verification.
+     *
+     * <p>Only from VALID_CONFIRMED. A retest asks "does this fix hold", which
+     * is a question about a finding both sides already agree is real — asking
+     * it about a report still in triage, or one already rejected, has no
+     * answer. Resolution comes after the retest, not before, which is why
+     * RESOLVED is not a starting point either.
+     *
+     * <p>Evicts the leaderboard for the same reason triage does: the state
+     * moves, and the board prints counts derived from it.
+     */
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
+    public ReportResponse requestRetest(
+            UUID id,
+            RequestRetestRequest request
+    ) {
+        Report report = findReportForRetestRequest(id);
+        requireNoActiveDispute(report.getId());
+
+        if (report.getState() != ReportState.VALID_CONFIRMED) {
+            throw conflict(
+                    "Only a confirmed report can be sent for retest, and this "
+                            + "one is " + describe(report.getState())
+            );
+        }
+        // Belt and braces against the state above: an open attempt means the
+        // report should already be RETESTING, and asking twice would leave two
+        // rows nothing can tell apart.
+        reportRetestRepository
+                .findFirstByReportIdAndCompletedAtIsNullOrderByAttemptNumberDesc(
+                        report.getId()
+                )
+                .ifPresent(open -> {
+                    throw conflict(
+                            "A retest is already awaiting the researcher"
+                    );
+                });
+
+        // The severity decides what the finding is worth, and resolving the
+        // report is the next step after a passing retest. Starting one while
+        // that is still unsettled builds a queue that cannot be cleared.
+        if (report.getSeverity() == null) {
+            throw conflict(
+                    "A final severity is required before requesting a retest"
+            );
+        }
+        if (request.bountyReward() != null
+                && !Boolean.TRUE.equals(
+                        report.getProgram().getOffersBounties()
+                )) {
+            throw conflict(
+                    "This program does not offer monetary bounties"
+            );
+        }
+
+        UserProfile requester = findUserProfile(currentUserId());
+        Integer highest = reportRetestRepository
+                .findHighestAttemptNumber(report.getId());
+
+        ReportRetest retest = ReportRetest.builder()
+                .report(report)
+                .attemptNumber(highest == null ? 1 : highest + 1)
+                .environment(
+                        request.environment() == null
+                                ? ReportEnvironment.STAGING
+                                : request.environment()
+                )
+                .targetEndpoint(trimToNull(request.targetEndpoint()))
+                .requestNotes(trimToNull(request.notes()))
+                .bountyReward(request.bountyReward())
+                .requestedBy(requester)
+                .build();
+        reportRetestRepository.saveAndFlush(retest);
+        report.getRetests().add(retest);
+
+        report.setState(ReportState.RETESTING);
+        reportRepository.saveAndFlush(report);
+
+        postRetestNotice(
+                report,
+                requester.getId(),
+                requester.getFullName()
+                        + " asked for a retest of this report (attempt "
+                        + retest.getAttemptNumber() + ")"
+                        + describeRetestTarget(retest) + "."
+                        + (retest.getRequestNotes() == null
+                                ? ""
+                                : " " + retest.getRequestNotes())
+        );
+
+        // Keyed on the attempt: a second request after a failed fix is news
+        // again, and must not be swallowed as a repeat of the first.
+        eventPublisher.publishEvent(NotificationEvent.to(
+                report.getReporter().getId(),
+                "Retest requested",
+                report.getProgram().getName() + " deployed a fix for \""
+                        + report.getTitle()
+                        + "\" and asked you to confirm it holds.",
+                NotificationType.REPORT,
+                report.getId(),
+                "report:" + report.getId() + ":retest:" + retest.getId()
+                        + ":requested"
+        ));
+
+        ReportResponse response = reportMapper.toResponse(report);
+        refreshReportCounts(report.getReporter().getId());
+        return response;
+    }
+
+    /**
+     * The researcher's verdict on an open retest.
+     *
+     * <p>A pass resolves the report; a fail sends it back to VALID_CONFIRMED so
+     * the organization can fix it again and ask again. Either way the attempt
+     * is closed, so the history reads as the sequence of fixes that were tried.
+     */
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
+    public ReportResponse submitRetest(
+            UUID id,
+            SubmitRetestRequest request
+    ) {
+        requireRole(USER_ROLE);
+        Report report = findReportableProgramReport(id);
+        if (!report.getReporter().getId().equals(currentUserId())) {
+            // Not "forbidden": to anyone but the reporter and the program's own
+            // team, this report's existence is not public knowledge.
+            throw reportNotFound();
+        }
+        if (report.getState() != ReportState.RETESTING) {
+            throw conflict("This report is not awaiting a retest");
+        }
+
+        ReportRetest retest = reportRetestRepository
+                .findFirstByReportIdAndCompletedAtIsNullOrderByAttemptNumberDesc(
+                        report.getId()
+                )
+                .orElseThrow(() -> conflict(
+                        "This report has no retest awaiting your verification"
+                ));
+
+        UserProfile researcher = report.getReporter();
+        retest.setVerdict(request.verdict());
+        retest.setResultNotes(trimToNull(request.notes()));
+        retest.setAttachmentIds(
+                resolveRetestAttachmentIds(report, request.attachmentIds())
+        );
+        retest.setCompletedBy(researcher);
+        retest.setCompletedAt(LocalDateTime.now());
+        reportRetestRepository.saveAndFlush(retest);
+
+        boolean fixed = request.verdict() == RetestVerdict.VERIFIED_FIXED;
+        boolean newlyResolved = fixed && report.getResolvedAt() == null;
+        report.setState(
+                fixed ? ReportState.RESOLVED : ReportState.VALID_CONFIRMED
+        );
+        if (fixed) {
+            report.setResolvedAt(LocalDateTime.now());
+        }
+        reportRepository.saveAndFlush(report);
+
+        if (newlyResolved) {
+            hacktivityRecorder.recordResolved(report);
+        }
+        if (fixed) {
+            payRetestBounty(report, retest);
+        }
+
+        postRetestNotice(
+                report,
+                researcher.getId(),
+                researcher.getFullName()
+                        + (fixed
+                                ? " verified the fix. The finding is no longer"
+                                        + " reproducible."
+                                : " retested the fix and the finding is still"
+                                        + " reproducible.")
+                        + (retest.getResultNotes() == null
+                                ? ""
+                                : " " + retest.getResultNotes())
+        );
+
+        eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                organizationAuthorization.findUserIdsWithPermission(
+                        report.getProgram().getOrganizationId(),
+                        OrganizationPermission.TRIAGE_REPORTS
+                ),
+                researcher.getId(),
+                fixed ? "Retest passed" : "Retest failed",
+                researcher.getFullName()
+                        + (fixed
+                                ? " confirmed the fix for \""
+                                : " could still reproduce \"")
+                        + report.getTitle() + "\".",
+                NotificationType.REPORT,
+                report.getId(),
+                "report:" + report.getId() + ":retest:" + retest.getId()
+                        + ":completed"
+        ));
+
+        ReportResponse response = reportMapper.toResponse(report);
+        refreshReportCounts(researcher.getId());
+        return response;
+    }
+
+    /**
+     * Pays what was promised when the retest was asked for, if anything was.
+     *
+     * <p>Recorded as an ordinary reward against the report so that it shows up
+     * wherever bounties are counted, rather than as money that only exists on
+     * the retest row. Attributed to whoever requested the retest: it is their
+     * organization's budget, and they are the one who committed it.
+     */
+    private void payRetestBounty(Report report, ReportRetest retest) {
+        if (retest.getBountyReward() == null) {
+            return;
+        }
+        ReportReward reward = ReportReward.builder()
+                .report(report)
+                .amount(retest.getBountyReward())
+                .awardedBy(retest.getRequestedBy())
+                .note("Retest bonus for attempt " + retest.getAttemptNumber())
+                .build();
+        reportRewardRepository.saveAndFlush(reward);
+        report.getRewards().add(reward);
+
+        eventPublisher.publishEvent(NotificationEvent.to(
+                report.getReporter().getId(),
+                "You have been rewarded",
+                describeReward(reward) + " for retesting \""
+                        + report.getTitle() + "\" on "
+                        + report.getProgram().getName() + ".",
+                NotificationType.REWARD,
+                report.getId(),
+                "report:" + report.getId() + ":reward:" + reward.getId()
+        ));
+    }
+
+    /**
+     * Keeps only ids that really are attachments on this report.
+     *
+     * <p>Silently dropping an unknown id would let a retest cite evidence that
+     * does not exist, and accepting an id from another report would leak that
+     * report's contents through a download link.
+     */
+    private List<UUID> resolveRetestAttachmentIds(
+            Report report,
+            List<UUID> requested
+    ) {
+        if (requested == null || requested.isEmpty()) {
+            return null;
+        }
+        Set<UUID> onReport = report.getAttachments().stream()
+                .map(ReportAttachment::getId)
+                .collect(Collectors.toSet());
+        List<UUID> resolved = requested.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        for (UUID attachmentId : resolved) {
+            if (!onReport.contains(attachmentId)) {
+                throw badRequest(
+                        "Attachment " + attachmentId
+                                + " is not on this report"
+                );
+            }
+        }
+        return resolved.isEmpty() ? null : resolved;
+    }
+
+    /**
+     * Writes the retest into the report thread, so the conversation reads in
+     * one place rather than half in comments and half in a history panel.
+     *
+     * <p>Authored by the person who acted rather than by a platform account:
+     * there is no system user to attribute it to, and "the organization asked"
+     * is less useful to read back than which member did.
+     */
+    private void postRetestNotice(
+            Report report,
+            UUID authorId,
+            String content
+    ) {
+        Comment notice = new Comment();
+        notice.setCommentableType(CommentableType.REPORT);
+        notice.setCommentableId(report.getId());
+        notice.setAuthorId(authorId);
+        notice.setContent(content);
+        notice.setInternal(false);
+        commentRepository.save(notice);
+    }
+
+    private String describeRetestTarget(ReportRetest retest) {
+        StringBuilder description = new StringBuilder();
+        if (retest.getEnvironment() != null) {
+            description.append(" on ")
+                    .append(describe(retest.getEnvironment().name()));
+        }
+        if (retest.getTargetEndpoint() != null) {
+            description.append(" at ").append(retest.getTargetEndpoint());
+        }
+        return description.toString();
+    }
+
+    /**
+     * Either permission is enough. Deploying the fix and running the triage
+     * queue are often different people, and the spec for this workflow treats
+     * both as entitled to say a fix is ready to check.
+     */
+    private Report findReportForRetestRequest(UUID reportId) {
+        Report report = findReportableProgramReport(reportId);
+        UUID organizationId = report.getProgram().getOrganizationId();
+        UUID userId = currentUserId();
+
+        if (organizationAuthorization.hasPermission(
+                organizationId,
+                userId,
+                OrganizationPermission.TRIAGE_REPORTS
+        )) {
+            return report;
+        }
+        organizationAuthorization.requirePermission(
+                organizationId,
+                userId,
+                OrganizationPermission.MANAGE_PROGRAM_STATE
+        );
+        return report;
+    }
+
+    /**
+     * Closes an attempt nobody is going to answer.
+     *
+     * <p>Triage can still act on a report while a retest is open — a finding
+     * turning out to be a duplicate does not wait for a researcher to come
+     * back. Left alone, that attempt would stay open for ever and block every
+     * later retest on the report, so it is closed with no verdict: something
+     * happened to it, and it was not a verification.
+     */
+    private void closeOpenRetest(Report report, UserProfile actor) {
+        reportRetestRepository
+                .findFirstByReportIdAndCompletedAtIsNullOrderByAttemptNumberDesc(
+                        report.getId()
+                )
+                .ifPresent(open -> {
+                    open.setCompletedBy(actor);
+                    open.setCompletedAt(LocalDateTime.now());
+                    open.setResultNotes(
+                            "Closed without a verdict: triage moved the report "
+                                    + "to " + describe(report.getState()) + "."
+                    );
+                    reportRetestRepository.saveAndFlush(open);
+                });
+    }
+
+    private String describe(String enumName) {
+        return enumName.toLowerCase().replace('_', ' ');
     }
 
     @Override

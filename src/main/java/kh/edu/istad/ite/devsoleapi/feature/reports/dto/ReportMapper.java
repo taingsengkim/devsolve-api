@@ -3,7 +3,9 @@ package kh.edu.istad.ite.devsoleapi.feature.reports.dto;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportRetest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
@@ -50,6 +52,9 @@ public class ReportMapper {
                         .toList(),
                 report.getRewards().stream()
                         .map(this::toRewardSummary)
+                        .toList(),
+                report.getRetests().stream()
+                        .map(this::toRetestSummary)
                         .toList(),
                 report.getSubmittedAt(),
                 report.getTriagedAt(),
@@ -111,6 +116,38 @@ public class ReportMapper {
                 reward.getAwardedBy().getId(),
                 reward.getAwardedAt(),
                 reward.getNote()
+        );
+    }
+
+    private ReportResponse.RetestSummary toRetestSummary(
+            ReportRetest retest
+    ) {
+        return new ReportResponse.RetestSummary(
+                retest.getId(),
+                retest.getAttemptNumber(),
+                retest.getEnvironment(),
+                retest.getTargetEndpoint(),
+                retest.getRequestedAt(),
+                toActorSummary(retest.getRequestedBy()),
+                retest.getRequestNotes(),
+                retest.getBountyReward(),
+                retest.getCompletedAt(),
+                toActorSummary(retest.getCompletedBy()),
+                retest.getVerdict(),
+                retest.getResultNotes(),
+                retest.getAttachmentIds() == null
+                        ? List.of()
+                        : List.copyOf(retest.getAttachmentIds())
+        );
+    }
+
+    private ReportResponse.ActorSummary toActorSummary(UserProfile actor) {
+        if (actor == null) {
+            return null;
+        }
+        return new ReportResponse.ActorSummary(
+                actor.getId(),
+                actor.getFullName()
         );
     }
 
