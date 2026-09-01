@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.recognition;
 
 
+import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.Hacktivity;
@@ -33,6 +34,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -72,9 +74,18 @@ public class RecognitionServiceImpl implements RecognitionService {
      * reputation increment either all land or none do. Splitting them would
      * let a crash leave a recognition nobody was paid for, or points nobody
      * can trace back to a finding.
+     *
+     * <p>The leaderboard is dropped wholesale rather than by key. This award
+     * changes one researcher's score, but a score is a rank, and a rank is a
+     * position among everybody else — one person moving up rewrites every page
+     * below them. Evicting the page they happen to sit on would leave the rest
+     * of the board disagreeing with it. Without this the board served the
+     * pre-award standings for up to the cache TTL, which is what made a
+     * recognition look like it had not counted.
      */
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
     public RecognitionResponse awardRecognition(
             CreateRecognitionRequest request,
             UUID awardedBy
