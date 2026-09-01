@@ -36,4 +36,38 @@ public interface ReportRewardRepository extends JpaRepository<ReportReward, UUID
 
         BigDecimal getTopAward();
     }
+
+    /**
+     * What one researcher has been paid, across every program.
+     *
+     * <p>Computed rather than kept as a running total on the profile. A payout
+     * can be corrected or withdrawn, and a stored total that was only ever
+     * added to would keep money on a profile that no longer has it — the same
+     * drift that left the report counters wrong. One aggregate over a
+     * researcher's own rewards is cheap and cannot disagree with the rewards
+     * themselves.
+     *
+     * <p>{@code amount} is nullable, since a reward can be points-only, and
+     * sum over no rows is NULL — so both sums are coalesced to zero. The
+     * report count is distinct because one report can carry several payouts
+     * and a researcher paid twice for one finding has still had one report
+     * rewarded.
+     */
+    @Query("""
+            select coalesce(sum(reward.amount), 0) as totalEarned,
+                   coalesce(sum(reward.points), 0) as totalPoints,
+                   count(distinct reward.report.id) as rewardedReports
+            from ReportReward reward
+            where reward.report.reporter.id = :userId
+            """)
+    ResearcherEarnings findResearcherEarnings(@Param("userId") UUID userId);
+
+    interface ResearcherEarnings {
+
+        BigDecimal getTotalEarned();
+
+        long getTotalPoints();
+
+        long getRewardedReports();
+    }
 }

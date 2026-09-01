@@ -12,6 +12,7 @@ import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -41,11 +42,23 @@ public abstract class UserProfileMapper {
             @MappingTarget UserProfile userProfile
     );
 
+    /**
+     * @param totalBountyEarned  computed from the researcher's rewards rather
+     *                           than stored on the profile, so a corrected or
+     *                           withdrawn payout is reflected at once
+     * @param rewardedReports    how many of their reports carried a payout
+     */
     public UserProfileResponse toUserProfileResponse(
             UserRepresentation keycloakUser,
-            UserProfile userProfile
+            UserProfile userProfile,
+            BigDecimal totalBountyEarned,
+            String bountyCurrency,
+            long rewardedReports
     ) {
         return UserProfileResponse.builder()
+                .totalBountyEarned(totalBountyEarned)
+                .bountyCurrency(bountyCurrency)
+                .rewardedReports(rewardedReports)
                 .id(userProfile.getId())
                 .username(userProfile.getUsername())
                 .usernameChangeableAt(usernameChangeableAt(userProfile))

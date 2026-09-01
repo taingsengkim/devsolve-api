@@ -57,6 +57,9 @@ import static org.mockito.Mockito.when;
 class UserProfileServiceImplTest {
 
     @Mock
+    private kh.edu.istad.ite.devsoleapi.feature.reports.ReportRewardRepository
+            reportRewardRepository;
+    @Mock
     private Keycloak keycloak;
     @Mock
     private KeycloakAdminProps keycloakAdminProps;
@@ -576,7 +579,8 @@ class UserProfileServiceImplTest {
                 userProfileMapper,
                 new SocialLinkValidator(),
                 imageStorageService,
-                organizationAuthorization
+                organizationAuthorization,
+                reportRewardRepository
         );
     }
 

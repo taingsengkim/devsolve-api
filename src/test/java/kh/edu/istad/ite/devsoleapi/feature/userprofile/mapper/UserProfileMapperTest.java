@@ -110,7 +110,13 @@ class UserProfileMapperTest {
         keycloakUser.setFirstName("Member");
         keycloakUser.setLastName("Name");
 
-        UserProfileResponse response = mapper.toUserProfileResponse(keycloakUser, profile);
+        UserProfileResponse response = mapper.toUserProfileResponse(
+                keycloakUser,
+                profile,
+                new java.math.BigDecimal("1500.00"),
+                "USD",
+                2
+        );
 
         assertEquals(id, response.id());
         assertEquals("Member", response.firstName());
@@ -121,6 +127,17 @@ class UserProfileMapperTest {
         assertEquals(5, response.validReports());
         assertEquals(2, response.criticalReports());
         assertEquals(3, response.recognitionCount());
+
+        // Earnings are computed from the rewards and handed in, not read off
+        // the profile: a corrected payout has to move this figure.
+        assertEquals(
+                0,
+                new java.math.BigDecimal("1500.00")
+                        .compareTo(response.totalBountyEarned())
+        );
+        assertEquals("USD", response.bountyCurrency());
+        assertEquals(2, response.rewardedReports());
+
         assertEquals(1, response.socialLinks().size());
         assertEquals(
                 SocialPlatform.GITHUB,

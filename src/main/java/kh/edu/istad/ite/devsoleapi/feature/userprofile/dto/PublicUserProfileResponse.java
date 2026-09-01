@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.List;
@@ -37,6 +38,15 @@ public record PublicUserProfileResponse(
         int validReports,
         int criticalReports,
         int recognitionCount,
+        /**
+         * Total paid to this researcher across every program, and how many of
+         * their reports carried a payout. Public on purpose: earnings are the
+         * headline figure of a researcher's track record, and the hacktivity
+         * feed already publishes each individual bounty.
+         */
+        BigDecimal totalBountyEarned,
+        String bountyCurrency,
+        long rewardedReports,
         LocalDateTime joinedAt
 ) {
 }

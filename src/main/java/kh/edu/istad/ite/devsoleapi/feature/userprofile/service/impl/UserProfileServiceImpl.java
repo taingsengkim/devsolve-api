@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.userprofile.service.impl;
 
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.props.KeycloakAdminProps;
+import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRewardRepository;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
@@ -36,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.Locale;
@@ -47,6 +49,13 @@ import java.util.Map;
 public class UserProfileServiceImpl implements UserProfileService {
     private static final String ADMIN_ROLE = "ADMIN";
 
+    /**
+     * The platform stores no per-payout currency, so every amount it has ever
+     * recorded is in this one. Saying which on the response is more useful to
+     * a client than leaving it to be assumed.
+     */
+    private static final String BOUNTY_CURRENCY = "USD";
+
     private final Keycloak keycloak;
     private final KeycloakAdminProps keycloakAdminProps;
     private final UserProfileRepository userProfileRepository;
@@ -54,6 +63,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final SocialLinkValidator socialLinkValidator;
     private final ImageStorageService imageStorageService;
     private final OrganizationAuthorizationService organizationAuthorization;
+    private final ReportRewardRepository reportRewardRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -103,7 +113,7 @@ public class UserProfileServiceImpl implements UserProfileService {
         // Answers from what was just written rather than from the token, which
         // still carries the name the caller has only now replaced.
         keycloakUser.setEmail(userProfile.getEmail());
-        return userProfileMapper.toUserProfileResponse(keycloakUser, userProfile);
+        return toResponse(keycloakUser, userProfile);
     }
 
     @Override
@@ -252,9 +262,24 @@ public class UserProfileServiceImpl implements UserProfileService {
     }
 
     private UserProfileResponse toResponse(UserProfile userProfile) {
+        return toResponse(currentIdentity(userProfile), userProfile);
+    }
+
+    private UserProfileResponse toResponse(
+            UserRepresentation identity,
+            UserProfile userProfile
+    ) {
+        ReportRewardRepository.ResearcherEarnings earnings =
+                reportRewardRepository.findResearcherEarnings(
+                        userProfile.getId()
+                );
+
         return userProfileMapper.toUserProfileResponse(
-                currentIdentity(userProfile),
-                userProfile
+                identity,
+                userProfile,
+                totalEarned(earnings),
+                BOUNTY_CURRENCY,
+                rewardedReports(earnings)
         );
     }
 
@@ -489,6 +514,9 @@ public class UserProfileServiceImpl implements UserProfileService {
             UserProfile profile,
             String email
     ) {
+        ReportRewardRepository.ResearcherEarnings earnings =
+                reportRewardRepository.findResearcherEarnings(profile.getId());
+
         return new PublicUserProfileResponse(
                 profile.getId(),
                 profile.getUsername(),
@@ -504,8 +532,31 @@ public class UserProfileServiceImpl implements UserProfileService {
                 profile.getValidReports(),
                 profile.getCriticalReports(),
                 profile.getRecognitionCount(),
+                totalEarned(earnings),
+                BOUNTY_CURRENCY,
+                rewardedReports(earnings),
                 profile.getCreatedAt()
         );
+    }
+
+    /**
+     * Coalesced in the query already; guarded again here because a projection
+     * over no rows is the one shape that can still hand back null, and a
+     * profile that has never been paid should read zero rather than blank.
+     */
+    private BigDecimal totalEarned(
+            ReportRewardRepository.ResearcherEarnings earnings
+    ) {
+        if (earnings == null || earnings.getTotalEarned() == null) {
+            return BigDecimal.ZERO;
+        }
+        return earnings.getTotalEarned();
+    }
+
+    private long rewardedReports(
+            ReportRewardRepository.ResearcherEarnings earnings
+    ) {
+        return earnings == null ? 0L : earnings.getRewardedReports();
     }
 
     private void replaceSocialLinks(
