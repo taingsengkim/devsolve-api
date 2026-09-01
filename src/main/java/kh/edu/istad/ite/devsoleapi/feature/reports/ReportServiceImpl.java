@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.common.attachment.AttachmentValidator;
+import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.common.storage.ObjectStorageService;
@@ -47,6 +48,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -131,8 +133,17 @@ public class ReportServiceImpl implements ReportService {
     private final ReportRateLimiter reportRateLimiter;
     private VirusTotalContentGuard virusTotalContentGuard;
 
+    /**
+     * Evicts the leaderboard because the board prints totalReports and
+     * validReports, and this changes one of them. Awarding a recognition was
+     * doing this already; submitting and triaging were not, so a researcher's
+     * report counts stayed at whatever the board had cached — which, on a
+     * board first filled before those counters were ever written, was zero for
+     * everybody.
+     */
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
     public ReportResponse create(
             UUID programId,
             CreateReportRequest request
@@ -304,8 +315,10 @@ public class ReportServiceImpl implements ReportService {
                 .map(reportMapper::toResponse);
     }
 
+    /** Moves validReports, so the board it is printed on has to be dropped. */
     @Override
     @Transactional
+    @CacheEvict(cacheNames = CacheNames.LEADERBOARD, allEntries = true)
     public ReportResponse triage(
             UUID id,
             TriageReportRequest request
