@@ -6,7 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.NullNode;
 
+import java.net.http.HttpClient;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -65,10 +66,27 @@ public class MeilisearchClient {
         this.props = props;
     }
 
+    /**
+     * The JDK factory specifically, and not {@link
+     * org.springframework.http.client.SimpleClientHttpRequestFactory}.
+     *
+     * <p>That one is built on {@code HttpURLConnection}, which has a fixed list
+     * of methods and no PATCH among them — it throws {@code ProtocolException:
+     * Invalid HTTP method: PATCH} before a socket is ever opened. Meilisearch
+     * applies index settings over PATCH, so with that factory every sync pass
+     * created its indexes, failed on the settings write, and reported it as
+     * "Meilisearch is unreachable" — the engine being perfectly reachable the
+     * whole time, and searches against it answering 200.
+     *
+     * <p>The connect timeout belongs to the {@link HttpClient} and the read
+     * timeout to the factory; there is nowhere to set both on one object.
+     */
     private static ClientHttpRequestFactory timeoutFactory(MeilisearchProps props) {
-        SimpleClientHttpRequestFactory factory =
-                new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(props.getConnectTimeout());
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(props.getConnectTimeout())
+                .build();
+        JdkClientHttpRequestFactory factory =
+                new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(props.getReadTimeout());
         return factory;
     }
@@ -265,11 +283,33 @@ public class MeilisearchClient {
         } catch (RestClientResponseException exception) {
             throw failureOf(exception);
         } catch (RestClientException exception) {
+            // Carry the cause into the message. Everything that is not an HTTP
+            // response lands here, and not all of it is a network problem — an
+            // unsupported method looks identical from the outside. A log line
+            // reading only "unreachable", about an engine that is answering
+            // searches perfectly well, sends whoever reads it after the wrong
+            // thing entirely.
             throw new MeilisearchException(
-                    "Meilisearch is unreachable",
+                    "Meilisearch request failed: " + rootCauseOf(exception),
                     exception
             );
         }
+    }
+
+    /**
+     * The innermost cause's type and message — the line that actually says what
+     * went wrong. Spring wraps a transport failure two or three deep, and the
+     * outer layers only repeat that a request failed.
+     */
+    private static String rootCauseOf(Throwable throwable) {
+        Throwable root = throwable;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = root.getMessage();
+        return message == null || message.isBlank()
+                ? root.getClass().getSimpleName()
+                : root.getClass().getSimpleName() + ": " + message;
     }
 
     /**
