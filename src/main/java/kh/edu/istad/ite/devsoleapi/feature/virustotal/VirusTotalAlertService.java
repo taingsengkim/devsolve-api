@@ -50,8 +50,26 @@ public class VirusTotalAlertService {
             VirusTotalScanResponse result,
             AttachmentScanContext context
     ) {
+        malicious(attachment, sha256, result, context, currentUserId());
+    }
+
+    /**
+     * As above, for a verdict that arrives after the request is over.
+     *
+     * <p>{@link DeferredVirusTotalVerifier} runs on its own thread, where there
+     * is no security context to read the uploader from — so it reads one on the
+     * request thread and hands it in here. Null still works and still alerts;
+     * the notice just cannot name who uploaded the file.
+     */
+    public void malicious(
+            AttachmentValidator.ValidatedAttachment attachment,
+            String sha256,
+            VirusTotalScanResponse result,
+            AttachmentScanContext context,
+            UUID uploaderId
+    ) {
         try {
-            alert(attachment, sha256, result, context);
+            alert(attachment, sha256, result, context, uploaderId);
         } catch (RuntimeException exception) {
             // The upload is already refused; this is only the telling.
             log.error(
@@ -69,10 +87,9 @@ public class VirusTotalAlertService {
             AttachmentValidator.ValidatedAttachment attachment,
             String sha256,
             VirusTotalScanResponse result,
-            AttachmentScanContext context
+            AttachmentScanContext context,
+            UUID uploaderId
     ) {
-        UUID uploaderId = currentUserId();
-
         // Logged unconditionally, before any lookup that could fail or return
         // nobody. An alert nobody was available to receive still has to leave
         // a trace somewhere an operator can find it.

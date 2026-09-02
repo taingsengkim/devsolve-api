@@ -136,20 +136,25 @@ app:
     base-url: ${VIRUSTOTAL_BASE_URL:https://www.virustotal.com/api/v3}
     # Upper bound on a single wait between polls, not a flat one: the first
     # check happens at a quarter of it, the next at a half, the rest at the
-    # full value. Only content VirusTotal has never seen ever gets here --
-    # anything it already knows is answered by hash in one request, with no
-    # wait at all -- so the budget is set for a genuinely new file, which
-    # takes minutes at VirusTotal rather than seconds.
+    # full value.
+    #
+    # For a file this budget is spent on a background thread after the upload
+    # has been answered, so it is free to be long -- raising it costs a user
+    # nothing. It used to be spent in front of the uploader, which is why an
+    # upload sat for 95 seconds and was then refused with a 504 by a proxy
+    # that cuts a request at 60. Only URLs still wait in line, and those come
+    # back in seconds.
     poll-interval: ${VIRUSTOTAL_POLL_INTERVAL:20s}
     max-polls: ${VIRUSTOTAL_MAX_POLLS:6}
-    # Whether an upload proceeds when VirusTotal gives no verdict at all --
-    # unreachable, rate limited, or still analysing after the last poll. A
-    # returned MALICIOUS or SUSPICIOUS verdict always rejects regardless.
+    # Whether an upload proceeds when VirusTotal will not take the submission
+    # at all -- unreachable, or out of quota -- meaning nothing was scanned
+    # and nothing was queued to scan it later. Content VirusTotal already
+    # knows to be MALICIOUS or SUSPICIOUS is rejected regardless, before a
+    # byte is stored, and that is the check that catches malware.
     #
-    # Off: unscanned content is not stored. On: it is, which means the way to
-    # get any file past the guard is to upload something VirusTotal has never
-    # seen -- a description of novel malware. Turn it on only to keep uploads
-    # working through a VirusTotal outage, and turn it back off after.
+    # Off: content nothing could be learned about is not stored. On: it is.
+    # Turn it on only to keep uploads working through a VirusTotal outage,
+    # and turn it back off after.
     fail-open: ${VIRUSTOTAL_FAIL_OPEN:false}
 logging:
   level:
