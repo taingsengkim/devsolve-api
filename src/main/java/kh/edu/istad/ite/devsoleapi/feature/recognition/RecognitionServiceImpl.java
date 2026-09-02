@@ -107,14 +107,6 @@ public class RecognitionServiceImpl implements RecognitionService {
             UUID awardedBy
     ) {
 
-        UserProfile user = userProfileRepository
-                .findById(request.userId())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "User profile not found: " + request.userId()
-                        )
-                );
-
         Report report = reportRepository
                 .findById(request.reportId())
                 .orElseThrow(() ->
@@ -123,34 +115,28 @@ public class RecognitionServiceImpl implements RecognitionService {
                         )
                 );
 
-        Program program = programRepository
-                .findById(request.programId())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Program not found: " + request.programId()
-                        )
-                );
+        // The report is the whole subject of the award, and it already knows
+        // which program was tested and who tested it. Both are read off it
+        // rather than out of the request body — deriving them is what makes it
+        // impossible for a triager to pin somebody else's finding to another
+        // program, or attribute it to another user, on a feed that is public.
+        //
+        // They were once looked up from the body and rejected on a mismatch,
+        // which enforced the same rule but made the client restate two facts
+        // it had just been served. A client that restated the program wrongly
+        // got "Program not found" for a program sitting on the report in front
+        // of it, and no correct request was possible until the client was
+        // fixed. What the body says now is a hint, and a wrong hint is a
+        // logged warning rather than a wall.
+        Program program = report.getProgram();
+        UserProfile user = report.getReporter();
 
-        // The report already knows which program was tested and who tested it.
-        // Those two facts are checked against the request rather than taken
-        // from it: trusting the body let a triager pin somebody else's finding
-        // to any program, and attribute it to any user, on a feed that is
-        // public.
-        if (!report.getProgram().getId().equals(program.getId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Report " + report.getId()
-                            + " was not submitted to program " + program.getId()
-            );
-        }
-
-        if (!report.getReporter().getId().equals(user.getId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Recognition can only be awarded to the researcher who "
-                            + "reported the finding"
-            );
-        }
+        warnIfContradicted(
+                "program", request.programId(), program.getId(), report
+        );
+        warnIfContradicted(
+                "researcher", request.userId(), user.getId(), report
+        );
 
         if (report.getState() != ReportState.RESOLVED) {
             throw new ResponseStatusException(
@@ -194,9 +180,9 @@ public class RecognitionServiceImpl implements RecognitionService {
 
         Recognition recognition = new Recognition();
 
-        recognition.setUserId(request.userId());
-        recognition.setProgramId(request.programId());
-        recognition.setReportId(request.reportId());
+        recognition.setUserId(user.getId());
+        recognition.setProgramId(program.getId());
+        recognition.setReportId(report.getId());
         recognition.setTitle(request.title());
         recognition.setDescription(request.description());
         recognition.setAwardedBy(awardedBy);
@@ -458,6 +444,33 @@ public class RecognitionServiceImpl implements RecognitionService {
         return paid
                 ? HacktivityEventType.BOUNTY_AWARDED
                 : HacktivityEventType.RECOGNITION_AWARDED;
+    }
+
+
+    /**
+     * Says so when the request disagrees with the report about who or what it
+     * is crediting.
+     *
+     * <p>Logged rather than thrown. The award is settled from the report, so a
+     * stale id in the body cannot credit the wrong person or the wrong program
+     * — there is nothing here to refuse. It is still worth a line: a client
+     * that keeps sending the wrong program is a client with a bug, and this is
+     * the only place that can see it.
+     */
+    private void warnIfContradicted(
+            String subject,
+            UUID supplied,
+            UUID actual,
+            Report report
+    ) {
+
+        if (supplied != null && !supplied.equals(actual)) {
+            log.warn(
+                    "Recognition request named {} {} for report {}, whose {} "
+                            + "is {}; awarding against the report",
+                    subject, supplied, report.getId(), subject, actual
+            );
+        }
     }
 
 

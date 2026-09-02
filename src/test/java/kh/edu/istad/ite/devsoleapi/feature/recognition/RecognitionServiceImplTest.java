@@ -235,40 +235,92 @@ class RecognitionServiceImplTest {
         assertEquals(HttpStatus.FORBIDDEN, failure.getStatusCode());
     }
 
+    /**
+     * A body that names the wrong program does not sink the award. The program
+     * is a fact of the report, so it is read off the report — a client that
+     * restates it wrongly used to get "Program not found" for a program the
+     * server could see on the report in front of it.
+     */
     @Test
-    void reportFromAnotherProgramIsRejected() {
+    void aWrongProgramInTheBodyIsIgnoredInFavourOfTheReports() {
 
-        Program otherProgram = Program.builder()
-                .id(UUID.randomUUID())
-                .organizationId(organizationId)
-                .build();
-        report.setProgram(otherProgram);
+        UUID stale = UUID.randomUUID();
+        when(programRepository.findById(stale)).thenReturn(Optional.empty());
 
-        ResponseStatusException failure = assertThrows(
-                ResponseStatusException.class,
-                () -> recognitionService.awardRecognition(request(), triagerId)
+        recognitionService.awardRecognition(
+                new CreateRecognitionRequest(
+                        researcherId,
+                        stale,
+                        reportId,
+                        "SQL injection in the billing export",
+                        null
+                ),
+                triagerId
         );
 
-        assertEquals(HttpStatus.BAD_REQUEST, failure.getStatusCode());
-        verify(userProfileRepository, never())
-                .incrementRecognitionCount(any());
+        ArgumentCaptor<Recognition> saved =
+                ArgumentCaptor.forClass(Recognition.class);
+        verify(recognitionRepository).saveAndFlush(saved.capture());
+        assertEquals(programId, saved.getValue().getProgramId());
     }
 
+    /**
+     * The credit goes to whoever reported the finding, whoever the body names.
+     * Deriving it is what the mismatch check used to protect: a triager cannot
+     * attribute somebody else's finding to a friend on a public feed.
+     */
     @Test
     void recognitionCannotBeAttributedToSomebodyElse() {
 
-        UserProfile bystander = new UserProfile();
-        bystander.setId(UUID.randomUUID());
-        report.setReporter(bystander);
+        UserProfile reporter = new UserProfile();
+        reporter.setId(UUID.randomUUID());
+        report.setReporter(reporter);
 
-        ResponseStatusException failure = assertThrows(
-                ResponseStatusException.class,
-                () -> recognitionService.awardRecognition(request(), triagerId)
+        recognitionService.awardRecognition(
+                new CreateRecognitionRequest(
+                        researcherId,
+                        programId,
+                        reportId,
+                        "SQL injection in the billing export",
+                        null
+                ),
+                triagerId
         );
 
-        assertEquals(HttpStatus.BAD_REQUEST, failure.getStatusCode());
+        ArgumentCaptor<Recognition> saved =
+                ArgumentCaptor.forClass(Recognition.class);
+        verify(recognitionRepository).saveAndFlush(saved.capture());
+        assertEquals(reporter.getId(), saved.getValue().getUserId());
+
+        verify(userProfileRepository)
+                .incrementRecognitionCount(reporter.getId());
         verify(userProfileRepository, never())
-                .incrementRecognitionCount(any());
+                .incrementRecognitionCount(researcherId);
+    }
+
+    /**
+     * The report is the only id the caller has to get right.
+     */
+    @Test
+    void reportIdAloneIsEnoughToThankAResearcher() {
+
+        recognitionService.awardRecognition(
+                new CreateRecognitionRequest(
+                        null,
+                        null,
+                        reportId,
+                        "SQL injection in the billing export",
+                        null
+                ),
+                triagerId
+        );
+
+        ArgumentCaptor<Recognition> saved =
+                ArgumentCaptor.forClass(Recognition.class);
+        verify(recognitionRepository).saveAndFlush(saved.capture());
+        assertEquals(researcherId, saved.getValue().getUserId());
+        assertEquals(programId, saved.getValue().getProgramId());
+        assertEquals(reportId, saved.getValue().getReportId());
     }
 
     @Test
