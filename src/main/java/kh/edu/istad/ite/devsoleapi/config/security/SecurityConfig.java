@@ -224,7 +224,12 @@ public class SecurityConfig {
                         HttpMethod.GET,
                         "/api/v1/user-profiles/*/problems",
                         "/api/v1/user-profiles/*/solutions",
-                        "/api/v1/user-profiles/*/showcases"
+                        "/api/v1/user-profiles/*/showcases",
+                        // Has to sit above the catch-all below, not after it.
+                        // Matching is first-rule-wins, so the copy of this
+                        // that used to live at the bottom of the chain never
+                        // ran and the endpoint answered 401 to everyone.
+                        "/api/v1/user-profiles/*/recognitions"
                 ).permitAll()
                 .requestMatchers(
                         "/api/v1/user-profiles/**"
@@ -235,7 +240,10 @@ public class SecurityConfig {
                         "/api/v1/programs",
                         "/api/v1/programs/*",
                         "/api/v1/programs/handle/*",
-                        "/api/v1/programs/*/updates"
+                        "/api/v1/programs/*/updates",
+                        // The hall of thanks. Public for the same reason the
+                        // feed is: thanking somebody privately is just a note.
+                        "/api/v1/programs/*/thanks"
                 ).permitAll()
                 .requestMatchers(
                         HttpMethod.POST,
@@ -258,7 +266,8 @@ public class SecurityConfig {
                         HttpMethod.GET,
                         "/api/v1/organizations/slug/**",
                         "/api/v1/organizations/*",
-                        "/api/v1/organizations/{id}/programs"
+                        "/api/v1/organizations/{id}/programs",
+                        "/api/v1/organizations/*/thanks"
                 ).permitAll()
                 .requestMatchers("/api/v1/organizations/**").authenticated()
                 // Admin flag moderation endpoints
@@ -298,10 +307,6 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers(
                         "/api/v1/reputation/leaderboard"
-                ).permitAll()
-                .requestMatchers(
-                        HttpMethod.GET,
-                        "/api/v1/user-profiles/*/recognitions"
                 ).permitAll()
 
                 .anyRequest().authenticated()

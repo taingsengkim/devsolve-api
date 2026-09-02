@@ -19,17 +19,21 @@ import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.CreateRecognitionRequest;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.RecognitionResponse;
+import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.ThanksResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
+import kh.edu.istad.ite.devsoleapi.feature.reputation.ReputationPolicy;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -38,8 +42,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -253,6 +263,173 @@ public class RecognitionServiceImpl implements RecognitionService {
         return recognitionRepository
                 .findAllByUserId(userId, pageable)
                 .map(recognitionMapper::toResponse);
+    }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ThanksResponse> getProgramThanks(
+            UUID programId,
+            Pageable pageable
+    ) {
+
+        // Checked rather than left to return an empty board: a program that
+        // does not exist and one that has thanked nobody are different
+        // answers, and a page that renders "no thanks yet" for a mistyped id
+        // is the same lie the profile feed tab was telling.
+        if (!programRepository.existsById(programId)) {
+            throw new ResourceNotFoundException(
+                    "Program not found: " + programId
+            );
+        }
+
+        return rank(
+                recognitionRepository.tallyThanksByProgram(programId),
+                pageable
+        );
+    }
+
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ThanksResponse> getOrganizationThanks(
+            UUID organizationId,
+            Pageable pageable
+    ) {
+
+        if (!organizationRepository.existsById(organizationId)) {
+            throw new ResourceNotFoundException(
+                    "Organization not found: " + organizationId
+            );
+        }
+
+        return rank(
+                recognitionRepository
+                        .tallyThanksByOrganization(organizationId),
+                pageable
+        );
+    }
+
+
+    /**
+     * Folds the severity tallies into one row per researcher, ranks them, and
+     * pages the result.
+     *
+     * <p>Ranked and paged in memory rather than by the database. The tie-break
+     * needs the severity curve, which only {@link ReputationPolicy} knows how
+     * to apply and which is not a column — expressing it as a CASE in JPQL
+     * would be a second copy that drifts the day the curve is retuned. What is
+     * read instead is one grouped row per researcher and severity, bounded by
+     * how many people have been thanked here rather than by how many times.
+     */
+    private Page<ThanksResponse> rank(
+            List<RecognitionRepository.ThanksTally> tallies,
+            Pageable pageable
+    ) {
+
+        Map<UUID, ThanksStanding> standings = new LinkedHashMap<>();
+
+        tallies.forEach(tally -> standings
+                .computeIfAbsent(
+                        tally.getUserId(),
+                        id -> new ThanksStanding()
+                )
+                .add(
+                        tally.getSeverity(),
+                        tally.getThanks(),
+                        tally.getLastAwardedAt()
+                ));
+
+        if (standings.isEmpty()) {
+            return new PageImpl<>(List.of(), pageable, 0);
+        }
+
+        // Suspended and removed accounts do not appear, the same rule the
+        // leaderboard applies — and applied before paging, so their absence
+        // does not leave holes in the ranks.
+        Map<UUID, UserProfile> profiles = userProfileRepository
+                .findAllById(standings.keySet())
+                .stream()
+                .filter(profile -> profile.getStatus() == UserStatus.ACTIVE)
+                .collect(Collectors.toMap(
+                        UserProfile::getId,
+                        Function.identity()
+                ));
+
+        List<UUID> ranked = standings.entrySet().stream()
+                .filter(entry -> profiles.containsKey(entry.getKey()))
+                .sorted(mostThankedFirst())
+                .map(Map.Entry::getKey)
+                .toList();
+
+        int from = Math.min((int) pageable.getOffset(), ranked.size());
+        int to = Math.min(from + pageable.getPageSize(), ranked.size());
+
+        AtomicInteger rank = new AtomicInteger(from + 1);
+
+        List<ThanksResponse> content = ranked.subList(from, to).stream()
+                .map(id -> toThanksResponse(
+                        profiles.get(id),
+                        rank.getAndIncrement(),
+                        standings.get(id)
+                ))
+                .toList();
+
+        return new PageImpl<>(content, pageable, ranked.size());
+    }
+
+
+    /**
+     * Most thanked first. A tie goes to whoever was thanked for the harder
+     * findings, then to whoever was thanked most recently, and last to the id
+     * — equal rows in an undefined order page unstably, duplicating some
+     * researchers and skipping others.
+     *
+     * <p>Volume leads here, unlike the leaderboard, because nobody can farm
+     * it: a researcher cannot thank themselves, and an organization handing
+     * out forty thanks has decided forty times that it meant to.
+     */
+    private static Comparator<Map.Entry<UUID, ThanksStanding>>
+            mostThankedFirst() {
+
+        Comparator<Map.Entry<UUID, ThanksStanding>> byCount =
+                Comparator.comparingLong(entry ->
+                        entry.getValue().recognitions());
+
+        Comparator<Map.Entry<UUID, ThanksStanding>> byDepth =
+                Comparator.comparingInt(entry ->
+                        entry.getValue().severityWeight());
+
+        Comparator<Map.Entry<UUID, ThanksStanding>> byRecency =
+                Comparator.comparing(
+                        entry -> entry.getValue().lastThankedAt(),
+                        Comparator.nullsFirst(Comparator.naturalOrder())
+                );
+
+        return byCount.reversed()
+                .thenComparing(byDepth.reversed())
+                .thenComparing(byRecency.reversed())
+                .thenComparing(Map.Entry::getKey);
+    }
+
+
+    private ThanksResponse toThanksResponse(
+            UserProfile user,
+            int rank,
+            ThanksStanding standing
+    ) {
+
+        return new ThanksResponse(
+                rank,
+                user.getId(),
+                user.getUsername(),
+                user.getFullName(),
+                user.getAvatarUrl(),
+                user.getCountry(),
+                standing.recognitions(),
+                standing.bySeverity(),
+                standing.lastThankedAt()
+        );
     }
 
 
