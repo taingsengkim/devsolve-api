@@ -23,6 +23,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withResourceNotFound;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -151,6 +152,26 @@ class MeilisearchClientTest {
                 .andRespond(withResourceNotFound());
 
         assertTrue(client.newestValue("programs", "updatedAt").isEmpty());
+    }
+
+    /**
+     * The window right after an index is created. Meilisearch takes settings as
+     * a task and runs it in the background, so a sort against the field it was
+     * just given answers 400 for a moment. Aborting there left the index empty
+     * for a whole sync interval — and on a busy queue, several.
+     */
+    @Test
+    void treatsASortFieldThatIsNotReadyYetAsAnEmptyIndex() {
+        server.expect(once(), requestTo("http://meili:7700/indexes/programs/search"))
+                .andRespond(withBadRequest()
+                        .body("""
+                              {"message":"Index `programs`: Attribute `updatedAt` \
+                              is not sortable.","code":"invalid_search_sort"}
+                              """)
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        assertTrue(client.newestValue("programs", "updatedAt").isEmpty());
+        server.verify();
     }
 
     @Test

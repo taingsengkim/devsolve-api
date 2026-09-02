@@ -238,7 +238,25 @@ public class MeilisearchClient {
                     "sort", List.of(sortField + ":desc"),
                     "attributesToRetrieve", List.of(sortField)
             ));
-        } catch (MeilisearchNotFoundException notFound) {
+        } catch (MeilisearchException exception) {
+            // Not just a missing index. Settings are applied asynchronously, so
+            // for a moment after one is created the field it was just told to
+            // sort by is not sortable yet and this comes back 400 — which used
+            // to abort the whole pass and leave the index empty until the next
+            // one.
+            //
+            // Failing soft is right for every case that lands here, because
+            // "cannot tell" and "index is empty" call for the same thing:
+            // index everything. Writes are keyed by document id, so doing that
+            // when it was not strictly needed costs a pass, not correctness.
+            // Anything genuinely wrong with the connection surfaces a sentence
+            // later on the first write.
+            log.debug(
+                    "No watermark readable from index {} ({}); starting from "
+                            + "the beginning",
+                    uid,
+                    exception.getMessage()
+            );
             return OptionalLong.empty();
         }
 
