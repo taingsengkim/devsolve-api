@@ -45,6 +45,8 @@ dependencies {
 
     implementation 'io.minio:minio:9.0.3'
 
+    implementation 'com.anthropic:anthropic-java:2.34.0'
+
     implementation 'org.keycloak:keycloak-admin-client:26.0.11'
 
     implementation 'org.mapstruct:mapstruct:1.6.3'

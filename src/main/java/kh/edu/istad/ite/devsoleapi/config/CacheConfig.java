@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.config;
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.cache.LoggingCacheErrorHandler;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.problem.DuplicateJudgements;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramListingSlice;
@@ -69,6 +70,17 @@ public class CacheConfig implements CachingConfigurer {
      */
     private static final Duration SHOWCASE_LISTING_RANKED_TTL =
             Duration.ofSeconds(60);
+
+    /**
+     * Longer than everything else, because this one is not guarding against
+     * staleness — its key already covers the draft and every candidate the
+     * verdict was formed against, so an entry cannot go stale, only unused.
+     * What the TTL bounds is Redis, and what the length buys is the case the
+     * cache exists for: somebody editing a draft over half an hour and
+     * rechecking it, without paying for the same judgement twice.
+     */
+    private static final Duration PROBLEM_DUPLICATE_REVIEW_TTL =
+            Duration.ofHours(1);
 
     /**
      * Deliberately not the HTTP {@code ObjectMapper}: cached bytes outlive the
@@ -142,6 +154,14 @@ public class CacheConfig implements CachingConfigurer {
                             defaults
                                     .entryTtl(DEFAULT_TTL)
                                     .serializeValuesWith(problemDetailSerializer())
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.PROBLEM_DUPLICATE_REVIEW,
+                            defaults
+                                    .entryTtl(PROBLEM_DUPLICATE_REVIEW_TTL)
+                                    .serializeValuesWith(
+                                            duplicateReviewSerializer()
+                                    )
                     );
         };
     }
@@ -214,6 +234,15 @@ public class CacheConfig implements CachingConfigurer {
                 new JacksonJsonRedisSerializer<>(
                         CACHE_MAPPER,
                         CACHE_MAPPER.constructType(CachedProblem.class)
+                )
+        );
+    }
+
+    static SerializationPair<DuplicateJudgements> duplicateReviewSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(DuplicateJudgements.class)
                 )
         );
     }

@@ -153,6 +153,29 @@ app:
     # and commits after the pass that already read past it; without it that row
     # would never be indexed. Re-reading is free because writes are keyed by id.
     sync-overlap: ${MEILISEARCH_SYNC_OVERLAP:30s}
+  claude:
+    # Backs POST /api/v1/problems/duplicate-check, which reads a problem draft
+    # against what is already published and says which existing problems would
+    # answer it. Off by default: the endpoint still answers with plain keyword
+    # matches and reports aiReviewed=false, so a deployment without a key is one
+    # with a weaker duplicate check rather than a broken endpoint.
+    #
+    # This is the only path in the API that costs money per request. It is rate
+    # limited per account and its verdicts are cached in Redis for an hour.
+    enabled: ${CLAUDE_ENABLED:false}
+    api-key: ${CLAUDE_API_KEY:}
+    # Any model id the Messages API accepts. Deciding whether two differently
+    # worded bug reports are the same bug is exactly where a weaker model
+    # returns confident nonsense, so this defaults to the flagship; one call
+    # covers a whole draft rather than a keystroke.
+    model: ${CLAUDE_MODEL:claude-opus-5}
+    # Thinking tokens count against this, so it is not the size of the JSON that
+    # comes back.
+    max-tokens: ${CLAUDE_MAX_TOKENS:4096}
+    # Somebody pressed a button and is watching a spinner. Give up and fall back
+    # to keyword matches well before a browser would.
+    timeout: ${CLAUDE_TIMEOUT:30s}
+    max-retries: ${CLAUDE_MAX_RETRIES:1}
   virus-total:
     # VirusTotal scans are asynchronous. Submit a file or URL, then poll the
     # returned analysis id through this API's /api/v1/virus-total/analyses

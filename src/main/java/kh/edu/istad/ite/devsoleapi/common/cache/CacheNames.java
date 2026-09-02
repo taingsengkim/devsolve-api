@@ -83,6 +83,21 @@ public final class CacheNames {
     /** One problem's viewer-independent half, keyed by problem id. */
     public static final String PROBLEM_DETAIL = "problem-detail";
 
+    /**
+     * What a model decided about one problem draft, keyed by a digest of the
+     * draft and the exact candidates it was shown.
+     *
+     * <p>The only cache here that exists to save money rather than time. An
+     * author checking a draft, editing a word and checking again is the normal
+     * way to use the endpoint behind it, and each of those is a metered call.
+     *
+     * <p>Nothing evicts it and nothing needs to: the key already covers
+     * everything the answer depends on, so a change on either side is a new
+     * key rather than a stale entry.
+     */
+    public static final String PROBLEM_DUPLICATE_REVIEW =
+            "problem-duplicate-review";
+
     private CacheNames() {
     }
 }
