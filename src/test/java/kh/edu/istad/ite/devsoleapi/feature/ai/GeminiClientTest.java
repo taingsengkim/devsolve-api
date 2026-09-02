@@ -26,7 +26,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class GeminiClientTest {
 
     private static final String GENERATE_URL =
-            "https://gemini.test/v1beta/models/gemini-2.5-flash:generateContent";
+            "https://gemini.test/v1beta/models/gemini-3.6-flash:generateContent";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -40,7 +40,7 @@ class GeminiClientTest {
         props.setEnabled(true);
         props.setApiKey("test-key");
         props.setBaseUrl("https://gemini.test");
-        props.setModel("gemini-2.5-flash");
+        props.setModel("gemini-3.6-flash");
 
         RestClient.Builder builder = RestClient.builder();
         server = MockRestServiceServer.bindTo(builder).build();

@@ -42,12 +42,15 @@ public class GeminiProps {
     private String baseUrl = "https://generativelanguage.googleapis.com";
 
     /**
-     * Model names move faster than this file does — check what the console
-     * currently offers before assuming this one still exists. The Flash tier is
-     * the right shape for the work: one small classification per draft, on a
-     * path somebody is waiting on.
+     * Model names move faster than this file does, and Google retires them for
+     * new keys without warning — {@code gemini-2.5-flash} stood here until a
+     * 404 said it was no longer available. Set {@code GEMINI_MODEL} in the
+     * environment so the next retirement is a restart rather than a rebuild.
+     *
+     * <p>The Flash tier is the right shape for the work: one small
+     * classification per draft, on a path somebody is waiting on.
      */
-    private String model = "gemini-2.5-flash";
+    private String model = "gemini-3.6-flash";
 
     /**
      * The answer is a handful of short objects. This exists to bound a runaway

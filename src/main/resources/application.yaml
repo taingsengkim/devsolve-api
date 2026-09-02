@@ -170,10 +170,11 @@ app:
     enabled: ${GEMINI_ENABLED:false}
     api-key: ${GEMINI_API_KEY:}
     base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
-    # Model names move faster than this file does; check the console before
-    # assuming this one still exists. The Flash tier is the right shape for one
-    # small classification on a path somebody is waiting on.
-    model: ${GEMINI_MODEL:gemini-2.5-flash}
+    # Model names move faster than this file does, and Google retires them for
+    # new keys without warning. Set GEMINI_MODEL in the environment so the next
+    # retirement is a restart rather than a rebuild; a retired name answers 404
+    # with the replacement named in the message, which the fallback logs.
+    model: ${GEMINI_MODEL:gemini-3.6-flash}
     max-output-tokens: ${GEMINI_MAX_OUTPUT_TOKENS:4096}
     # A classification with a right answer, not a piece of writing.
     temperature: ${GEMINI_TEMPERATURE:0.0}
