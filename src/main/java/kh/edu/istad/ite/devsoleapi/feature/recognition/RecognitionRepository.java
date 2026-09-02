@@ -28,12 +28,15 @@ public interface RecognitionRepository extends JpaRepository<Recognition, UUID> 
      */
     @Query("""
             select recognition.userId as userId,
+                   recognition.programId as programId,
                    recognition.severity as severity,
                    count(recognition) as thanks,
                    max(recognition.awardedAt) as lastAwardedAt
             from Recognition recognition
             where recognition.programId = :programId
-            group by recognition.userId, recognition.severity
+            group by recognition.userId,
+                     recognition.programId,
+                     recognition.severity
             """)
     List<ThanksTally> tallyThanksByProgram(
             @Param("programId") UUID programId
@@ -53,13 +56,16 @@ public interface RecognitionRepository extends JpaRepository<Recognition, UUID> 
      */
     @Query("""
             select recognition.userId as userId,
+                   recognition.programId as programId,
                    recognition.severity as severity,
                    count(recognition) as thanks,
                    max(recognition.awardedAt) as lastAwardedAt
             from Recognition recognition, Program program
             where program.id = recognition.programId
               and program.organizationId = :organizationId
-            group by recognition.userId, recognition.severity
+            group by recognition.userId,
+                     recognition.programId,
+                     recognition.severity
             """)
     List<ThanksTally> tallyThanksByOrganization(
             @Param("organizationId") UUID organizationId
@@ -68,6 +74,14 @@ public interface RecognitionRepository extends JpaRepository<Recognition, UUID> 
     interface ThanksTally {
 
         UUID getUserId();
+
+        /**
+         * Which program these thanks came from. Grouped by as well as severity
+         * so an organization's board can say where a researcher's count was
+         * earned; it costs a row per program a researcher was thanked on,
+         * against a board that could not otherwise answer the question at all.
+         */
+        UUID getProgramId();
 
         /**
          * Never null on a database whose recognitions carry one, but read as

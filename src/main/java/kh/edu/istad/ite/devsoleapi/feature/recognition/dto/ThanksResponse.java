@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.recognition.dto;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,6 +23,12 @@ import java.util.UUID;
  * @param bySeverity   how many of those were for findings at each severity, so
  *                     a card can show depth rather than volume alone.
  *                     Severities nobody was thanked for are absent
+ * @param programs     which programs the thanks came from, by name. One entry
+ *                     on a program's board, which is the program asked for.
+ *                     On an organization's board it is every program of theirs
+ *                     the researcher was credited on — the board spans them
+ *                     all, so without this a row cannot say where its count
+ *                     came from
  */
 public record ThanksResponse(
 
@@ -40,6 +47,8 @@ public record ThanksResponse(
         long recognitions,
 
         Map<Severity, Long> bySeverity,
+
+        List<ProgramSummary> programs,
 
         LocalDateTime lastThankedAt
 ) {

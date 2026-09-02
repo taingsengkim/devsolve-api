@@ -1,17 +1,18 @@
 package kh.edu.istad.ite.devsoleapi.feature.recognition;
 
+import kh.edu.istad.ite.devsoleapi.common.exception.MissingPermissionException;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.Hacktivity;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.CreateRecognitionRequest;
+import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.ProgramSummary;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.ThanksResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
@@ -76,7 +77,7 @@ class RecognitionServiceImplTest {
     private OrganizationRepository organizationRepository;
 
     @Mock
-    private OrganizationMemberRepository organizationMemberRepository;
+    private OrganizationAuthorizationService organizationAuthorization;
 
     @Mock
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
@@ -102,10 +103,14 @@ class RecognitionServiceImplTest {
 
         organization = new Organization();
         organization.setId(organizationId);
+        organization.setName("CyberShield Inc.");
+        organization.setSlug("cybershield");
 
         program = Program.builder()
                 .id(programId)
                 .organizationId(organizationId)
+                .name("ACME Global Bug Bounty Program")
+                .handle("acme-global")
                 .build();
 
         report = Report.builder()
@@ -124,23 +129,21 @@ class RecognitionServiceImplTest {
                 .thenReturn(Optional.of(program));
         when(organizationRepository.findById(organizationId))
                 .thenReturn(Optional.of(organization));
-        when(organizationMemberRepository
-                .findByOrganizationIdAndUserId(organizationId, triagerId))
-                .thenReturn(Optional.of(membership(MembershipStatus.ACTIVE)));
+        when(organizationAuthorization.requirePermission(
+                organizationId,
+                triagerId,
+                OrganizationPermission.AWARD_REWARDS
+        )).thenReturn(organization);
+        when(programRepository.findAllById(any()))
+                .thenReturn(List.of(program));
+        when(organizationRepository.findAllById(any()))
+                .thenReturn(List.of(organization));
         when(recognitionRepository.existsByReportId(reportId))
                 .thenReturn(false);
         when(recognitionRepository.saveAndFlush(any(Recognition.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(userProfileRepository.incrementRecognitionCount(any()))
                 .thenReturn(1);
-    }
-
-    private OrganizationMember membership(MembershipStatus status) {
-        OrganizationMember member = new OrganizationMember();
-        member.setOrganization(organization);
-        member.setUser(researcher);
-        member.setStatus(status);
-        return member;
     }
 
     private CreateRecognitionRequest request() {
@@ -199,15 +202,42 @@ class RecognitionServiceImplTest {
         verify(hacktivityRepository).save(any(Hacktivity.class));
     }
 
+    /**
+     * The check asks the organization service, not the member table.
+     *
+     * <p>This is the regression guard for a 403 an organization's own owner
+     * got on their own program: ownership is not modelled as a membership row,
+     * so the member-table lookup this used to do found nothing and refused the
+     * one person who has every permission. Delegating also covers suspended
+     * members, viewers, and organizations that are no longer active.
+     */
+    @Test
+    void awardAsksTheOrganizationServiceWhoMayAward() {
+
+        recognitionService.awardRecognition(request(), triagerId);
+
+        verify(organizationAuthorization).requirePermission(
+                organizationId,
+                triagerId,
+                OrganizationPermission.AWARD_REWARDS
+        );
+    }
+
     @Test
     void outsiderCannotAwardRecognitionOnAnotherOrganizationsProgram() {
 
-        when(organizationMemberRepository
-                .findByOrganizationIdAndUserId(organizationId, triagerId))
-                .thenReturn(Optional.empty());
+        when(organizationAuthorization.requirePermission(
+                organizationId,
+                triagerId,
+                OrganizationPermission.AWARD_REWARDS
+        )).thenThrow(new MissingPermissionException(
+                OrganizationPermission.AWARD_REWARDS.name(),
+                "You do not have AWARD_REWARDS permission in organization "
+                        + organizationId
+        ));
 
-        ResponseStatusException failure = assertThrows(
-                ResponseStatusException.class,
+        MissingPermissionException failure = assertThrows(
+                MissingPermissionException.class,
                 () -> recognitionService.awardRecognition(request(), triagerId)
         );
 
@@ -216,23 +246,6 @@ class RecognitionServiceImplTest {
                 .saveAndFlush(any(Recognition.class));
         verify(userProfileRepository, never())
                 .incrementRecognitionCount(any());
-    }
-
-    @Test
-    void suspendedMemberCannotAwardRecognition() {
-
-        when(organizationMemberRepository
-                .findByOrganizationIdAndUserId(organizationId, triagerId))
-                .thenReturn(Optional.of(
-                        membership(MembershipStatus.SUSPENDED)
-                ));
-
-        ResponseStatusException failure = assertThrows(
-                ResponseStatusException.class,
-                () -> recognitionService.awardRecognition(request(), triagerId)
-        );
-
-        assertEquals(HttpStatus.FORBIDDEN, failure.getStatusCode());
     }
 
     /**
@@ -427,11 +440,26 @@ class RecognitionServiceImplTest {
             long count,
             LocalDateTime lastAwardedAt
     ) {
+        return thanks(userId, programId, severity, count, lastAwardedAt);
+    }
+
+    private RecognitionRepository.ThanksTally thanks(
+            UUID userId,
+            UUID onProgram,
+            Severity severity,
+            long count,
+            LocalDateTime lastAwardedAt
+    ) {
         return new RecognitionRepository.ThanksTally() {
 
             @Override
             public UUID getUserId() {
                 return userId;
+            }
+
+            @Override
+            public UUID getProgramId() {
+                return onProgram;
             }
 
             @Override
@@ -608,6 +636,83 @@ class RecognitionServiceImplTest {
 
         verify(recognitionRepository, never())
                 .tallyThanksByOrganization(unknown);
+    }
+
+    /**
+     * An organization's board spans every program it runs, so a row that only
+     * carried a count could not say where the count was earned.
+     */
+    @Test
+    void anOrganizationsBoardNamesTheProgramsBehindEachRow() {
+
+        UUID researcher =
+                UUID.fromString("00000000-0000-0000-0000-000000000b28");
+        UUID otherProgramId = UUID.randomUUID();
+        LocalDateTime when = LocalDateTime.now();
+
+        Program otherProgram = Program.builder()
+                .id(otherProgramId)
+                .organizationId(organizationId)
+                .name("ACME Payments")
+                .handle("acme-payments")
+                .build();
+
+        when(organizationRepository.existsById(organizationId))
+                .thenReturn(true);
+        when(recognitionRepository.tallyThanksByOrganization(organizationId))
+                .thenReturn(List.of(
+                        thanks(researcher, programId, Severity.HIGH, 2, when),
+                        thanks(researcher, otherProgramId, Severity.LOW, 1, when)
+                ));
+        when(userProfileRepository.findAllById(any()))
+                .thenReturn(List.of(activeProfile(researcher, "one")));
+        when(programRepository.findAllById(any()))
+                .thenReturn(List.of(program, otherProgram));
+
+        ThanksResponse row = recognitionService
+                .getOrganizationThanks(organizationId, PageRequest.of(0, 10))
+                .getContent()
+                .getFirst();
+
+        // By name, so the list does not reshuffle between requests.
+        assertEquals(
+                List.of("ACME Global Bug Bounty Program", "ACME Payments"),
+                row.programs().stream()
+                        .map(ProgramSummary::name)
+                        .toList()
+        );
+        assertEquals(
+                "CyberShield Inc.",
+                row.programs().getFirst().organizationName()
+        );
+    }
+
+    /**
+     * A program erased outright leaves the thank-you standing; the card simply
+     * cannot say where it came from. A blank entry would be worse.
+     */
+    @Test
+    void aThankYouOutlivesAProgramThatNoLongerResolves() {
+
+        UUID researcher =
+                UUID.fromString("00000000-0000-0000-0000-000000000c39");
+
+        when(programRepository.existsById(programId)).thenReturn(true);
+        when(recognitionRepository.tallyThanksByProgram(programId))
+                .thenReturn(List.of(
+                        thanks(researcher, Severity.HIGH, 4, LocalDateTime.now())
+                ));
+        when(userProfileRepository.findAllById(any()))
+                .thenReturn(List.of(activeProfile(researcher, "one")));
+        when(programRepository.findAllById(any())).thenReturn(List.of());
+
+        ThanksResponse row = recognitionService
+                .getProgramThanks(programId, PageRequest.of(0, 10))
+                .getContent()
+                .getFirst();
+
+        assertEquals(4, row.recognitions());
+        assertTrue(row.programs().isEmpty());
     }
 
     /**

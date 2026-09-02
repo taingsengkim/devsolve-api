@@ -5,7 +5,11 @@ import kh.edu.istad.ite.devsoleapi.feature.reputation.ReputationPolicy;
 
 import java.time.LocalDateTime;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * What one researcher has been thanked for by a program or an organization,
@@ -25,7 +29,23 @@ final class ThanksStanding {
 
     private LocalDateTime lastThankedAt;
 
-    void add(Severity severity, long count, LocalDateTime lastAwardedAt) {
+    /**
+     * Insertion-ordered so a board built from one query does not reshuffle its
+     * program lists between requests. Which programs, not how many each — the
+     * count on the card is the researcher's total here.
+     */
+    private final Set<UUID> programIds = new LinkedHashSet<>();
+
+    void add(
+            UUID programId,
+            Severity severity,
+            long count,
+            LocalDateTime lastAwardedAt
+    ) {
+
+        if (programId != null) {
+            programIds.add(programId);
+        }
 
         recognitions += count;
         severityWeight += ReputationPolicy.pointsFor(severity) * (int) count;
@@ -63,6 +83,10 @@ final class ThanksStanding {
 
     Map<Severity, Long> bySeverity() {
         return Map.copyOf(bySeverity);
+    }
+
+    List<UUID> programIds() {
+        return List.copyOf(programIds);
     }
 
     LocalDateTime lastThankedAt() {

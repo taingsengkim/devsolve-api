@@ -8,16 +8,16 @@ import kh.edu.istad.ite.devsoleapi.feature.hacktivity.Hacktivity;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityEventType;
 import kh.edu.istad.ite.devsoleapi.feature.hacktivity.HacktivityRepository;
 import kh.edu.istad.ite.devsoleapi.feature.organization.Organization;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMember;
-import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationMemberRepository;
+import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationRepository;
-import kh.edu.istad.ite.devsoleapi.feature.organization.enums.MembershipStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationEvent;
 import kh.edu.istad.ite.devsoleapi.feature.notification.NotificationType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.CreateRecognitionRequest;
+import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.ProgramSummary;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.RecognitionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.recognition.dto.ThanksResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
@@ -46,6 +46,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -72,7 +73,7 @@ public class RecognitionServiceImpl implements RecognitionService {
 
     private final OrganizationRepository organizationRepository;
 
-    private final OrganizationMemberRepository organizationMemberRepository;
+    private final OrganizationAuthorizationService organizationAuthorization;
 
     private final ApplicationEventPublisher eventPublisher;
 
@@ -145,16 +146,8 @@ public class RecognitionServiceImpl implements RecognitionService {
             );
         }
 
-        Organization organization = organizationRepository
-                .findById(program.getOrganizationId())
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Organization not found: "
-                                        + program.getOrganizationId()
-                        )
-                );
-
-        requireActiveMemberOf(organization.getId(), awardedBy);
+        Organization organization =
+                requireCanAwardFor(program.getOrganizationId(), awardedBy);
 
         // severity is settled by a database trigger and stays NULL while the
         // reported and triage severities disagree or a dispute is open (see
@@ -231,7 +224,10 @@ public class RecognitionServiceImpl implements RecognitionService {
                 "recognition:" + recognition.getId()
         ));
 
-        return recognitionMapper.toResponse(recognition);
+        return recognitionMapper.toResponse(
+                recognition,
+                summarise(program, organization)
+        );
     }
 
 
@@ -246,9 +242,23 @@ public class RecognitionServiceImpl implements RecognitionService {
             throw new ResourceNotFoundException("User not found: " + userId);
         }
 
-        return recognitionRepository
-                .findAllByUserId(userId, pageable)
-                .map(recognitionMapper::toResponse);
+        Page<Recognition> page = recognitionRepository
+                .findAllByUserId(userId, pageable);
+
+        // Resolved once for the page rather than per row. A researcher's
+        // recognitions cluster on a handful of programs, so this is two
+        // queries whichever way the page falls, against one per row for a list
+        // whose whole point is to name who thanked them.
+        Map<UUID, ProgramSummary> programs = summarise(
+                page.getContent().stream()
+                        .map(Recognition::getProgramId)
+                        .toList()
+        );
+
+        return page.map(recognition -> recognitionMapper.toResponse(
+                recognition,
+                programs.get(recognition.getProgramId())
+        ));
     }
 
 
@@ -321,6 +331,7 @@ public class RecognitionServiceImpl implements RecognitionService {
                         id -> new ThanksStanding()
                 )
                 .add(
+                        tally.getProgramId(),
                         tally.getSeverity(),
                         tally.getThanks(),
                         tally.getLastAwardedAt()
@@ -353,11 +364,24 @@ public class RecognitionServiceImpl implements RecognitionService {
 
         AtomicInteger rank = new AtomicInteger(from + 1);
 
-        List<ThanksResponse> content = ranked.subList(from, to).stream()
+        List<UUID> page = ranked.subList(from, to);
+
+        // Only the programs this page names, and only once each — the board
+        // spans every program an organization runs, and the rows below the
+        // fold are not worth a lookup.
+        Map<UUID, ProgramSummary> programs = summarise(
+                page.stream()
+                        .map(id -> standings.get(id).programIds())
+                        .flatMap(List::stream)
+                        .toList()
+        );
+
+        List<ThanksResponse> content = page.stream()
                 .map(id -> toThanksResponse(
                         profiles.get(id),
                         rank.getAndIncrement(),
-                        standings.get(id)
+                        standings.get(id),
+                        programs
                 ))
                 .toList();
 
@@ -402,7 +426,8 @@ public class RecognitionServiceImpl implements RecognitionService {
     private ThanksResponse toThanksResponse(
             UserProfile user,
             int rank,
-            ThanksStanding standing
+            ThanksStanding standing,
+            Map<UUID, ProgramSummary> programs
     ) {
 
         return new ThanksResponse(
@@ -414,7 +439,75 @@ public class RecognitionServiceImpl implements RecognitionService {
                 user.getCountry(),
                 standing.recognitions(),
                 standing.bySeverity(),
+                standing.programIds().stream()
+                        .map(programs::get)
+                        .filter(Objects::nonNull)
+                        .sorted(Comparator.comparing(
+                                ProgramSummary::name,
+                                Comparator.nullsLast(Comparator.naturalOrder())
+                        ))
+                        .toList(),
                 standing.lastThankedAt()
+        );
+    }
+
+
+    /**
+     * Names the programs behind a set of ids, in as few queries as there are
+     * kinds of thing to name.
+     *
+     * <p>A program whose id resolves to nothing is dropped rather than
+     * rendered as a blank card. Programs are soft-deleted, so this is the
+     * erased-outright case, and a row that has lost the program it was
+     * credited on is still a real thank-you — the count stands, the card just
+     * cannot say where.
+     */
+    private Map<UUID, ProgramSummary> summarise(List<UUID> programIds) {
+
+        List<UUID> wanted = programIds.stream().distinct().toList();
+
+        if (wanted.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Program> programs = programRepository.findAllById(wanted);
+
+        Map<UUID, Organization> organizations = organizationRepository
+                .findAllById(programs.stream()
+                        .map(Program::getOrganizationId)
+                        .distinct()
+                        .toList())
+                .stream()
+                .collect(Collectors.toMap(
+                        Organization::getId,
+                        Function.identity()
+                ));
+
+        return programs.stream()
+                .filter(program -> organizations
+                        .containsKey(program.getOrganizationId()))
+                .collect(Collectors.toMap(
+                        Program::getId,
+                        program -> summarise(
+                                program,
+                                organizations.get(program.getOrganizationId())
+                        )
+                ));
+    }
+
+
+    private ProgramSummary summarise(
+            Program program,
+            Organization organization
+    ) {
+
+        return new ProgramSummary(
+                program.getId(),
+                program.getName(),
+                program.getHandle(),
+                organization.getId(),
+                organization.getName(),
+                organization.getSlug()
         );
     }
 
@@ -475,35 +568,48 @@ public class RecognitionServiceImpl implements RecognitionService {
 
 
     /**
-     * Only somebody who currently works for the organization behind the
-     * program may recognise a finding against it. The controller's role check
-     * proves the caller is <em>a</em> member somewhere, not a member here —
-     * without this any member of any organization could award recognitions on
-     * every program on the platform. Platform admins are exempt so support can
-     * correct awards.
+     * Only somebody who can award for the organization behind the program may
+     * recognise a finding against it. The controller's role check proves the
+     * caller is staff <em>somewhere</em>, not staff here — without this any
+     * member of any organization could award recognitions on every program on
+     * the platform.
+     *
+     * <p>Delegated to {@link OrganizationAuthorizationService} rather than
+     * asking {@code organization_members} directly, which is what this did and
+     * why an organization's own owner was answered
+     *
+     * <pre>Only members of the organization running this program can award
+     * recognition for it</pre>
+     *
+     * on their own program. Ownership is not modelled as a membership row, so
+     * a lookup over members alone skips the one person who always has every
+     * permission — the trap that service already documents and handles. It
+     * also settles two things the local check never did: an inactive
+     * organization cannot hand out credit, and a VIEWER, who may read reports
+     * but award nothing, no longer can either.
+     *
+     * <p>{@link OrganizationPermission#AWARD_REWARDS} is the permission asked
+     * for. Recognition is the credit half of what that permission covers, and
+     * splitting it from bounties would mean a team could pay for a finding it
+     * is not allowed to thank anybody for.
+     *
+     * <p>Platform admins stay exempt so support can correct awards.
      */
-    private void requireActiveMemberOf(UUID organizationId, UUID userId) {
+    private Organization requireCanAwardFor(UUID organizationId, UUID userId) {
 
         if (AuthUtils.hasRole(PLATFORM_ADMIN_ROLE)) {
-            return;
+            return organizationRepository
+                    .findById(organizationId)
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Organization not found: " + organizationId
+                    ));
         }
 
-        OrganizationMember membership = organizationMemberRepository
-                .findByOrganizationIdAndUserId(organizationId, userId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.FORBIDDEN,
-                        "Only members of the organization running this program "
-                                + "can award recognition for it"
-                ));
-
-        if (membership.getStatus() != MembershipStatus.ACTIVE) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Your membership of this organization is "
-                            + membership.getStatus()
-                            + " and cannot award recognition"
-            );
-        }
+        return organizationAuthorization.requirePermission(
+                organizationId,
+                userId,
+                OrganizationPermission.AWARD_REWARDS
+        );
     }
 
 
