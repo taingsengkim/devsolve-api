@@ -10,8 +10,8 @@ import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.SetBucketPolicyArgs;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,11 +25,25 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class MinioObjectStorageService implements ObjectStorageService {
 
     private final MinioClient minioClient;
+
+    /**
+     * Signs download URLs against the address browsers use. Separate from
+     * {@link #minioClient} because a presigned URL is only valid for the host
+     * it was signed against — see {@code MinioConfig#minioPresignClient}.
+     */
+    private final MinioClient presignClient;
+
+    public MinioObjectStorageService(
+            MinioClient minioClient,
+            @Qualifier("minioPresignClient") MinioClient presignClient
+    ) {
+        this.minioClient = minioClient;
+        this.presignClient = presignClient;
+    }
 
     @Value("${minio.bucket}")
     private String bucket;
@@ -111,7 +125,7 @@ public class MinioObjectStorageService implements ObjectStorageService {
             Duration validity
     ) {
         try {
-            String url = minioClient.getPresignedObjectUrl(
+            String url = presignClient.getPresignedObjectUrl(
                     GetPresignedObjectUrlArgs.builder()
                             .method(Http.Method.GET)
                             .bucket(bucket)
