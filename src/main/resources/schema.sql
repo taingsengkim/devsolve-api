@@ -1240,6 +1240,55 @@ END
 $$^^^
 
 
+-- The severity a recognition was awarded at.
+--
+-- The CREATE TABLE above declares it, which is enough for a database built
+-- from this script and no use at all to one that already had the table:
+-- CREATE TABLE IF NOT EXISTS does nothing to a table that exists, so every
+-- database created before the column was added to the entity has been missing
+-- it ever since. Hibernate names every column of an entity in its SELECT, so
+-- the miss does not degrade anything gracefully — it failed the statement.
+-- The public hacktivity feed left joins recognitions, so it answered every
+-- caller, on every page, with
+--   ERROR: column r2_0.severity does not exist
+-- while its neighbours stayed green. The one endpoint that never joined
+-- recognitions, /hacktivity/stats, kept working, which is what made this look
+-- like a feed bug rather than a missing column.
+--
+-- Added nullable, backfilled, then tightened, the same shape disclosure_status
+-- uses above: an existing row has an answer to this, it just lives on the
+-- report.
+DO $$
+BEGIN
+    IF to_regclass('public.recognitions') IS NOT NULL THEN
+
+        ALTER TABLE public.recognitions
+            ADD COLUMN IF NOT EXISTS severity public.severity_enum;
+
+        -- Copied column to column rather than written as literals. The enum's
+        -- labels differ between a database Hibernate built and one this script
+        -- did, and a copy needs no literal to get wrong.
+        UPDATE public.recognitions recognition
+           SET severity = report.severity
+          FROM public.reports report
+         WHERE report.id = recognition.report_id
+           AND recognition.severity IS NULL
+           AND report.severity IS NOT NULL;
+
+        -- Only once every row has one. A recognition whose report severity is
+        -- still unsettled cannot be filled in from anywhere, and failing this
+        -- statement would abort the rest of the script with it.
+        IF NOT EXISTS (
+            SELECT 1 FROM public.recognitions WHERE severity IS NULL
+        ) THEN
+            ALTER TABLE public.recognitions
+                ALTER COLUMN severity SET NOT NULL;
+        END IF;
+    END IF;
+END
+$$^^^
+
+
 -- What each feed row says happened, as a stored fact rather than something a
 -- reader infers from which nested object came back non-null.
 --
