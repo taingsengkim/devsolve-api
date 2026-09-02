@@ -13,6 +13,10 @@ import java.util.UUID;
  *                         the program is what was tested, the organization is
  *                         who said thank you, and a researcher's profile shows
  *                         both
+ * @param organizationLogoUrl the organization's mark, so a card can show who
+ *                         thanked somebody rather than only naming them. Null
+ *                         until the organization uploads one, so a client
+ *                         still needs a fallback
  */
 public record ProgramSummary(
 
@@ -26,6 +30,8 @@ public record ProgramSummary(
 
         String organizationName,
 
-        String organizationSlug
+        String organizationSlug,
+
+        String organizationLogoUrl
 ) {
 }

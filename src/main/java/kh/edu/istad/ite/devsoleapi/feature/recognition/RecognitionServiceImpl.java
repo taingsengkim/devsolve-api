@@ -507,7 +507,8 @@ public class RecognitionServiceImpl implements RecognitionService {
                 program.getHandle(),
                 organization.getId(),
                 organization.getName(),
-                organization.getSlug()
+                organization.getSlug(),
+                organization.getLogoUrl()
         );
     }
 
