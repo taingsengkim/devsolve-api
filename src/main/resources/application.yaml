@@ -127,6 +127,32 @@ app:
     #   {base-url}{invitation-path}/{invitationToken}
     base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
     invitation-path: ${FRONTEND_INVITATION_PATH:/invitations}
+  meilisearch:
+    # Backs GET /api/v1/search. Off by default: the indexes are derived from
+    # PostgreSQL and rebuildable at any time, so a deployment with no
+    # Meilisearch running is one without the search endpoint — which answers
+    # 503 — rather than a broken one. Nothing else in the API depends on it.
+    enabled: ${MEILISEARCH_ENABLED:false}
+    #   API on the host            -> http://localhost:7700
+    #   API inside the compose net -> http://devsolve-meilisearch:7700
+    url: ${MEILISEARCH_URL:http://localhost:7700}
+    # The master key, or any key allowed to write documents and settings.
+    api-key: ${MEILISEARCH_API_KEY:}
+    # Prepended to every index name, so one Meilisearch can serve staging and
+    # production without either reindexing over the other.
+    index-prefix: ${MEILISEARCH_INDEX_PREFIX:}
+    connect-timeout: ${MEILISEARCH_CONNECT_TIMEOUT:2s}
+    read-timeout: ${MEILISEARCH_READ_TIMEOUT:10s}
+    batch-size: ${MEILISEARCH_BATCH_SIZE:200}
+    # How long a newly published program can take to become findable. There is
+    # no write-path hook — the indexer polls updated_at — so this is the whole
+    # staleness budget.
+    sync-interval: ${MEILISEARCH_SYNC_INTERVAL:30s}
+    sync-initial-delay: ${MEILISEARCH_SYNC_INITIAL_DELAY:15s}
+    # How far back each pass re-reads. Covers a transaction that stamps a row
+    # and commits after the pass that already read past it; without it that row
+    # would never be indexed. Re-reading is free because writes are keyed by id.
+    sync-overlap: ${MEILISEARCH_SYNC_OVERLAP:30s}
   virus-total:
     # VirusTotal scans are asynchronous. Submit a file or URL, then poll the
     # returned analysis id through this API's /api/v1/virus-total/analyses

@@ -4,12 +4,14 @@ import jakarta.persistence.LockModeType;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -83,6 +85,31 @@ public interface OrganizationRepository extends JpaRepository<Organization, UUID
             @Param("pendingStatus") OrganizationStatus pendingStatus,
             @Param("activeStatus") OrganizationStatus activeStatus,
             @Param("rejectedStatus") OrganizationStatus rejectedStatus
+    );
+
+    /**
+     * Every organization changed at or after the cursor, oldest first, for the
+     * search index. Unfiltered so that a suspension or a soft delete reaches
+     * the indexer as a removal — see {@code ProgramRepository#findChangedSince}.
+     *
+     * <p>Keyed on {@code (updated_at, id)} rather than paged by offset, for the
+     * reason set out on {@code SyncCursor}: rows here are ordered by when they
+     * changed, and one of them changing mid-pass shifts every row behind it
+     * down one, which under an offset skips a row silently. A cursor starting
+     * at {@code (since, nil uuid)} reads the same rows an
+     * {@code updated_at >= since} would.
+     */
+    @Query("""
+            select organization
+            from Organization organization
+            where organization.updatedAt > :changedAt
+               or (organization.updatedAt = :changedAt and organization.id > :id)
+            order by organization.updatedAt asc, organization.id asc
+            """)
+    Slice<Organization> findChangedSince(
+            @Param("changedAt") LocalDateTime changedAt,
+            @Param("id") UUID id,
+            Pageable pageable
     );
 
     interface AdminOrganizationCounts {

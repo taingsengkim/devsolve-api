@@ -805,6 +805,10 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
         showCaseRepository.delete(showCase);
         deleteUnreferencedImages(orphanedImages, List.of());
+
+        // The row is gone, so nothing that watches updated_at will ever see
+        // this happen. Anything holding a copy has to be told.
+        eventPublisher.publishEvent(new ShowcaseHardDeletedEvent(showcaseId));
     }
 
     @Override

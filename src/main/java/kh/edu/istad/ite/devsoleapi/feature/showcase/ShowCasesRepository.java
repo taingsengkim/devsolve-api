@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.feature.showcase;
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -316,6 +317,33 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
             UUID authorId,
             String title,
             UUID id
+    );
+
+    /**
+     * Every showcase changed at or after the cursor, oldest first, for the
+     * search index. Unfiltered so that a rejection or a soft delete reaches the
+     * indexer as a removal — see {@code ProgramRepository#findChangedSince}.
+     *
+     * <p>The graph is the same one the public listing uses, and for the same
+     * reason: the document carries the author's name and the category's, so
+     * without it a page of two hundred costs four hundred extra selects.
+     *
+     * <p>Keyed on {@code (updated_at, id)} rather than paged by offset — see
+     * {@code SyncCursor} for why an offset over rows ordered by change time
+     * skips rows.
+     */
+    @EntityGraph(attributePaths = {"author", "category"})
+    @Query("""
+            SELECT showcase
+            FROM ShowCases showcase
+            WHERE showcase.updatedAt > :changedAt
+               OR (showcase.updatedAt = :changedAt AND showcase.id > :id)
+            ORDER BY showcase.updatedAt ASC, showcase.id ASC
+            """)
+    Slice<ShowCases> findChangedSince(
+            @Param("changedAt") LocalDateTime changedAt,
+            @Param("id") UUID id,
+            Pageable pageable
     );
 
     boolean existsByRepoUrl(

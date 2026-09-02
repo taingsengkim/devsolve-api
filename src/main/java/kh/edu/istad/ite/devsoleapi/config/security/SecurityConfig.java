@@ -309,6 +309,16 @@ public class SecurityConfig {
                         "/api/v1/reputation/leaderboard"
                 ).permitAll()
 
+                // Anonymous on the same terms as the listings it searches:
+                // every index behind it holds only what a public endpoint
+                // already serves. The admin half lives under /api/v1/admin and
+                // is caught by the ADMIN rule above.
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/search",
+                        "/api/v1/search/types"
+                ).permitAll()
+
                 .anyRequest().authenticated()
         );
 

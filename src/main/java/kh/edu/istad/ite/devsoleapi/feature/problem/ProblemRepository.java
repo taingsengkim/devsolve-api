@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.enums.SdlcPhase;
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -14,6 +15,7 @@ import org.springframework.data.jpa.repository.Lock;
 import jakarta.persistence.LockModeType;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -306,4 +308,40 @@ public interface ProblemRepository extends JpaRepository<Problem, UUID> {
               )
             """)
     int incrementPublicViewCount(@Param("id") UUID id);
+
+    /**
+     * Every problem changed at or after the cursor, oldest first, for the
+     * search index.
+     *
+     * <p>Native, and that is the whole point of it. {@link Problem} carries
+     * {@code @SQLRestriction("deleted_at IS NULL")}, so a JPQL query here would
+     * quietly skip exactly the rows the indexer most needs to hear about: a
+     * problem that has just been deleted still has a document sitting in
+     * Meilisearch, and nothing else would ever ask for it to be taken out.
+     * {@code @SQLRestriction} is applied to generated SQL, not to a query
+     * written out by hand, so this one sees the deleted rows.
+     *
+     * <p>Keyed on {@code (updated_at, id)} rather than paged by offset — see
+     * {@code SyncCursor} for why an offset over rows ordered by change time
+     * skips rows.
+     *
+     * <p>A {@link Slice} rather than a {@link Page} so no count query runs —
+     * which is also what lets this get away without a {@code countQuery}
+     * attribute.
+     */
+    @Query(
+            value = """
+                    SELECT p.*
+                    FROM public.problems p
+                    WHERE p.updated_at > :changedAt
+                       OR (p.updated_at = :changedAt AND p.id > :id)
+                    ORDER BY p.updated_at ASC, p.id ASC
+                    """,
+            nativeQuery = true
+    )
+    Slice<Problem> findChangedSince(
+            @Param("changedAt") LocalDateTime changedAt,
+            @Param("id") UUID id,
+            Pageable pageable
+    );
 }

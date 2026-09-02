@@ -53,6 +53,34 @@ public class AsyncConfig {
         return executor;
     }
 
+    /**
+     * The search index sync, kept off the scheduler thread.
+     *
+     * <p>{@code @Scheduled} methods across the whole application share one
+     * thread. A sync pass reads pages out of PostgreSQL and pushes them to
+     * Meilisearch, and a rebuild does that for every row of five tables — long
+     * enough to hold up every other timer in the application if it ran there.
+     *
+     * <p>One thread, because {@code SearchIndexSynchronizer} already refuses to
+     * start a pass while one is running: a second would have nothing to do.
+     * Queue of one for the same reason. Rejections are discarded rather than
+     * run on the caller — the caller is the scheduler thread this exists to
+     * protect, and a dropped pass costs nothing, since the next tick repeats it.
+     */
+    @Bean
+    public ThreadPoolTaskExecutor searchIndexTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(1);
+        executor.setQueueCapacity(1);
+        executor.setThreadNamePrefix("search-index-");
+        executor.setRejectedExecutionHandler(
+                new ThreadPoolExecutor.DiscardPolicy()
+        );
+        executor.initialize();
+        return executor;
+    }
+
     @Bean
     public WebMvcConfigurer webMvcConfigurer() {
         return new WebMvcConfigurer() {

@@ -5,6 +5,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -13,6 +14,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -308,6 +310,55 @@ public interface ProgramRepository extends JpaRepository<Program, UUID>, JpaSpec
     );
 
     List<Program> findByOrganizationId(UUID organizationId);
+
+    /**
+     * Every program changed at or after the cursor, oldest change first — the
+     * feed the search index is rebuilt from.
+     *
+     * <p>Deliberately unfiltered. A program that has just been paused, made
+     * private or deleted has to come back from here, because taking its
+     * document out of the index is exactly as important as putting one in, and
+     * a query that returned only public programs could never ask for that.
+     *
+     * <p>"Changed" is the later of the program's own timestamp and its
+     * organization's, and that is what stops an organization from taking its
+     * programs' visibility with it silently: suspending an organization hides
+     * every program under it but writes to no row in this table, so a plain
+     * {@code program.updated_at} key would leave those programs findable until
+     * somebody happened to edit them. It is also the timestamp the document
+     * itself carries, so the key this pages on, the watermark and the document
+     * all agree — the one arrangement in which a cursor cannot skip a row.
+     *
+     * <p>Left join rather than inner: a program whose organization row has gone
+     * missing entirely still has to come back, because it still has a document
+     * in the index that needs taking out. Postgres {@code greatest} ignores the
+     * null that leaves behind.
+     *
+     * <p>Keyed on that timestamp and the id rather than paged by offset — see
+     * {@code SyncCursor} for why an offset over rows ordered by change time
+     * skips rows.
+     *
+     * <p>A {@link Slice} rather than a {@link Page}: the caller pages until it
+     * runs out and never shows anyone a total, so the count query a Page would
+     * run on every page — over the whole table, during a rebuild — buys
+     * nothing.
+     */
+    @Query("""
+            select program
+            from Program program
+            left join Organization organization
+                on organization.id = program.organizationId
+            where greatest(program.updatedAt, organization.updatedAt) > :changedAt
+               or (greatest(program.updatedAt, organization.updatedAt) = :changedAt
+                   and program.id > :id)
+            order by greatest(program.updatedAt, organization.updatedAt) asc,
+                     program.id asc
+            """)
+    Slice<Program> findChangedSince(
+            @Param("changedAt") LocalDateTime changedAt,
+            @Param("id") UUID id,
+            Pageable pageable
+    );
 
     interface PublicProgramStatistics {
 

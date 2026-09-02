@@ -2,6 +2,7 @@ volumes:
   devsolve-db-vol:
   devsolve-kc-vol:
   devsolve-minio-data:
+  devsolve-meili-data:
 networks:
   devsolve:
     external: true
@@ -94,6 +95,35 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    restart: unless-stopped
+  meilisearch:
+    image: getmeili/meilisearch:v1.15
+    container_name: devsolve-meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      # Production mode: the master key is enforced, the bundled web search
+      # preview is off, and no analytics are sent anywhere.
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      # Localhost only. The API reaches this over the compose network, and an
+      # index holding every public listing has no business being open to the
+      # internet — the master key it would be protected by is the same key that
+      # can drop every index.
+      - "127.0.0.1:7700:7700"
+    volumes:
+      # Unlike Redis, this one is persisted. Everything in it is rebuildable
+      # from PostgreSQL, but rebuilding means reading five tables end to end,
+      # which is not what a container restart should cost.
+      - devsolve-meili-data:/meili_data
+    networks:
+      - devsolve
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z

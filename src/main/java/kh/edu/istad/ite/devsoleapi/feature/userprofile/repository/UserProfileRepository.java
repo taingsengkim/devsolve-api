@@ -5,11 +5,13 @@ import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.UUID;
 
@@ -95,6 +97,28 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, UUID> 
             @Param("activeStatus") UserStatus activeStatus,
             @Param("suspendedStatus") UserStatus suspendedStatus,
             @Param("removedStatus") UserStatus removedStatus
+    );
+
+    /**
+     * Every profile changed at or after the cursor, oldest first, for the
+     * search index. Unfiltered so that a suspension reaches the indexer as a
+     * removal — see {@code ProgramRepository#findChangedSince}.
+     *
+     * <p>Keyed on {@code (updated_at, id)} rather than paged by offset — see
+     * {@code SyncCursor} for why an offset over rows ordered by change time
+     * skips rows.
+     */
+    @Query("""
+            select profile
+            from UserProfile profile
+            where profile.updatedAt > :changedAt
+               or (profile.updatedAt = :changedAt and profile.id > :id)
+            order by profile.updatedAt asc, profile.id asc
+            """)
+    Slice<UserProfile> findChangedSince(
+            @Param("changedAt") LocalDateTime changedAt,
+            @Param("id") UUID id,
+            Pageable pageable
     );
 
     interface AdminUserCounts {
