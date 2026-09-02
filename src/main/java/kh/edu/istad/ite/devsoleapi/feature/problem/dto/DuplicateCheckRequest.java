@@ -15,11 +15,16 @@ import java.util.UUID;
  * characters and does not belong in a URL, in an access log, or in a proxy's
  * cache key.
  *
- * @param description optional — a title alone is enough to check, and the panel
- *                    opens long before the description is written. Supplying it
- *                    is what makes the answer good.
- * @param excludeId   the problem being edited, so it cannot match itself. Null
- *                    for a draft that has never been saved.
+ * @param description  optional — a title alone is enough to check, and the panel
+ *                     opens long before the description is written. Supplying
+ *                     it is what makes the answer good.
+ * @param errorMessage optional, and the highest-signal field here when it is
+ *                     present. Two people hitting one bug write different
+ *                     titles and paste the same stack trace, so this finds
+ *                     duplicates that share no prose at all. Send it as soon as
+ *                     the form has it.
+ * @param excludeId    the problem being edited, so it cannot match itself. Null
+ *                     for a draft that has never been saved.
  */
 public record DuplicateCheckRequest(
 
@@ -30,6 +35,10 @@ public record DuplicateCheckRequest(
         @Size(max = 20_000)
         @Schema(description = "Clipped before it reaches the model; sending the whole thing is fine.")
         String description,
+
+        @Size(max = 10_000)
+        @Schema(description = "The stack trace or error the author pasted, if the form has one yet.")
+        String errorMessage,
 
         UUID excludeId
 ) {

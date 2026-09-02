@@ -87,6 +87,7 @@ class ProblemDuplicateCandidates {
     List<DuplicateCandidate> find(
             String title,
             String description,
+            String errorMessage,
             UUID excludeId,
             int limit
     ) {
@@ -97,8 +98,13 @@ class ProblemDuplicateCandidates {
         // most likely to be a paraphrase of an older title, which is the match
         // worth showing at the top.
         collectLexical(ids, title, excludeId);
+        // Second, because an error message is the one field two people hitting
+        // the same bug write identically. It goes through the same trigram
+        // query — descriptions quote stack traces — and through the search
+        // index, which stores error messages as a field of their own.
+        collectLexical(ids, errorMessage, excludeId);
         collectLexical(ids, description, excludeId);
-        collectSemantic(ids, title, description, excludeId);
+        collectSemantic(ids, title, description, errorMessage, excludeId);
 
         if (ids.isEmpty()) {
             return List.of();
@@ -139,6 +145,11 @@ class ProblemDuplicateCandidates {
                     problem.getErrorMessage(),
                     problem.getStatus(),
                     solutionCounts.getOrDefault(id, 0L),
+                    // Read off the entity rather than counted in SQL: the
+                    // association is @BatchSize(50) and this loop is inside the
+                    // transaction, so the whole shortlist costs one extra
+                    // query — cheaper than a second aggregate round trip.
+                    problem.getAcceptedSolutions().size(),
                     problem.getViewCount()
             ));
         }
@@ -178,14 +189,19 @@ class ProblemDuplicateCandidates {
             LinkedHashSet<UUID> ids,
             String title,
             String description,
+            String errorMessage,
             UUID excludeId
     ) {
         if (!meilisearch.isEnabled()) {
             return;
         }
 
+        // Error message ahead of the description, because the query is clipped
+        // and whatever falls off the end is not searched. Of the two, the one
+        // worth keeping is the one that is identical between duplicates.
         String query = clip(
-                (title + " " + orEmpty(description)).trim(),
+                (title + " " + orEmpty(errorMessage) + " " + orEmpty(description))
+                        .trim(),
                 MAX_SEARCH_QUERY_LENGTH
         );
         if (query.length() < MIN_NEEDLE_LENGTH) {

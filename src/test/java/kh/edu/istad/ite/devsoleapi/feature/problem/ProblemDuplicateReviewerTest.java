@@ -36,7 +36,7 @@ class ProblemDuplicateReviewerTest {
 
     @Test
     void doesNotSpendARequestOnAnEmptyCandidateList() {
-        assertTrue(reviewer.review("fp", "a title", "a description", List.of())
+        assertTrue(reviewer.review("fp", "a title", "a description", "", List.of())
                 .safeMatches()
                 .isEmpty());
 
@@ -49,6 +49,7 @@ class ProblemDuplicateReviewerTest {
                 "fp",
                 "OAuth callback loses the PKCE verifier",
                 "It fails about one time in five.",
+                "IllegalStateException: pkce verifier missing",
                 List.of(candidate("The verifier is gone by the callback."))
         );
 
@@ -56,18 +57,23 @@ class ProblemDuplicateReviewerTest {
 
         assertTrue(prompt.contains("OAuth callback loses the PKCE verifier"));
         assertTrue(prompt.contains("It fails about one time in five."));
+        // The highest-signal field the draft has: two people hitting one bug
+        // write different prose and paste the same trace.
+        assertTrue(prompt.contains("IllegalStateException: pkce verifier missing"));
         assertTrue(prompt.contains(CANDIDATE_ID.toString()));
         // The verdict turns on whether the older problem is answered, so the
-        // model has to be told.
+        // model has to be told — and an accepted answer says it louder than a
+        // reply count.
         assertTrue(prompt.contains("RESOLVED"));
         assertTrue(prompt.contains("3 published solutions"));
+        assertTrue(prompt.contains("1 accepted"));
     }
 
     @Test
     void clipsACandidateBodyRatherThanPayingForAllOfIt() {
         String essay = "x".repeat(5_000);
 
-        reviewer.review("fp", "a long standing problem", "", List.of(candidate(essay)));
+        reviewer.review("fp", "a long standing problem", "", "", List.of(candidate(essay)));
 
         String prompt = capturedUserMessage();
 
@@ -75,9 +81,33 @@ class ProblemDuplicateReviewerTest {
         assertFalse(prompt.contains("x".repeat(601)));
     }
 
+    /** A stack trace is mostly framework internals after the first few frames. */
+    @Test
+    void clipsTheDraftsOwnStackTraceToo() {
+        reviewer.review(
+                "fp",
+                "a long standing problem",
+                "",
+                "y".repeat(5_000),
+                List.of(candidate("body"))
+        );
+
+        String prompt = capturedUserMessage();
+
+        assertTrue(prompt.contains("y".repeat(600)));
+        assertFalse(prompt.contains("y".repeat(601)));
+    }
+
+    @Test
+    void leavesTheErrorLineOutWhenTheFormHasNotCollectedOneYet() {
+        reviewer.review("fp", "a long standing problem", "some prose", null, List.of(candidate("body")));
+
+        assertFalse(capturedUserMessage().contains("error:"));
+    }
+
     @Test
     void asksForTheJudgementShapeItKnowsHowToRead() {
-        reviewer.review("fp", "a long standing problem", "", List.of(candidate("body")));
+        reviewer.review("fp", "a long standing problem", "", "", List.of(candidate("body")));
 
         verify(ai).ask(anyString(), anyString(), eq(DuplicateJudgements.class));
     }
@@ -96,6 +126,7 @@ class ProblemDuplicateReviewerTest {
                 null,
                 ProblemStatus.RESOLVED,
                 3L,
+                1L,
                 120L
         );
     }

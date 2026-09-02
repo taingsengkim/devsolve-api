@@ -35,6 +35,14 @@ public class ProblemDuplicateReviewer {
     private static final int CANDIDATE_ERROR_LENGTH = 300;
 
     /**
+     * Longer than a candidate's, because the draft's is the one being matched
+     * from — a truncated stack trace can lose the frame that identifies the
+     * bug. Still bounded: past a few hundred characters a trace is repeating
+     * framework internals that every crash has in common.
+     */
+    private static final int DRAFT_ERROR_LENGTH = 600;
+
+    /**
      * Stable across requests, and marked as a cache breakpoint by the client,
      * so the instructions are not re-read at full price on every check.
      */
@@ -63,6 +71,9 @@ public class ProblemDuplicateReviewer {
             - Judge the underlying technical problem, not the wording. A \
             paraphrase of the same bug is a DUPLICATE even when it shares no \
             vocabulary with the draft.
+            - The same error or stack trace is strong evidence, but not proof: \
+            one generic exception is thrown by many unrelated causes. Read what \
+            the two are actually doing when it happens.
             - Sharing a language, a framework or a library is not a \
             relationship. Neither is sharing a generic symptom such as "it \
             crashes", "it hangs" or "it is slow". Two unrelated bugs that both \
@@ -77,7 +88,10 @@ public class ProblemDuplicateReviewer {
             shared, not that something is shared. Do not restate the \
             candidate's title, and do not mention that you are an AI or how you \
             reached the verdict.
-            - When a candidate is solved, the reason is a good place to say so.
+            - When a candidate is answered, the reason is a good place to say \
+            so — and an accepted answer is worth more than a count of replies. \
+            "accepted" in a candidate's status line means its author confirmed \
+            that answer worked.
             - id must be copied exactly from the candidate list. Never invent \
             an id and never return one that is not in the list.
             - Order the list with the most useful candidate first.
@@ -105,6 +119,7 @@ public class ProblemDuplicateReviewer {
             String fingerprint,
             String title,
             String description,
+            String errorMessage,
             List<DuplicateCandidate> candidates
     ) {
         if (candidates.isEmpty()) {
@@ -112,7 +127,7 @@ public class ProblemDuplicateReviewer {
         }
         return ai.ask(
                 SYSTEM_PROMPT,
-                userMessage(title, description, candidates),
+                userMessage(title, description, errorMessage, candidates),
                 DuplicateJudgements.class
         );
     }
@@ -120,12 +135,18 @@ public class ProblemDuplicateReviewer {
     private String userMessage(
             String title,
             String description,
+            String errorMessage,
             List<DuplicateCandidate> candidates
     ) {
         StringBuilder message = new StringBuilder(512);
 
         message.append("DRAFT\n")
                 .append("title: ").append(title).append('\n');
+        if (errorMessage != null && !errorMessage.isBlank()) {
+            message.append("error: ")
+                    .append(clip(errorMessage, DRAFT_ERROR_LENGTH))
+                    .append('\n');
+        }
         if (description != null && !description.isBlank()) {
             message.append("description: ")
                     .append(clip(description, DRAFT_BODY_LENGTH))
@@ -138,7 +159,9 @@ public class ProblemDuplicateReviewer {
                     .append("title: ").append(candidate.title()).append('\n')
                     .append("status: ").append(candidate.status())
                     .append(" (").append(candidate.solutionCount())
-                    .append(" published solutions)\n");
+                    .append(" published solutions, ")
+                    .append(candidate.acceptedSolutionCount())
+                    .append(" accepted)\n");
             if (candidate.errorMessage() != null
                     && !candidate.errorMessage().isBlank()) {
                 message.append("error: ")

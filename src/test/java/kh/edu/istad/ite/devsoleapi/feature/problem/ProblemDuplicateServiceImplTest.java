@@ -46,7 +46,7 @@ class ProblemDuplicateServiceImplTest {
         rateLimiter = mock(ProblemDuplicateRateLimiter.class);
 
         when(reviewer.isEnabled()).thenReturn(true);
-        when(candidates.find(anyString(), anyString(), any(), anyInt()))
+        when(candidates.find(anyString(), anyString(), anyString(), any(), anyInt()))
                 .thenReturn(List.of(solved(), open()));
 
         service = new ProblemDuplicateServiceImpl(
@@ -78,7 +78,7 @@ class ProblemDuplicateServiceImplTest {
     @Test
     void answersEmptyWithoutRetrievingAnythingWhenTheTitleIsTooShort() {
         DuplicateCheckResponse response = service.check(
-                new DuplicateCheckRequest("npm", null, null)
+                new DuplicateCheckRequest("npm", null, null, null)
         );
 
         assertFalse(response.aiReviewed());
@@ -98,6 +98,12 @@ class ProblemDuplicateServiceImplTest {
         DuplicateSuggestion first = response.suggestions().getFirst();
         assertEquals(SOLVED_ID, first.id());
         assertTrue(first.solved());
+        // The card still has something to read on the fallback path; only the
+        // model's three fields are missing.
+        assertEquals(
+                "The verifier is gone by the time the callback runs.",
+                first.excerpt()
+        );
         assertNull(first.verdict());
         assertNull(first.reason());
         // Nothing was spent, so nothing is metered.
@@ -106,7 +112,7 @@ class ProblemDuplicateServiceImplTest {
 
     @Test
     void fallsBackToKeywordMatchesWhenTheModelCannotAnswer() {
-        when(reviewer.review(anyString(), anyString(), anyString(), any()))
+        when(reviewer.review(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenThrow(new AiUnavailableException("timed out"));
 
         DuplicateCheckResponse response = service.check(request());
@@ -118,7 +124,7 @@ class ProblemDuplicateServiceImplTest {
 
     @Test
     void metersTheModelPathBeforeSpendingOnIt() {
-        when(reviewer.review(anyString(), anyString(), anyString(), any()))
+        when(reviewer.review(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(DuplicateJudgements.empty());
 
         service.check(request());
@@ -128,7 +134,7 @@ class ProblemDuplicateServiceImplTest {
 
     @Test
     void keepsOnlyVerdictsAboutCandidatesItActuallyOffered() {
-        when(reviewer.review(anyString(), anyString(), anyString(), any()))
+        when(reviewer.review(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(new DuplicateJudgements(List.of(
                         // An id that was never in the candidate list. A model
                         // that invents one is not trusted to have invented a
@@ -146,7 +152,7 @@ class ProblemDuplicateServiceImplTest {
 
     @Test
     void dropsVerdictsTheModelWasNotSureOf() {
-        when(reviewer.review(anyString(), anyString(), anyString(), any()))
+        when(reviewer.review(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(new DuplicateJudgements(List.of(
                         judgement(OPEN_ID, DuplicateVerdict.DUPLICATE, 20)
                 )));
@@ -159,7 +165,7 @@ class ProblemDuplicateServiceImplTest {
 
     @Test
     void takesTheTitleAndStatusFromTheDatabaseRatherThanFromTheModel() {
-        when(reviewer.review(anyString(), anyString(), anyString(), any()))
+        when(reviewer.review(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(new DuplicateJudgements(List.of(
                         judgement(SOLVED_ID, DuplicateVerdict.DUPLICATE, 90)
                 )));
@@ -168,6 +174,10 @@ class ProblemDuplicateServiceImplTest {
                 service.check(request()).suggestions().getFirst();
 
         assertEquals("PKCE verifier lost on the OAuth callback", suggestion.title());
+        assertEquals(
+                "The verifier is gone by the time the callback runs.",
+                suggestion.excerpt()
+        );
         assertEquals(ProblemStatus.RESOLVED, suggestion.status());
         assertTrue(suggestion.solved());
         assertEquals(3L, suggestion.solutionCount());
@@ -176,7 +186,7 @@ class ProblemDuplicateServiceImplTest {
 
     @Test
     void putsDuplicatesBeforeMerelyRelatedProblemsWhateverOrderTheModelUsed() {
-        when(reviewer.review(anyString(), anyString(), anyString(), any()))
+        when(reviewer.review(anyString(), anyString(), anyString(), anyString(), any()))
                 .thenReturn(new DuplicateJudgements(List.of(
                         judgement(OPEN_ID, DuplicateVerdict.RELATED, 99),
                         judgement(SOLVED_ID, DuplicateVerdict.DUPLICATE, 55)
@@ -191,7 +201,7 @@ class ProblemDuplicateServiceImplTest {
 
     @Test
     void doesNotCallTheModelWhenNothingWasRetrieved() {
-        when(candidates.find(anyString(), anyString(), any(), anyInt()))
+        when(candidates.find(anyString(), anyString(), anyString(), any(), anyInt()))
                 .thenReturn(List.of());
 
         DuplicateCheckResponse response = service.check(request());
@@ -199,7 +209,7 @@ class ProblemDuplicateServiceImplTest {
         assertFalse(response.aiReviewed());
         assertTrue(response.suggestions().isEmpty());
         verify(reviewer, never())
-                .review(anyString(), anyString(), anyString(), any());
+                .review(anyString(), anyString(), anyString(), anyString(), any());
         verifyNoInteractions(rateLimiter);
     }
 
@@ -207,6 +217,7 @@ class ProblemDuplicateServiceImplTest {
         return new DuplicateCheckRequest(
                 "OAuth callback loses the PKCE verifier",
                 "Authorization code flow with PKCE fails intermittently.",
+                "IllegalStateException: pkce verifier missing",
                 null
         );
     }
@@ -232,6 +243,7 @@ class ProblemDuplicateServiceImplTest {
                 null,
                 ProblemStatus.RESOLVED,
                 3L,
+                1L,
                 120L
         );
     }
@@ -243,6 +255,7 @@ class ProblemDuplicateServiceImplTest {
                 "SameSite=Lax drops the cookie on the cross-site hop.",
                 "missing session",
                 ProblemStatus.PUBLISHED,
+                0L,
                 0L,
                 40L
         );
