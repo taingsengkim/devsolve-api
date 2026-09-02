@@ -7,11 +7,13 @@ import java.util.List;
 /**
  * What the model hands back, and the schema it is constrained to.
  *
- * <p>These records are the contract in both directions: the Anthropic SDK
- * derives a JSON schema from their components and the API is held to it, so
- * there is no parsing here and no "the model returned prose today" branch. They
- * are also what goes into Redis, keyed by a fingerprint of the draft and the
- * candidate ids, which is why they hold ids rather than object references.
+ * <p>These records are the contract in both directions. {@code GeminiSchemas}
+ * derives a JSON schema from their components and the model is held to it, so
+ * there is no "it returned prose today" branch to write — the single parse that
+ * remains, in the client, is of a document the API has already promised matches
+ * that schema. They are also what goes into Redis, keyed by a fingerprint of
+ * the draft and the candidate ids, which is why they hold ids rather than
+ * object references.
  *
  * <p>Wrapped in a record rather than being a bare list because a JSON schema
  * describes an object; a top-level array has nowhere to hang the field

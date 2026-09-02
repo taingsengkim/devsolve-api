@@ -15,9 +15,9 @@ import org.springframework.web.bind.annotation.RestController;
  * The considered half of "has somebody already asked this?".
  *
  * <p>Its own controller rather than another method on {@link ProblemController}
- * because it is the only endpoint in the API that spends money per call, and
- * that is worth being able to see in one file — along with the rate limit and
- * the fallback that go with it.
+ * because it is the only endpoint in the API that spends a third-party quota
+ * per call, and that is worth being able to see in one file — along with the
+ * rate limit and the fallback that go with it.
  *
  * <p>Authenticated, by the {@code /api/v1/problems/**} rule in the security
  * chain. The keyword sibling at {@code GET /api/v1/problems/related} is

@@ -9,22 +9,23 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 
 /**
- * How often one account may spend a Claude call on a duplicate check.
+ * How often one account may spend a model call on a duplicate check.
  *
  * <p>Every other limiter in this application is protecting other people from
- * one account. This one is also protecting the bill: the endpoint behind it is
- * the only path in the API that costs real money per request, and a form that
- * fires it on every keystroke — the exact thing the sibling
+ * one account. This one is also protecting a third-party quota: the endpoint
+ * behind it is the only path in the API that spends one, and a form that fires
+ * it on every keystroke — the exact thing the sibling
  * {@code /problems/related} endpoint is designed for — would be an expensive
- * mistake to discover from an invoice.
+ * mistake to discover from an invoice, or a cheap but total one to discover
+ * from a free tier going quiet at midday.
  *
  * <p>Two windows for the two ways that goes wrong. The burst window catches a
  * stuck retry or a missing debounce; the hourly one catches somebody working
  * through it deliberately. Both are generous against real use: checking a
  * draft five times while writing it is normal, fifty times is not.
  *
- * <p>Only reached on the path that actually calls Claude. A deployment with the
- * integration switched off serves keyword matches and is never limited.
+ * <p>Only reached on the path that actually calls the model. A deployment with
+ * the integration switched off serves keyword matches and is never limited.
  */
 @Component
 @RequiredArgsConstructor

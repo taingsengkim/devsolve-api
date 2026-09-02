@@ -1,6 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
-import kh.edu.istad.ite.devsoleapi.feature.ai.ClaudeClient;
+import kh.edu.istad.ite.devsoleapi.feature.ai.AiReviewClient;
 import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,15 +23,15 @@ class ProblemDuplicateReviewerTest {
 
     private static final UUID CANDIDATE_ID = UUID.randomUUID();
 
-    private ClaudeClient claude;
+    private AiReviewClient ai;
     private ProblemDuplicateReviewer reviewer;
 
     @BeforeEach
     void setUp() {
-        claude = mock(ClaudeClient.class);
-        when(claude.ask(anyString(), anyString(), any()))
+        ai = mock(AiReviewClient.class);
+        when(ai.ask(anyString(), anyString(), any()))
                 .thenReturn(DuplicateJudgements.empty());
-        reviewer = new ProblemDuplicateReviewer(claude);
+        reviewer = new ProblemDuplicateReviewer(ai);
     }
 
     @Test
@@ -40,7 +40,7 @@ class ProblemDuplicateReviewerTest {
                 .safeMatches()
                 .isEmpty());
 
-        verifyNoInteractions(claude);
+        verifyNoInteractions(ai);
     }
 
     @Test
@@ -79,12 +79,12 @@ class ProblemDuplicateReviewerTest {
     void asksForTheJudgementShapeItKnowsHowToRead() {
         reviewer.review("fp", "a long standing problem", "", List.of(candidate("body")));
 
-        verify(claude).ask(anyString(), anyString(), eq(DuplicateJudgements.class));
+        verify(ai).ask(anyString(), anyString(), eq(DuplicateJudgements.class));
     }
 
     private String capturedUserMessage() {
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
-        verify(claude).ask(anyString(), user.capture(), any());
+        verify(ai).ask(anyString(), user.capture(), any());
         return user.getValue();
     }
 

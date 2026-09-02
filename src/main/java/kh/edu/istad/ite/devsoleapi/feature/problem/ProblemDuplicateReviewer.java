@@ -1,7 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
-import kh.edu.istad.ite.devsoleapi.feature.ai.ClaudeClient;
+import kh.edu.istad.ite.devsoleapi.feature.ai.AiReviewClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
@@ -83,10 +83,10 @@ public class ProblemDuplicateReviewer {
             - Order the list with the most useful candidate first.
             """;
 
-    private final ClaudeClient claude;
+    private final AiReviewClient ai;
 
     public boolean isEnabled() {
-        return claude.isEnabled();
+        return ai.isEnabled();
     }
 
     /**
@@ -95,7 +95,7 @@ public class ProblemDuplicateReviewer {
      *                    the cached verdicts safe to reuse: change either side
      *                    and this changes, so a stale verdict cannot be served
      *                    against a candidate list that has moved on
-     * @throws kh.edu.istad.ite.devsoleapi.feature.ai.ClaudeUnavailableException
+     * @throws kh.edu.istad.ite.devsoleapi.feature.ai.AiUnavailableException
      *         if the model cannot answer. Deliberately not caught here: a
      *         failure must not be cached, and only the caller knows what to
      *         serve instead.
@@ -110,7 +110,7 @@ public class ProblemDuplicateReviewer {
         if (candidates.isEmpty()) {
             return DuplicateJudgements.empty();
         }
-        return claude.ask(
+        return ai.ask(
                 SYSTEM_PROMPT,
                 userMessage(title, description, candidates),
                 DuplicateJudgements.class

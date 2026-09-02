@@ -153,29 +153,34 @@ app:
     # and commits after the pass that already read past it; without it that row
     # would never be indexed. Re-reading is free because writes are keyed by id.
     sync-overlap: ${MEILISEARCH_SYNC_OVERLAP:30s}
-  claude:
+  gemini:
     # Backs POST /api/v1/problems/duplicate-check, which reads a problem draft
     # against what is already published and says which existing problems would
-    # answer it. Off by default: the endpoint still answers with plain keyword
-    # matches and reports aiReviewed=false, so a deployment without a key is one
-    # with a weaker duplicate check rather than a broken endpoint.
+    # answer it.
     #
-    # This is the only path in the API that costs money per request. It is rate
-    # limited per account and its verdicts are cached in Redis for an hour.
-    enabled: ${CLAUDE_ENABLED:false}
-    api-key: ${CLAUDE_API_KEY:}
-    # Any model id the Messages API accepts. Deciding whether two differently
-    # worded bug reports are the same bug is exactly where a weaker model
-    # returns confident nonsense, so this defaults to the flagship; one call
-    # covers a whole draft rather than a keystroke.
-    model: ${CLAUDE_MODEL:claude-opus-5}
-    # Thinking tokens count against this, so it is not the size of the JSON that
-    # comes back.
-    max-tokens: ${CLAUDE_MAX_TOKENS:4096}
+    # Off by default, and off is a working deployment: the endpoint still
+    # answers with plain keyword matches and reports aiReviewed=false. This is
+    # the only path in the API that spends a third-party quota per request, so
+    # it is rate limited per account and its verdicts are cached in Redis for
+    # an hour.
+    #
+    # Free tier keys come from aistudio.google.com and need no card. Note that
+    # the free tier may use what is sent to it to improve Google's products —
+    # what this endpoint sends is user-written problem drafts.
+    enabled: ${GEMINI_ENABLED:false}
+    api-key: ${GEMINI_API_KEY:}
+    base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+    # Model names move faster than this file does; check the console before
+    # assuming this one still exists. The Flash tier is the right shape for one
+    # small classification on a path somebody is waiting on.
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
+    max-output-tokens: ${GEMINI_MAX_OUTPUT_TOKENS:4096}
+    # A classification with a right answer, not a piece of writing.
+    temperature: ${GEMINI_TEMPERATURE:0.0}
+    connect-timeout: ${GEMINI_CONNECT_TIMEOUT:5s}
     # Somebody pressed a button and is watching a spinner. Give up and fall back
     # to keyword matches well before a browser would.
-    timeout: ${CLAUDE_TIMEOUT:30s}
-    max-retries: ${CLAUDE_MAX_RETRIES:1}
+    read-timeout: ${GEMINI_READ_TIMEOUT:30s}
   virus-total:
     # VirusTotal scans are asynchronous. Submit a file or URL, then poll the
     # returned analysis id through this API's /api/v1/virus-total/analyses

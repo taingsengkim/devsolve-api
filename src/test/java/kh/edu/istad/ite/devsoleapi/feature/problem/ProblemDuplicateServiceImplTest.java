@@ -1,6 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem;
 
-import kh.edu.istad.ite.devsoleapi.feature.ai.ClaudeUnavailableException;
+import kh.edu.istad.ite.devsoleapi.feature.ai.AiUnavailableException;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.DuplicateCheckRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.DuplicateCheckResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.DuplicateSuggestion;
@@ -107,7 +107,7 @@ class ProblemDuplicateServiceImplTest {
     @Test
     void fallsBackToKeywordMatchesWhenTheModelCannotAnswer() {
         when(reviewer.review(anyString(), anyString(), anyString(), any()))
-                .thenThrow(new ClaudeUnavailableException("timed out"));
+                .thenThrow(new AiUnavailableException("timed out"));
 
         DuplicateCheckResponse response = service.check(request());
 

@@ -8,7 +8,7 @@ import java.util.UUID;
  * One published problem that might be what the author is about to write, as it
  * travels from the retrieval step to the model and on into the response.
  *
- * <p>Plain values, detached from Hibernate on purpose. The Claude call that
+ * <p>Plain values, detached from Hibernate on purpose. The model call that
  * reads these takes seconds, and holding a transaction — and the connection
  * under it — open across a network call to a third party is how a pool runs
  * dry under load that a database would not have noticed.
