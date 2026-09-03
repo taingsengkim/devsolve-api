@@ -162,6 +162,8 @@ class OrganizationServiceImplTest {
         assertEquals(userId, profileCaptor.getValue().getId());
         assertEquals("owner@acme.com", profileCaptor.getValue().getEmail());
         assertEquals("Acme Owner", profileCaptor.getValue().getFullName());
+        // Typed with spaces, stored as the profile column accepts it.
+        assertEquals("+85512345678", profileCaptor.getValue().getPhone());
         assertEquals(
                 "Security Manager",
                 organizationCaptor.getValue().getOwnerJobTitle()
@@ -190,6 +192,7 @@ class OrganizationServiceImplTest {
                 "Acme Owner",
                 "Security Manager",
                 "owner@gmail.com",
+                "+85512345678",
                 "Password123!",
                 "Password123!",
                 "Acme Security",
@@ -216,6 +219,40 @@ class OrganizationServiceImplTest {
                 .saveAndFlush(any(Organization.class));
     }
 
+    /**
+     * The DTO pattern accepts any punctuation, so the digit count is the
+     * service's to enforce — and it has to happen before an account is created
+     * at the identity provider.
+     */
+    @Test
+    void registrationRejectsAPhoneNumberWithTooFewDigits() {
+        WebsiteUrlService websiteUrlService = new WebsiteUrlServiceImpl();
+        OrganizationServiceImpl service = createService(websiteUrlService);
+        OrganizationRequest request = requestWithPhone("(02) 39-91");
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.register(request)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(companyIdentityService, never()).register(any(), any(), any());
+    }
+
+    @Test
+    void registrationRejectsAPhoneNumberWithTooManyDigits() {
+        WebsiteUrlService websiteUrlService = new WebsiteUrlServiceImpl();
+        OrganizationServiceImpl service = createService(websiteUrlService);
+        OrganizationRequest request = requestWithPhone("+1234567890123456");
+
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service.register(request)
+        );
+
+        verify(companyIdentityService, never()).register(any(), any(), any());
+    }
+
     @Test
     void registrationRejectsMismatchedPasswords() {
         WebsiteUrlService websiteUrlService = new WebsiteUrlServiceImpl();
@@ -225,6 +262,7 @@ class OrganizationServiceImplTest {
                 request.fullName(),
                 request.jobTitle(),
                 request.email(),
+                request.phone(),
                 request.password(),
                 "DifferentPassword123!",
                 request.companyName(),
@@ -1530,6 +1568,7 @@ class OrganizationServiceImplTest {
                 "Acme Owner",
                 "Security Manager",
                 "owner@acme.com",
+                "+855 12 345 678",
                 "Password123!",
                 "Password123!",
                 "Acme Security",
@@ -1538,6 +1577,24 @@ class OrganizationServiceImplTest {
                 "11-50",
                 "Cambodia",
                 "We want to run a responsible disclosure program."
+        );
+    }
+
+    private OrganizationRequest requestWithPhone(String phone) {
+        OrganizationRequest request = validRequest();
+        return new OrganizationRequest(
+                request.fullName(),
+                request.jobTitle(),
+                request.email(),
+                phone,
+                request.password(),
+                request.confirmPassword(),
+                request.companyName(),
+                request.companyWebsite(),
+                request.industry(),
+                request.companySize(),
+                request.country(),
+                request.joiningReason()
         );
     }
 

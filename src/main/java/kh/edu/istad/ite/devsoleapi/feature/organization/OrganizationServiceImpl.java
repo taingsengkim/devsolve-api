@@ -113,6 +113,7 @@ public class OrganizationServiceImpl implements OrganizationService {
             );
         }
 
+        String phone = normalizePhone(request.phone());
         String slug = generateUniqueSlug(request.companyName());
         RegisteredCompany registeredCompany = companyIdentityService.register(
                 normalizedEmail,
@@ -137,6 +138,7 @@ public class OrganizationServiceImpl implements OrganizationService {
             ));
             owner.setEmail(registeredCompany.email());
             owner.setFullName(registeredCompany.fullName());
+            owner.setPhone(phone);
             owner.setStatus(UserStatus.ACTIVE);
             owner = userProfileRepository.saveAndFlush(owner);
 
@@ -1019,6 +1021,23 @@ public class OrganizationServiceImpl implements OrganizationService {
         return emailVerified
                 ? OrganizationNextAction.WAIT_FOR_REVIEW
                 : OrganizationNextAction.VERIFY_EMAIL;
+    }
+
+    /**
+     * Punctuation out, one optional leading {@code +} kept. The profile column
+     * accepts digits only, so the separators people type have to come off
+     * before the row is written rather than at flush, where the failure is a
+     * constraint violation naming a field the caller never sent.
+     */
+    private String normalizePhone(String phone) {
+        String digits = phone.replaceAll("[^0-9]", "");
+        if (digits.length() < 8 || digits.length() > 15) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Phone number must contain between 8 and 15 digits"
+            );
+        }
+        return phone.trim().startsWith("+") ? "+" + digits : digits;
     }
 
     private LocalDateTime verificationEmailCanBeResentAt(

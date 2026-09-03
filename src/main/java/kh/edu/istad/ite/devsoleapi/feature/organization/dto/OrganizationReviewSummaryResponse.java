@@ -18,6 +18,7 @@ public record OrganizationReviewSummaryResponse(
         UUID ownerId,
         String ownerFullName,
         String ownerEmail,
+        String ownerPhone,
         int submissionVersion,
         LocalDateTime createdAt
 ) {

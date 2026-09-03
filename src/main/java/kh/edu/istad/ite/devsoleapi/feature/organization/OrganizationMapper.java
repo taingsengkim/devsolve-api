@@ -117,6 +117,7 @@ public class OrganizationMapper {
                 owner.getId(),
                 owner.getFullName(),
                 owner.getEmail(),
+                owner.getPhone(),
                 organization.getSubmissionVersion(),
                 organization.getCreatedAt()
         );
