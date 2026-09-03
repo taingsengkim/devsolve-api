@@ -2544,3 +2544,28 @@ CREATE TABLE IF NOT EXISTS public.auto_approval_settings (
     updated_by  UUID,
     updated_at  TIMESTAMP(6) NOT NULL DEFAULT now()
 )^^^
+
+-- Reporter-named weakness ------------------------------------------------------
+--
+-- A reporter picks a class from the catalog, says they are not sure, or names
+-- one themselves. The third answer lands here rather than in public.weaknesses:
+-- the catalog is shared by every program and shown in every picker, so letting
+-- a submission write to it fills it with duplicates and typos everybody
+-- afterwards has to scroll past. Triage clears this when it settles the class.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL THEN
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS suggested_weakness VARCHAR(255);
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF to_regclass('public.report_drafts') IS NOT NULL THEN
+        ALTER TABLE public.report_drafts
+            ADD COLUMN IF NOT EXISTS suggested_weakness VARCHAR(255);
+    END IF;
+END
+$$^^^

@@ -145,6 +145,24 @@ public class Report extends BasedEntity {
     @JoinColumn(name = "weakness_id")
     private Weakness weakness;
 
+    /**
+     * A class the reporter named themselves because the catalog did not have
+     * it.
+     *
+     * <p>Free text on the report rather than a new catalog row: the catalog is
+     * shared by every program and shown in every picker, and letting a
+     * submission write to it would fill it with duplicates and typos that
+     * everybody afterwards has to scroll past. This keeps the reporter's own
+     * words attached to the finding they belong to, and leaves promoting a
+     * genuinely new class to an administrator.
+     *
+     * <p>Mutually exclusive with {@link #weakness}, and cleared when triage
+     * settles the classification — a report showing both a catalog entry and a
+     * suggestion is a report nobody can tell the class of.
+     */
+    @Column(name = "suggested_weakness", length = 255)
+    private String suggestedWeakness;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "asset_id")
     private ProgramAsset asset;

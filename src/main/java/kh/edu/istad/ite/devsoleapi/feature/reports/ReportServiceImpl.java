@@ -213,6 +213,7 @@ public class ReportServiceImpl implements ReportService {
                 request.assetId()
         );
         Weakness weakness = findActiveWeakness(request.weaknessId());
+        String suggestedWeakness = resolveSuggestedWeakness(request, weakness);
 
         if (request.reportedSeverity() == Severity.NONE) {
             throw badRequest(
@@ -254,6 +255,7 @@ public class ReportServiceImpl implements ReportService {
                 .cvssVector(trimToNull(request.cvssVector()))
                 .cvssScore(request.cvssScore())
                 .weakness(weakness)
+                .suggestedWeakness(suggestedWeakness)
                 .asset(asset)
                 .state(ReportState.NEW)
                 .disclosureStatus(DisclosureStatus.NOT_DISCLOSED)
@@ -402,6 +404,10 @@ public class ReportServiceImpl implements ReportService {
         Weakness weakness = findActiveWeakness(request.weaknessId());
         if (weakness != null) {
             report.setWeakness(weakness);
+            // Triage has settled the class, so the reporter's own wording stops
+            // being the answer. Left in place when triage assigns nothing, so a
+            // state-only re-triage does not throw away what they suggested.
+            report.setSuggestedWeakness(null);
         }
 
         // An administrator has already settled this report's severity. That
@@ -1658,6 +1664,30 @@ public class ReportServiceImpl implements ReportService {
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Active weakness not found"
                 ));
+    }
+
+    /**
+     * The reporter's own wording for a class the catalog does not carry.
+     *
+     * <p>Three answers are allowed and only three: a catalog entry, a name of
+     * their own, or neither — "not sure", which is what an honest reporter
+     * says about a bug they have not classified, and which triage settles
+     * later. Sending both is refused rather than picked between: the two
+     * disagree about the same field, and guessing which one the client meant
+     * is how a report ends up filed under something nobody chose.
+     */
+    private String resolveSuggestedWeakness(
+            CreateReportRequest request,
+            Weakness weakness
+    ) {
+        String suggested = trimToNull(request.suggestedWeakness());
+        if (suggested != null && weakness != null) {
+            throw badRequest(
+                    "Choose a weakness from the catalog or name your own, not "
+                            + "both"
+            );
+        }
+        return suggested;
     }
 
     private UserProfile findUserProfile(UUID userId) {

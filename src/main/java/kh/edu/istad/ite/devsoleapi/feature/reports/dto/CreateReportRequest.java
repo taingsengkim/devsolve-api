@@ -101,7 +101,25 @@ public record CreateReportRequest(
         )
         BigDecimal cvssScore,
 
+        /**
+         * The catalog entry the reporter picked, or null.
+         *
+         * <p>Null and {@code suggestedWeakness} null together means "not
+         * sure", which is a normal answer — triage classifies it. Sending both
+         * is refused: the two say different things about the same field.
+         */
         UUID weaknessId,
+
+        /**
+         * A class the reporter names themselves, for a weakness the catalog
+         * does not carry yet. Kept on the report; it does not create a catalog
+         * entry.
+         */
+        @Size(
+                max = 255,
+                message = "Weakness name must not exceed 255 characters"
+        )
+        String suggestedWeakness,
 
         UUID assetId
 ) {

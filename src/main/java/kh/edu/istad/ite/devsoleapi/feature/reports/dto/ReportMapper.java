@@ -37,6 +37,7 @@ public class ReportMapper {
                 report.getTriageSeverity(),
                 report.getSeverity(),
                 toWeaknessSummary(report),
+                report.getSuggestedWeakness(),
                 toAssetSummary(report),
                 report.getState(),
                 report.getDisclosureStatus(),

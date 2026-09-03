@@ -41,6 +41,15 @@ public record ReportResponse(
         Severity triageSeverity,
         Severity severity,
         WeaknessSummary weakness,
+
+        /**
+         * What the reporter called the class when the catalog did not have it.
+         * Null whenever {@code weakness} is set — at most one of the two is
+         * ever populated, and both null means nobody has classified the report
+         * yet.
+         */
+        String suggestedWeakness,
+
         AssetSummary asset,
         ReportState state,
         DisclosureStatus disclosureStatus,

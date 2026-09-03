@@ -199,7 +199,8 @@ class ReportDraftServiceImplTest {
         return new SaveReportDraftRequest(
                 null, null, null, null, null,
                 null, null, null, null, null,
-                null, null, null, null, null
+                null, null, null, null, null,
+                null
         );
     }
 

@@ -142,6 +142,109 @@ class ReportServiceImplTest {
         SecurityContextHolder.clearContext();
     }
 
+    /**
+     * The three answers a reporter may give about the weakness class, and the
+     * one combination that is refused.
+     */
+    @Test
+    void aReporterCanNameAWeaknessTheCatalogDoesNotHave() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        ProgramAsset asset = program.getAssets().getFirst();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().create(
+                program.getId(),
+                withWeakness(
+                        reportRequest(Severity.HIGH, asset.getId()),
+                        null,
+                        "  Prompt injection via tool output  "
+                )
+        );
+
+        ArgumentCaptor<Report> reportCaptor =
+                ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository).saveAndFlush(reportCaptor.capture());
+        assertEquals(
+                "Prompt injection via tool output",
+                reportCaptor.getValue().getSuggestedWeakness()
+        );
+        // Nothing was written to the shared catalog.
+        assertNull(reportCaptor.getValue().getWeakness());
+        verify(weaknessRepository, never())
+                .findByIdAndIsActiveTrue(any(UUID.class));
+    }
+
+    /** "Not sure" is a normal answer; triage classifies it later. */
+    @Test
+    void aReporterMayLeaveTheWeaknessUnset() {
+        UUID hackerId = UUID.randomUUID();
+        UserProfile hacker = user(hackerId);
+        Program program = activeApprovedProgram();
+        ProgramAsset asset = program.getAssets().getFirst();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(hacker));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(reportRepository.saveAndFlush(any(Report.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service().create(
+                program.getId(),
+                reportRequest(Severity.HIGH, asset.getId())
+        );
+
+        ArgumentCaptor<Report> reportCaptor =
+                ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository).saveAndFlush(reportCaptor.capture());
+        assertNull(reportCaptor.getValue().getWeakness());
+        assertNull(reportCaptor.getValue().getSuggestedWeakness());
+    }
+
+    /**
+     * Refused rather than picked between. The two say different things about
+     * one field, and guessing files the report under something nobody chose.
+     */
+    @Test
+    void aReporterCannotSendBothACatalogEntryAndTheirOwnName() {
+        UUID hackerId = UUID.randomUUID();
+        Program program = activeApprovedProgram();
+        ProgramAsset asset = program.getAssets().getFirst();
+        UUID weaknessId = UUID.randomUUID();
+        authenticate(hackerId, "USER");
+
+        when(userProfileRepository.findById(hackerId))
+                .thenReturn(Optional.of(user(hackerId)));
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(weaknessRepository.findByIdAndIsActiveTrue(weaknessId))
+                .thenReturn(Optional.of(weakness(weaknessId)));
+
+        CreateReportRequest request = withWeakness(
+                reportRequest(Severity.HIGH, asset.getId()),
+                weaknessId,
+                "Prompt injection via tool output"
+        );
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service().create(program.getId(), request)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(reportRepository, never()).saveAndFlush(any(Report.class));
+    }
+
     @Test
     void hackerCreatesPrivateReportForInScopeAsset() {
         UUID hackerId = UUID.randomUUID();
@@ -644,6 +747,7 @@ class ReportServiceImplTest {
                 Severity.CRITICAL,
                 "CVSS:3.1/AV:N/AC:H/PR:H/UI:R/S:U/C:L/I:N/A:N",
                 new java.math.BigDecimal("2.1"),
+                null,
                 null,
                 program.getAssets().getFirst().getId()
         );
@@ -1414,6 +1518,40 @@ class ReportServiceImplTest {
      * A minimal valid submission. Tests that care about one field override it
      * with a {@code with...} copy rather than repeating fourteen arguments.
      */
+    private CreateReportRequest withWeakness(
+            CreateReportRequest request,
+            UUID weaknessId,
+            String suggestedWeakness
+    ) {
+        return new CreateReportRequest(
+                request.title(),
+                request.vulnerabilityInformation(),
+                request.impact(),
+                request.stepsToReproduce(),
+                request.proofOfConcept(),
+                request.remediationRecommendation(),
+                request.targetEndpoint(),
+                request.environment(),
+                request.discoveredAt(),
+                request.referenceLinks(),
+                request.reportedSeverity(),
+                request.cvssVector(),
+                request.cvssScore(),
+                weaknessId,
+                suggestedWeakness,
+                request.assetId()
+        );
+    }
+
+    private Weakness weakness(UUID id) {
+        return Weakness.builder()
+                .id(id)
+                .cweId("CWE-284")
+                .name("Improper Access Control")
+                .isActive(true)
+                .build();
+    }
+
     private CreateReportRequest reportRequest(
             Severity reportedSeverity,
             UUID assetId
@@ -1430,6 +1568,7 @@ class ReportServiceImplTest {
                 null,
                 null,
                 reportedSeverity,
+                null,
                 null,
                 null,
                 null,

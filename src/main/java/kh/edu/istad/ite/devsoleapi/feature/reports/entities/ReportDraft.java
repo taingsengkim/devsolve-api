@@ -131,6 +131,10 @@ public class ReportDraft extends BasedEntity {
     @Column(name = "weakness_id")
     private UUID weaknessId;
 
+    /** The reporter's own wording, when they named a class themselves. */
+    @Column(name = "suggested_weakness", length = 255)
+    private String suggestedWeakness;
+
     @Column(name = "asset_id")
     private UUID assetId;
 }

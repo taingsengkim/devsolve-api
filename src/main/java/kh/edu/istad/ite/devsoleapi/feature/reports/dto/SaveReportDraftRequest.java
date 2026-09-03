@@ -112,6 +112,12 @@ public record SaveReportDraftRequest(
 
         UUID weaknessId,
 
+        @Size(
+                max = 255,
+                message = "Weakness name must not exceed 255 characters"
+        )
+        String suggestedWeakness,
+
         UUID assetId
 ) {
 }

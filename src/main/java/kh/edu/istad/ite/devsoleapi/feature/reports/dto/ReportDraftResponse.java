@@ -33,6 +33,7 @@ public record ReportDraftResponse(
         String cvssVector,
         BigDecimal cvssScore,
         UUID weaknessId,
+        String suggestedWeakness,
         UUID assetId,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

@@ -176,6 +176,7 @@ public class ReportDraftServiceImpl implements ReportDraftService {
         draft.setCvssVector(request.cvssVector());
         draft.setCvssScore(request.cvssScore());
         draft.setWeaknessId(request.weaknessId());
+        draft.setSuggestedWeakness(request.suggestedWeakness());
         draft.setAssetId(request.assetId());
     }
 
@@ -195,6 +196,7 @@ public class ReportDraftServiceImpl implements ReportDraftService {
                 draft.getCvssVector(),
                 draft.getCvssScore(),
                 draft.getWeaknessId(),
+                draft.getSuggestedWeakness(),
                 draft.getAssetId()
         );
     }
@@ -218,6 +220,7 @@ public class ReportDraftServiceImpl implements ReportDraftService {
                 draft.getCvssVector(),
                 draft.getCvssScore(),
                 draft.getWeaknessId(),
+                draft.getSuggestedWeakness(),
                 draft.getAssetId(),
                 draft.getCreatedAt(),
                 draft.getUpdatedAt()
