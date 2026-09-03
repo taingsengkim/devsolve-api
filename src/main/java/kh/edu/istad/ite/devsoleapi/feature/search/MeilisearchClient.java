@@ -46,7 +46,7 @@ public class MeilisearchClient {
 
     /**
      * Marked because there are two constructors here, and without it Spring
-     * `111111q                                                                                                                                     `at startup.
+     * looks for a no-argument one and fails at startup.
      */
     @Autowired
     public MeilisearchClient(MeilisearchProps props) {
