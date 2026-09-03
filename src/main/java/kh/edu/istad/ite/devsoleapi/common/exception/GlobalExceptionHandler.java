@@ -332,12 +332,14 @@ public class GlobalExceptionHandler {
             WebApplicationException exception,
             HttpServletRequest request
     ) {
+        Integer upstreamStatus = exception.getResponse() == null
+                ? null
+                : exception.getResponse().getStatus();
+
         log.error(
                 "Keycloak admin API refused {} with status {}",
                 request.getRequestURI(),
-                exception.getResponse() == null
-                        ? "unknown"
-                        : exception.getResponse().getStatus(),
+                upstreamStatus == null ? "unknown" : upstreamStatus,
                 exception
         );
 
@@ -345,7 +347,12 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_GATEWAY,
                 "The identity provider could not be reached or refused the "
                         + "request",
-                null,
+                // Published so the next one names itself instead of needing a
+                // log dig: 401/403 is credentials, 404 a missing realm or
+                // role, 500 Keycloak's own failure.
+                upstreamStatus == null
+                        ? null
+                        : Map.of("identityProviderStatus", upstreamStatus),
                 request
         );
     }

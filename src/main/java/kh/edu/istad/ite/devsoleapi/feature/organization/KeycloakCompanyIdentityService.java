@@ -76,15 +76,30 @@ public class KeycloakCompanyIdentityService
                     fullName.trim()
             );
 
+            UserResource userResource;
             try {
-                UserResource userResource = users.get(userId.toString());
+                userResource = users.get(userId.toString());
                 assignCompanyRole(userResource);
-                userResource.sendVerifyEmail();
-                return company;
             } catch (RuntimeException exception) {
                 delete(company);
                 throw exception;
             }
+
+            // Not fatal. The account exists and can sign in, and Keycloak
+            // answers 500 here whenever the realm has no SMTP server — which
+            // used to delete a perfectly good account and fail the whole
+            // registration. The caller re-sends from
+            // /organizations/me/verification-email.
+            try {
+                userResource.sendVerifyEmail();
+            } catch (RuntimeException exception) {
+                log.error(
+                        "Could not send the verification email for {}",
+                        normalizedEmail,
+                        exception
+                );
+            }
+            return company;
         }
     }
 
