@@ -28,6 +28,7 @@ public class AutoApprovalListener {
     private final ContentAutoApprover approver;
     private final ProblemService problemService;
     private final ShowCasesService showCasesService;
+    private final AutoApprovalHoldNotifier holdNotifier;
 
     @Async("autoApprovalTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -49,6 +50,10 @@ public class AutoApprovalListener {
                         event.contentId(),
                         decision.reason()
                 );
+                // The author is the one person waiting on this, and a hold they
+                // are never told about looks exactly like a queue nobody is
+                // working. Silent when the hold was not about their writing.
+                holdNotifier.notifyAuthor(event, decision.hold());
                 return;
             }
             if (publish(event)) {

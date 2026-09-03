@@ -8,7 +8,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -22,6 +24,11 @@ import static org.mockito.Mockito.when;
  *
  * <p>Every case here is really the same assertion: anything short of an
  * unambiguous yes leaves the post in the queue it was already in.
+ *
+ * <p>Each hold also asserts its {@link AutoApprovalHold}, because that is what
+ * decides whether the author hears about it. Getting the category wrong is not
+ * a visible bug — the post is held either way — it just means an author is
+ * either told nothing or told something about an outage they cannot act on.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -46,6 +53,7 @@ class ContentAutoApproverTest {
         AutoApprovalDecision decision = decide();
 
         assertTrue(decision.approved());
+        assertNull(decision.hold());
     }
 
     /**
@@ -56,7 +64,10 @@ class ContentAutoApproverTest {
     void nothingIsReviewedWhileTheSwitchIsOff() {
         when(settings.isEnabled(AutoApprovalTarget.PROBLEM)).thenReturn(false);
 
-        assertFalse(decide().approved());
+        AutoApprovalDecision decision = decide();
+
+        assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.NOT_CHECKED, decision.hold());
         verifyNoInteractions(reviewer);
     }
 
@@ -65,7 +76,10 @@ class ContentAutoApproverTest {
         when(settings.isEnabled(AutoApprovalTarget.PROBLEM)).thenReturn(true);
         when(reviewer.isEnabled()).thenReturn(false);
 
-        assertFalse(decide().approved());
+        AutoApprovalDecision decision = decide();
+
+        assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.NOT_CHECKED, decision.hold());
         verify(reviewer, never()).review(any(), any(), any());
     }
 
@@ -84,6 +98,7 @@ class ContentAutoApproverTest {
         );
 
         assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.UNSAFE, decision.hold());
         verify(reviewer, never()).review(any(), any(), any());
     }
 
@@ -94,7 +109,10 @@ class ContentAutoApproverTest {
                 new ContentApprovalVerdict(true, false, 99, "Targets a person")
         );
 
-        assertFalse(decide().approved());
+        AutoApprovalDecision decision = decide();
+
+        assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.UNSAFE, decision.hold());
     }
 
     /**
@@ -108,7 +126,10 @@ class ContentAutoApproverTest {
                 new ContentApprovalVerdict(false, true, 99, "A recipe")
         );
 
-        assertFalse(decide().approved());
+        AutoApprovalDecision decision = decide();
+
+        assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.OFF_TOPIC, decision.hold());
     }
 
     @Test
@@ -123,7 +144,10 @@ class ContentAutoApproverTest {
                 )
         );
 
-        assertFalse(decide().approved());
+        AutoApprovalDecision decision = decide();
+
+        assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.UNCLEAR, decision.hold());
     }
 
     @Test
@@ -143,7 +167,8 @@ class ContentAutoApproverTest {
 
     /**
      * Out of quota, unreachable, refused. The post waits, which is what it
-     * would have done if this feature had never been switched on.
+     * would have done if this feature had never been switched on — and the
+     * author is told nothing, for the same reason.
      */
     @Test
     void aModelThatCannotAnswerHoldsThePost() {
@@ -151,7 +176,11 @@ class ContentAutoApproverTest {
         when(reviewer.review(any(), any(), any()))
                 .thenThrow(new AiUnavailableException("out of quota"));
 
-        assertFalse(decide().approved());
+        AutoApprovalDecision decision = decide();
+
+        assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.NOT_CHECKED, decision.hold());
+        assertFalse(decision.hold().isAboutTheSubmission());
     }
 
     @Test
@@ -159,7 +188,10 @@ class ContentAutoApproverTest {
         enabled();
         when(reviewer.review(any(), any(), any())).thenReturn(null);
 
-        assertFalse(decide().approved());
+        AutoApprovalDecision decision = decide();
+
+        assertFalse(decision.approved());
+        assertEquals(AutoApprovalHold.NOT_CHECKED, decision.hold());
     }
 
     /**

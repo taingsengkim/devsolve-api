@@ -876,6 +876,7 @@ public class ProblemServiceImpl implements ProblemService {
         eventPublisher.publishEvent(new ContentSubmittedEvent(
                 AutoApprovalTarget.PROBLEM,
                 problem.getId(),
+                problem.getAuthorId(),
                 problem.getTitle(),
                 String.join(
                         "\n\n",

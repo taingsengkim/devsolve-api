@@ -48,15 +48,22 @@ public class ContentAutoApprover {
             String prose
     ) {
         if (!settings.isEnabled(target)) {
-            return AutoApprovalDecision.hold("Auto-approval is off");
+            return AutoApprovalDecision.hold(
+                    AutoApprovalHold.NOT_CHECKED,
+                    "Auto-approval is off"
+            );
         }
         if (!reviewer.isEnabled()) {
-            return AutoApprovalDecision.hold("No review model is configured");
+            return AutoApprovalDecision.hold(
+                    AutoApprovalHold.NOT_CHECKED,
+                    "No review model is configured"
+            );
         }
 
         ProfanityVerdict language = ProfanityFilter.scan(title, prose);
         if (language.isBlocked() || language.isFlagged()) {
             return AutoApprovalDecision.hold(
+                    AutoApprovalHold.UNSAFE,
                     "The word list flagged this submission"
             );
         }
@@ -70,26 +77,33 @@ public class ContentAutoApprover {
                     target,
                     exception
             );
-            return AutoApprovalDecision.hold("The review model was unavailable");
+            return AutoApprovalDecision.hold(
+                    AutoApprovalHold.NOT_CHECKED,
+                    "The review model was unavailable"
+            );
         }
 
         if (verdict == null) {
-            return AutoApprovalDecision.hold("The review model gave no answer");
+            return AutoApprovalDecision.hold(
+                    AutoApprovalHold.NOT_CHECKED,
+                    "The review model gave no answer"
+            );
         }
         if (!verdict.safe()) {
-            return AutoApprovalDecision.hold(reasonOr(
-                    verdict,
-                    "Held as unsafe for a public page"
-            ));
+            return AutoApprovalDecision.hold(
+                    AutoApprovalHold.UNSAFE,
+                    reasonOr(verdict, "Held as unsafe for a public page")
+            );
         }
         if (!verdict.onTopic()) {
-            return AutoApprovalDecision.hold(reasonOr(
-                    verdict,
-                    "Held as unrelated to software or security"
-            ));
+            return AutoApprovalDecision.hold(
+                    AutoApprovalHold.OFF_TOPIC,
+                    reasonOr(verdict, "Held as unrelated to software or security")
+            );
         }
         if (verdict.confidence() < MINIMUM_CONFIDENCE) {
             return AutoApprovalDecision.hold(
+                    AutoApprovalHold.UNCLEAR,
                     "The model was only " + verdict.confidence()
                             + "% sure; held for a moderator"
             );

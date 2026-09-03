@@ -703,6 +703,9 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         eventPublisher.publishEvent(new ContentSubmittedEvent(
                 AutoApprovalTarget.SHOWCASE,
                 showcase.getId(),
+                showcase.getAuthor() == null
+                        ? null
+                        : showcase.getAuthor().getId(),
                 showcase.getTitle(),
                 showcase.getOverview() == null ? "" : showcase.getOverview()
         ));
