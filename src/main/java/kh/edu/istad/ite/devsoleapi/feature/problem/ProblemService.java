@@ -89,6 +89,12 @@ public interface ProblemService {
             ProblemModerationRequest request
     );
 
+    /**
+     * Publishes a problem the review model cleared. Answers false rather than
+     * throwing when there is nothing left to publish.
+     */
+    boolean autoPublish(UUID id);
+
     void softDelete(UUID id);
 
     ProblemResponse uploadAttachment(

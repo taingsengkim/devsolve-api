@@ -2528,3 +2528,19 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- Auto-approval switches ------------------------------------------------------
+--
+-- Whether the review model may publish a kind of post without a moderator. One
+-- row per kind, keyed by the kind itself, so there is no way to end up with two
+-- rows disagreeing about the same switch.
+--
+-- Deliberately not seeded. Absent reads as off, so a database that has never
+-- heard of this feature -- and one where somebody deleted the row -- behaves
+-- exactly as it did before auto-approval existed.
+CREATE TABLE IF NOT EXISTS public.auto_approval_settings (
+    target      VARCHAR(20) PRIMARY KEY,
+    enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_by  UUID,
+    updated_at  TIMESTAMP(6) NOT NULL DEFAULT now()
+)^^^

@@ -81,6 +81,30 @@ public class AsyncConfig {
         return executor;
     }
 
+    /**
+     * The auto-approval checks, kept off every other pool.
+     *
+     * <p>Two threads, because the model behind it is rate limited on a free
+     * tier and more concurrency buys refusals rather than throughput. The queue
+     * is deep enough to absorb a burst of submissions, and a rejection is
+     * discarded rather than run on the caller — the caller is the thread that
+     * just answered somebody's submission, and a dropped check leaves the post
+     * in the moderation queue, which is exactly where it would have been.
+     */
+    @Bean
+    public ThreadPoolTaskExecutor autoApprovalTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(200);
+        executor.setThreadNamePrefix("auto-approval-");
+        executor.setRejectedExecutionHandler(
+                new ThreadPoolExecutor.DiscardPolicy()
+        );
+        executor.initialize();
+        return executor;
+    }
+
     @Bean
     public WebMvcConfigurer webMvcConfigurer() {
         return new WebMvcConfigurer() {

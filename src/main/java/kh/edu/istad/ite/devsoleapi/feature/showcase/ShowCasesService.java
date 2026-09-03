@@ -86,6 +86,12 @@ public interface ShowCasesService {
             UpdateShowcaseStatusRequest request
     );
 
+    /**
+     * Publishes a showcase the review model cleared. Answers false rather than
+     * throwing when there is nothing left to publish.
+     */
+    boolean autoApprove(UUID showcaseId);
+
 }
 
 

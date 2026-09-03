@@ -143,8 +143,13 @@ class SolutionServiceImplTest {
         assertNull(response.moderation());
     }
 
+    /**
+     * Solutions are not moderated. An edit is a new revision that goes live as
+     * it is written, and the published pointer moves with it — the author does
+     * not wait for anybody, and readers do not keep seeing the old text.
+     */
     @Test
-    void editingApprovedSolutionCreatesPendingRevisionAndKeepsPublishedRevision() {
+    void editingASolutionPublishesTheNewRevisionImmediately() {
         UUID authorId = UUID.randomUUID();
         Problem problem = problem(UUID.randomUUID(), UUID.randomUUID(), ProblemStatus.PUBLISHED);
         Solution solution = solution(problem, authorId);
@@ -171,10 +176,16 @@ class SolutionServiceImplTest {
                 7
         );
 
-        assertSame(published, solution.getCurrentPublishedRevision());
         assertEquals(4, solution.getLatestRevision().getRevisionNumber());
-        assertEquals(ReviewStatus.PENDING, solution.getLatestRevision().getModerationStatus());
-        assertEquals(ReviewStatus.PENDING, response.moderation().status());
+        assertSame(
+                solution.getLatestRevision(),
+                solution.getCurrentPublishedRevision()
+        );
+        assertEquals(
+                ReviewStatus.APPROVED,
+                solution.getLatestRevision().getModerationStatus()
+        );
+        assertEquals("Improved published solution", response.summary());
     }
 
     @Test

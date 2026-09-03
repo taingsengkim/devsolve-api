@@ -30,6 +30,8 @@ import kh.edu.istad.ite.devsoleapi.feature.showcasestep.ShowcaseStepMapper;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.autoapproval.AutoApprovalTarget;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.autoapproval.ContentSubmittedEvent;
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -523,6 +525,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
 
         ShowCases saved =
                 showCaseRepository.save(showCase);
+        offerForAutoApproval(saved);
 
         return showCasesMapper.mapShowCaseToShowCaseResponse(
                 saved,
@@ -688,6 +691,21 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         showcase.setReviewedBy(null);
         showcase.setReviewedAt(null);
         showcase.setRejectionReason(null);
+        offerForAutoApproval(showcase);
+    }
+
+    /**
+     * Hands the submission to the auto-approval check, which picks it up once
+     * this transaction commits. The overview is the only prose a showcase has
+     * at this point — its steps are written afterwards.
+     */
+    private void offerForAutoApproval(ShowCases showcase) {
+        eventPublisher.publishEvent(new ContentSubmittedEvent(
+                AutoApprovalTarget.SHOWCASE,
+                showcase.getId(),
+                showcase.getTitle(),
+                showcase.getOverview() == null ? "" : showcase.getOverview()
+        ));
     }
 
     private ShowCases findOwnShowcase(
@@ -967,17 +985,40 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
+        return applyInitialReview(
+                showcase,
+                request.reviewStatus(),
+                request.reviewStatus() == ReviewStatus.REJECTED
+                        ? request.rejectionReason().trim()
+                        : null,
+                reviewerId
+        );
+    }
+
+    /**
+     * The decision itself, with none of the "who is asking".
+     *
+     * <p>Shared with {@link #autoApprove(UUID)} so an automatic publication and
+     * a moderator's produce the same history row and the same notifications —
+     * the alternative is two paths that drift, and the one nobody clicks
+     * through by hand is the one that drifts.
+     *
+     * @param reviewerId null when nobody reviewed it, which is what the review
+     *                   model publishing on its own is
+     */
+    private ShowCasesResponse applyInitialReview(
+            ShowCases showcase,
+            ReviewStatus decision,
+            String rejectionReason,
+            UUID reviewerId
+    ) {
         LocalDateTime submittedAt = showcase.getUpdatedAt();
         LocalDateTime reviewedAt = LocalDateTime.now();
 
-        showcase.setReviewStatus(request.reviewStatus());
+        showcase.setReviewStatus(decision);
         showcase.setReviewedBy(reviewerId);
         showcase.setReviewedAt(reviewedAt);
-        showcase.setRejectionReason(
-                request.reviewStatus() == ReviewStatus.REJECTED
-                        ? request.rejectionReason().trim()
-                        : null
-        );
+        showcase.setRejectionReason(rejectionReason);
 
         ShowCases saved = showCaseRepository.save(showcase);
         showcaseReviewHistoryRepository.save(
@@ -1022,6 +1063,41 @@ public class ShowCasesServiceImpl implements ShowCasesService {
                 saved,
                 showcaseTagService.tagsOfShowcase(saved.getId())
         );
+    }
+
+    /**
+     * Publishes a showcase the review model cleared.
+     *
+     * <p>Only ever an initial submission. A pending revision is an edit to
+     * something already published, and promoting one replaces the live steps
+     * and tags — a heavier change than publishing, and one that stays with a
+     * moderator.
+     *
+     * @return false when there is nothing left to publish: a moderator ruled on
+     *         it first, it was withdrawn, or it has a revision waiting
+     */
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.SHOWCASE_DETAIL, key = "#showcaseId"),
+            @CacheEvict(cacheNames = {
+                    CacheNames.SHOWCASE_LISTING,
+                    CacheNames.SHOWCASE_LISTING_RANKED
+            }, allEntries = true)
+    })
+    public boolean autoApprove(UUID showcaseId) {
+        ShowCases showcase = showCaseRepository
+                .findByIdAndDeletedAtIsNull(showcaseId)
+                .orElse(null);
+        if (showcase == null
+                || showcase.getReviewStatus() != ReviewStatus.PENDING
+                || showcaseRevisionRepository
+                        .findByShowcase_Id(showcaseId)
+                        .isPresent()) {
+            return false;
+        }
+        applyInitialReview(showcase, ReviewStatus.APPROVED, null, null);
+        return true;
     }
 
     private ShowCasesResponse reviewRevision(

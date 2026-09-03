@@ -118,8 +118,53 @@ public class SolutionServiceImpl implements SolutionService {
                 createRevision(solution, 1, request)
         );
         solution.setLatestRevision(revision);
+        solution.setCurrentPublishedRevision(revision);
         solution = solutionRepository.saveAndFlush(solution);
+        announcePublication(solution, revision);
         return toResponse(solution, revision, true);
+    }
+
+    /**
+     * Tells the problem's followers and its author that an answer arrived.
+     *
+     * <p>Sent at submission now that a solution is published as it is written.
+     * It used to wait for a moderator, because until then there was nothing the
+     * recipient could open.
+     *
+     * <p>Only on the first revision. An author polishing their own answer is
+     * not news, and notifying on every edit is how a helpful channel becomes
+     * one people mute.
+     */
+    private void announcePublication(
+            Solution solution,
+            SolutionRevision revision
+    ) {
+        followNotificationService.notifyFollowers(
+                FollowType.PROBLEM,
+                solution.getProblem().getId(),
+                solution.getAuthorId(),
+                "New solution posted",
+                "A new solution was posted for: "
+                        + solution.getProblem().getTitle(),
+                NotificationType.SOLUTION,
+                solution.getId(),
+                "solution-published:" + solution.getId()
+                        + ":revision:" + revision.getRevisionNumber()
+        );
+
+        // The broadcast above reaches the problem's followers. Its author is
+        // the one person who most wants to know, and need not be following
+        // their own problem. Skipped when they answered it themselves.
+        eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                List.of(solution.getProblem().getAuthorId()),
+                solution.getAuthorId(),
+                "New solution to your problem",
+                "A solution to \"" + solution.getProblem().getTitle()
+                        + "\" was published.",
+                NotificationType.SOLUTION,
+                solution.getId(),
+                "solution:" + solution.getId() + ":problem-author"
+        ));
     }
 
     @Override
@@ -253,6 +298,7 @@ public class SolutionServiceImpl implements SolutionService {
                 createRevision(solution, previous.getRevisionNumber() + 1, request, previous)
         );
         solution.setLatestRevision(revision);
+        solution.setCurrentPublishedRevision(revision);
         Solution saved = solutionRepository.saveAndFlush(solution);
         return toResponse(saved, revision, true);
     }
@@ -570,37 +616,25 @@ public class SolutionServiceImpl implements SolutionService {
                 .verificationSteps(toVerificationSteps(request.verificationSteps()))
                 .testedWith(toTestedWith(request.testedWith()))
                 .tradeoffs(normalizeOptional(request.tradeoffs()))
-                .moderationStatus(ReviewStatus.PENDING)
+                .moderationStatus(ReviewStatus.APPROVED)
+                .reviewedAt(LocalDateTime.now())
                 .build();
         revision.setResources(toResources(revision, request.resources()));
         return revision;
     }
 
+    /**
+     * Attachments are added to the revision that is already live.
+     *
+     * <p>This used to fork a fresh pending revision whenever the latest one had
+     * been approved, so that an upload could not change published content
+     * behind a moderator's back. Solutions are not moderated any more — they go
+     * live as they are written — so there is no approved-and-frozen revision to
+     * protect, and forking one per uploaded file would leave a trail of
+     * near-identical revisions behind an ordinary edit.
+     */
     private SolutionRevision editableAttachmentRevision(Solution solution) {
-        SolutionRevision latest = requireLatestRevision(solution);
-        if (latest.getModerationStatus() == ReviewStatus.PENDING) {
-            return latest;
-        }
-        SolutionUpdateRequest unchanged = new SolutionUpdateRequest(
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-        );
-        SolutionRevision pending = revisionRepository.saveAndFlush(
-                createRevision(
-                        solution,
-                        latest.getRevisionNumber() + 1,
-                        unchanged,
-                        latest
-                )
-        );
-        solution.setLatestRevision(pending);
-        solutionRepository.saveAndFlush(solution);
-        return pending;
+        return requireLatestRevision(solution);
     }
 
     private SolutionRevision createRevision(
@@ -630,7 +664,8 @@ public class SolutionServiceImpl implements SolutionService {
                 .tradeoffs(request.tradeoffs() == null
                         ? previous.getTradeoffs()
                         : normalizeOptional(request.tradeoffs()))
-                .moderationStatus(ReviewStatus.PENDING)
+                .moderationStatus(ReviewStatus.APPROVED)
+                .reviewedAt(LocalDateTime.now())
                 .build();
         if (request.resources() == null) {
             revision.setResources(copyResources(revision, previous.getResources()));

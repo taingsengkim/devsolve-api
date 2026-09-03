@@ -72,6 +72,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.autoapproval.AutoApprovalTarget;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.autoapproval.ContentSubmittedEvent;
+
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -518,6 +521,7 @@ public class ProblemServiceImpl implements ProblemService {
         problem.setPublishedAt(null);
         Problem saved = problemRepository.saveAndFlush(problem);
         reviewLanguage(saved);
+        offerForAutoApproval(saved);
         return toResponse(saved);
     }
 
@@ -546,13 +550,25 @@ public class ProblemServiceImpl implements ProblemService {
             );
         }
 
-        if (request.status() == ProblemStatus.PUBLISHED) {
+        return toResponse(applyModeration(problem, request.status()));
+    }
+
+    /**
+     * The transition itself, with none of the "who is asking".
+     *
+     * <p>Shared with {@link #autoPublish(UUID)} so an automatic publication and
+     * a moderator's are the same event as far as the author, their followers
+     * and the feed are concerned — the alternative is two paths that drift, and
+     * the one nobody clicks through by hand is the one that drifts.
+     */
+    private Problem applyModeration(Problem problem, ProblemStatus status) {
+        if (status == ProblemStatus.PUBLISHED) {
             validateForPublication(problem);
             problem.setPublishedAt(Instant.now());
         } else {
             problem.setPublishedAt(null);
         }
-        problem.setStatus(request.status());
+        problem.setStatus(status);
         Problem saved = problemRepository.saveAndFlush(problem);
         if (saved.getStatus() == ProblemStatus.PUBLISHED) {
             followNotificationService.notifyFollowers(
@@ -591,7 +607,31 @@ public class ProblemServiceImpl implements ProblemService {
                         + saved.getUpdatedAt()
         ));
 
-        return toResponse(saved);
+        return saved;
+    }
+
+    /**
+     * Publishes a problem the review model cleared, on behalf of nobody.
+     *
+     * @return false when there is nothing left to publish — a moderator ruled
+     *         on it first, the author withdrew it, or it never made it past
+     *         {@link #validateForPublication}. All three are races this is
+     *         meant to lose quietly, so none of them throws.
+     */
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_DETAIL, key = "#id"),
+            @CacheEvict(cacheNames = CacheNames.PROBLEM_LISTING, allEntries = true)
+    })
+    public boolean autoPublish(UUID id) {
+        Problem problem = problemRepository.findById(id).orElse(null);
+        if (problem == null
+                || problem.getStatus() != ProblemStatus.PENDING_APPROVAL) {
+            return false;
+        }
+        applyModeration(problem, ProblemStatus.PUBLISHED);
+        return true;
     }
 
     @Override
@@ -806,6 +846,7 @@ public class ProblemServiceImpl implements ProblemService {
             problem.setStatus(ProblemStatus.PENDING_APPROVAL);
             problem = problemRepository.saveAndFlush(problem);
             reviewLanguage(problem);
+            offerForAutoApproval(problem);
         }
         return toResponse(problem);
     }
@@ -823,6 +864,33 @@ public class ProblemServiceImpl implements ProblemService {
      * stack trace or log line — output, not something the author wrote — and
      * scanning it flags people for what their tooling printed.
      */
+    /**
+     * Hands the submission to the auto-approval check, which picks it up once
+     * this transaction commits.
+     *
+     * <p>The error message is left out for the same reason it is left out of
+     * {@link #reviewLanguage}: it holds a pasted stack trace or log line, which
+     * is output rather than something the author wrote.
+     */
+    private void offerForAutoApproval(Problem problem) {
+        eventPublisher.publishEvent(new ContentSubmittedEvent(
+                AutoApprovalTarget.PROBLEM,
+                problem.getId(),
+                problem.getTitle(),
+                String.join(
+                        "\n\n",
+                        blankIfNull(problem.getDescription()),
+                        blankIfNull(problem.getExpectedBehavior()),
+                        blankIfNull(problem.getActualBehavior()),
+                        blankIfNull(problem.getAttemptsTried())
+                )
+        ));
+    }
+
+    private String blankIfNull(String value) {
+        return value == null ? "" : value;
+    }
+
     private void reviewLanguage(Problem problem) {
         profanityFlagger.review(
                 FlaggableType.PROBLEM,
