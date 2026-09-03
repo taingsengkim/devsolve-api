@@ -11,6 +11,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
@@ -22,6 +23,13 @@ import java.util.UUID;
  * layer exists to keep the permission check outside that cache: a
  * {@code @Cacheable} method that authorized its own caller would stop
  * authorizing anybody the moment it started serving hits.
+ *
+ * <p>Transactional even though it reads nothing itself. Resolving the caller's
+ * organization walks a member's lazily loaded permissions, which needs a
+ * session open — the cache's own transaction starts too late for that, and
+ * every other caller of
+ * {@link OrganizationAuthorizationService#findAccessibleOrganization} is
+ * transactional for the same reason.
  */
 @Service
 @RequiredArgsConstructor
@@ -50,6 +58,7 @@ public class OrganizationAnalyticsService {
      *                       this organization, rather than answering with an
      *                       empty dashboard.
      */
+    @Transactional(readOnly = true)
     public OrganizationAnalyticsResponse getAnalytics(
             UUID organizationId,
             String timeRange,
