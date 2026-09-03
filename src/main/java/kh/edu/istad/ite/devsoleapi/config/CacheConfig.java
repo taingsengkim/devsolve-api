@@ -3,6 +3,7 @@ package kh.edu.istad.ite.devsoleapi.config;
 import kh.edu.istad.ite.devsoleapi.common.cache.CacheNames;
 import kh.edu.istad.ite.devsoleapi.common.cache.LoggingCacheErrorHandler;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.analytics.dto.OrganizationAnalyticsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.DuplicateJudgements;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
@@ -83,6 +84,18 @@ public class CacheConfig implements CachingConfigurer {
             Duration.ofHours(1);
 
     /**
+     * Shorter than the default, and for the opposite reason to the ranked
+     * listing: this one is not cheap to miss, it is expensive to be wrong.
+     * Nothing evicts an analytics entry — every report submitted, triaged or
+     * paid moves it, and so does the clock — so the TTL is the only thing
+     * keeping the dashboard honest. A minute is long enough to absorb a person
+     * clicking through the time ranges and short enough that a triage decision
+     * shows up while they are still looking at the page.
+     */
+    private static final Duration ORGANIZATION_ANALYTICS_TTL =
+            Duration.ofSeconds(60);
+
+    /**
      * Deliberately not the HTTP {@code ObjectMapper}: cached bytes outlive the
      * request that wrote them, so their format should not move because someone
      * changed how responses are rendered.
@@ -161,6 +174,14 @@ public class CacheConfig implements CachingConfigurer {
                                     .entryTtl(PROBLEM_DUPLICATE_REVIEW_TTL)
                                     .serializeValuesWith(
                                             duplicateReviewSerializer()
+                                    )
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.ORGANIZATION_ANALYTICS,
+                            defaults
+                                    .entryTtl(ORGANIZATION_ANALYTICS_TTL)
+                                    .serializeValuesWith(
+                                            organizationAnalyticsSerializer()
                                     )
                     );
         };
@@ -243,6 +264,18 @@ public class CacheConfig implements CachingConfigurer {
                 new JacksonJsonRedisSerializer<>(
                         CACHE_MAPPER,
                         CACHE_MAPPER.constructType(DuplicateJudgements.class)
+                )
+        );
+    }
+
+    static SerializationPair<OrganizationAnalyticsResponse>
+            organizationAnalyticsSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(
+                                OrganizationAnalyticsResponse.class
+                        )
                 )
         );
     }

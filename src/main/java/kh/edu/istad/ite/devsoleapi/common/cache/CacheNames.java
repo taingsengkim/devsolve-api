@@ -98,6 +98,24 @@ public final class CacheNames {
     public static final String PROBLEM_DUPLICATE_REVIEW =
             "problem-duplicate-review";
 
+    /**
+     * One organization's analytics dashboard, keyed by organization, window
+     * and program filter.
+     *
+     * <p>The heaviest entry here by some way: a miss is seven aggregates over
+     * the report table, and the page behind it has a refresh button and a
+     * time-range switcher a person will click through. Nothing evicts it — a
+     * report submitted, triaged or paid moves these figures, and the window's
+     * trailing edge moves on its own — so the TTL is the whole mechanism, and
+     * it is a short one.
+     *
+     * <p>The key names the scope and nothing about the caller. It can:
+     * authorization happens before the cache is consulted, so an entry is the
+     * same bytes for everyone entitled to ask for it.
+     */
+    public static final String ORGANIZATION_ANALYTICS =
+            "organization-analytics";
+
     private CacheNames() {
     }
 }

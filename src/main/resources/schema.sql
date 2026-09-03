@@ -2486,3 +2486,45 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Company analytics indexes ---------------------------------------------------
+--
+-- Every figure on /api/v1/organizations/{id}/analytics is an aggregate over
+-- reports, scoped by program and bounded by a window of submitted_at. Without
+-- these, one page view is seven sequential scans of the whole report table --
+-- and the page has a refresh button and a time-range switcher.
+--
+-- The composite leads with program_id because the organization filter reaches
+-- reports through programs: the planner picks the organization's programs
+-- first, then walks this index once per program over the window. The plain
+-- submitted_at index above it would make that a filter rather than a range
+-- scan.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_reports_program_submitted_at
+            ON public.reports (program_id, submitted_at);
+
+        -- The asset breakdown groups by the asset a report was filed against.
+        -- Partial: asset_id is nullable, and a report that names no in-scope
+        -- target appears in no row of that chart.
+        CREATE INDEX IF NOT EXISTS idx_reports_asset_id
+            ON public.reports (asset_id)
+            WHERE asset_id IS NOT NULL;
+
+        -- The researcher leaderboard groups by reporter. Nothing else indexed
+        -- this column, so every one of those groupings was a scan.
+        CREATE INDEX IF NOT EXISTS idx_reports_reporter_id
+            ON public.reports (reporter_id);
+    END IF;
+
+    -- Payouts are folded to one row per report before being joined, which is
+    -- a grouping over this column on every analytics query that mentions
+    -- money.
+    IF to_regclass('public.report_rewards') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_report_rewards_report_id
+            ON public.report_rewards (report_id);
+    END IF;
+END
+$$^^^

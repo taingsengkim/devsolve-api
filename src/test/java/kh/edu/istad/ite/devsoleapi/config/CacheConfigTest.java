@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.config;
 
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.analytics.dto.OrganizationAnalyticsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
@@ -466,6 +467,135 @@ class CacheConfigTest {
         assertFalse(response.canEdit());
         assertFalse(response.canDelete());
         assertFalse(response.canAcceptSolution());
+    }
+
+    /**
+     * The deepest record in any cache here — seven nested types, a null change
+     * percentage, an enum and eight BigDecimals. A serializer that lost the
+     * nesting would hand the dashboard a page of LinkedHashMaps, and one that
+     * turned the null into 0 would report a first report in a quiet window as
+     * no growth at all.
+     */
+    @Test
+    void roundTripsOrganizationAnalyticsThroughEveryNestedRecord() {
+        SerializationPair<OrganizationAnalyticsResponse> analytics =
+                CacheConfig.organizationAnalyticsSerializer();
+
+        OrganizationAnalyticsResponse original =
+                new OrganizationAnalyticsResponse(
+                        UUID.randomUUID(),
+                        "Acme Corp",
+                        "6m",
+                        null,
+                        Instant.parse("2026-09-03T10:00:00Z"),
+                        new OrganizationAnalyticsResponse.KpiSummary(
+                                new OrganizationAnalyticsResponse.CountMetric(
+                                        248L, new BigDecimal("14.2"), "up"
+                                ),
+                                new OrganizationAnalyticsResponse.AcceptedMetric(
+                                        168L,
+                                        new BigDecimal("67.7"),
+                                        null,
+                                        "up"
+                                ),
+                                new OrganizationAnalyticsResponse.RejectedMetric(
+                                        45L,
+                                        new BigDecimal("18.1"),
+                                        new BigDecimal("-4.2"),
+                                        "down"
+                                ),
+                                new OrganizationAnalyticsResponse.BountyMetric(
+                                        new BigDecimal("54250.00"),
+                                        "USD",
+                                        new BigDecimal("12.0"),
+                                        "up"
+                                ),
+                                4850L,
+                                new OrganizationAnalyticsResponse.CountMetric(
+                                        82L, new BigDecimal("15.0"), "up"
+                                ),
+                                new OrganizationAnalyticsResponse.SlaMetrics(
+                                        new BigDecimal("14.5"),
+                                        new BigDecimal("11.2"),
+                                        new BigDecimal("94.5"),
+                                        24
+                                )
+                        ),
+                        List.of(new OrganizationAnalyticsResponse
+                                .SubmissionTrendPoint(
+                                "2026-03",
+                                "Mar 2026",
+                                35L,
+                                24L,
+                                20L,
+                                6L,
+                                new BigDecimal("6500.00")
+                        )),
+                        new OrganizationAnalyticsResponse.SeverityDistribution(
+                                severityBand(18L, "7.3", "2500.00"),
+                                severityBand(52L, "21.0", "1000.00"),
+                                severityBand(86L, "34.7", "350.00"),
+                                severityBand(72L, "29.0", "100.00"),
+                                severityBand(20L, "8.0", "0.00")
+                        ),
+                        List.of(new OrganizationAnalyticsResponse
+                                .VulnerabilityCategory(
+                                "CWE-284",
+                                "Improper Access Control",
+                                48L,
+                                new BigDecimal("19.3"),
+                                8L
+                        )),
+                        List.of(new OrganizationAnalyticsResponse.TargetedAsset(
+                                "api.acme.test",
+                                AssetType.API,
+                                56L,
+                                7L,
+                                18L,
+                                new BigDecimal("18500.00")
+                        )),
+                        List.of(new OrganizationAnalyticsResponse
+                                .ResearcherStanding(
+                                UUID.randomUUID(),
+                                "0xsec_hunter",
+                                "Alex Rivera",
+                                null,
+                                1,
+                                18L,
+                                4L,
+                                new BigDecimal("14500.00"),
+                                720L
+                        ))
+                );
+
+        OrganizationAnalyticsResponse restored =
+                analytics.read(analytics.write(original));
+
+        assertNotNull(restored);
+        assertEquals(original, restored);
+        assertNull(
+                restored.kpiSummary().acceptedReports().changePercentage()
+        );
+        assertEquals(
+                new BigDecimal("54250.00"),
+                restored.kpiSummary().totalBountiesPaid().amount()
+        );
+        assertEquals(
+                AssetType.API,
+                restored.topTargetedAssets().getFirst().assetType()
+        );
+    }
+
+    private static OrganizationAnalyticsResponse.SeverityBand severityBand(
+            long count,
+            String share,
+            String bounty
+    ) {
+        return new OrganizationAnalyticsResponse.SeverityBand(
+                count,
+                new BigDecimal(share),
+                new BigDecimal(bounty)
+        );
     }
 
     @Test
