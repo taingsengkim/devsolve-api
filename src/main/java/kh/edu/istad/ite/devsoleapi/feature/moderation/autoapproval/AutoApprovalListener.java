@@ -39,7 +39,11 @@ public class AutoApprovalListener {
                     event.prose()
             );
             if (!decision.approved()) {
-                log.debug(
+                // Info, not debug. A hold is the outcome that looks identical
+                // to the feature being broken — nothing moves, and without a
+                // line here there is no way to tell a switched-off check from
+                // a listener that never fired.
+                log.info(
                         "Auto-approval left {} {} for a moderator: {}",
                         event.target(),
                         event.contentId(),
