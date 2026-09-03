@@ -26,6 +26,7 @@ import kh.edu.istad.ite.devsoleapi.feature.comments.Comment;
 import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
@@ -169,6 +170,8 @@ public class ReportServiceImpl implements ReportService {
     private final ApplicationEventPublisher eventPublisher;
     private final ReportRateLimiter reportRateLimiter;
     private final HacktivityRecorder hacktivityRecorder;
+    private final ReportActivityRecorder reportActivityRecorder;
+    private final ReportActivityRepository reportActivityRepository;
     /**
      * The repository rather than CommentService: comments already depend on
      * this service to decide who may read a report's thread, and injecting the
@@ -262,6 +265,7 @@ public class ReportServiceImpl implements ReportService {
                 .build();
 
         Report saved = reportRepository.saveAndFlush(report);
+        reportActivityRecorder.submitted(saved, reporter);
 
         // The triage queue is the one thing an organization must not miss. Sent
         // to everyone who can act on it rather than to the owner alone, or a
@@ -364,6 +368,17 @@ public class ReportServiceImpl implements ReportService {
                 .map(reportMapper::toResponse);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<ReportActivityResponse> findActivities(UUID reportId) {
+        requireViewAccess(reportId);
+        return reportActivityRepository
+                .findByReport_IdOrderByCreatedAtAsc(reportId)
+                .stream()
+                .map(reportMapper::toActivityResponse)
+                .toList();
+    }
+
     /**
      * Moves validReports, and on a resolution the reporter's reputation as
      * well, so the board both are printed on has to be dropped.
@@ -388,6 +403,7 @@ public class ReportServiceImpl implements ReportService {
         applyDuplicate(report, targetState, request.duplicateOfId());
 
         UserProfile triager = findUserProfile(currentUserId());
+        ReportState previousState = report.getState();
         boolean leftRetest = report.getState() == ReportState.RETESTING
                 && targetState != ReportState.RETESTING;
         boolean reopened = report.getState() == ReportState.RESOLVED
@@ -446,6 +462,17 @@ public class ReportServiceImpl implements ReportService {
             report.setResolvedAt(null);
         }
 
+        reportActivityRecorder.stateChanged(
+                report,
+                triager,
+                previousState,
+                targetState,
+                report.getSeverity(),
+                report.getSeverity() == null
+                        ? "Triage severity " + request.triageSeverity()
+                                + " does not match the reported severity"
+                        : null
+        );
         reportRepository.saveAndFlush(report);
 
         if (leftRetest) {
@@ -648,6 +675,11 @@ public class ReportServiceImpl implements ReportService {
                 != DisclosureStatus.DISCLOSED
                 && request.disclosureStatus() == DisclosureStatus.DISCLOSED;
         report.setDisclosureStatus(request.disclosureStatus());
+        reportActivityRecorder.disclosureChanged(
+                report,
+                findUserProfile(currentUserId()),
+                "Disclosure set to " + request.disclosureStatus()
+        );
         if (newlyDisclosed) {
             hacktivityRecorder.recordDisclosed(report);
             followNotificationService.notifyFollowers(
@@ -696,14 +728,20 @@ public class ReportServiceImpl implements ReportService {
 
         // points is left unset: the column stays for the rewards recorded
         // before reputation stopped being an organization's to hand out.
+        UserProfile awardedBy = findUserProfile(currentUserId());
         ReportReward reward = ReportReward.builder()
                 .report(report)
                 .amount(request.amount())
-                .awardedBy(findUserProfile(currentUserId()))
+                .awardedBy(awardedBy)
                 .note(trimToNull(request.note()))
                 .build();
         reportRewardRepository.saveAndFlush(reward);
         report.getRewards().add(reward);
+        reportActivityRecorder.rewardGranted(
+                report,
+                awardedBy,
+                "Awarded " + reward.getAmount()
+        );
 
         // Keyed on the reward, not the report: a program may pay more than
         // once for the same finding, and each payment is its own news.
@@ -814,7 +852,14 @@ public class ReportServiceImpl implements ReportService {
         reportRetestRepository.saveAndFlush(retest);
         report.getRetests().add(retest);
 
+        ReportState beforeRetest = report.getState();
         report.setState(ReportState.RETESTING);
+        reportActivityRecorder.retestRequested(
+                report,
+                requester,
+                beforeRetest,
+                retest.getAttemptNumber()
+        );
         reportRepository.saveAndFlush(report);
 
         postRetestNotice(
@@ -913,6 +958,15 @@ public class ReportServiceImpl implements ReportService {
             report.setResolvedAt(null);
         }
 
+        reportActivityRecorder.retestSubmitted(
+                report,
+                researcher,
+                report.getState(),
+                fixed
+                        ? "Fix verified; the finding is no longer reproducible"
+                        : "Still reproducible; the report was reopened"
+        );
+
         // Outside the branch on purpose. The bonus is for running the proof of
         // concept again, and that was done either way — see payRetestBounty.
         payRetestBounty(report, retest);
@@ -1005,6 +1059,10 @@ public class ReportServiceImpl implements ReportService {
         // retest's to overwrite.
         if (report.getState() == ReportState.RETESTING) {
             report.setState(ReportState.RESOLVED);
+            reportActivityRecorder.retestExpired(
+                    report,
+                    retest.getAttemptNumber()
+            );
             reportRepository.saveAndFlush(report);
         }
 

@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
@@ -29,6 +30,15 @@ public interface ReportService {
     );
 
     Page<ReportResponse> findMine(Pageable pageable);
+
+    /**
+     * How the report got to its current state, oldest entry first.
+     *
+     * <p>Readable by anyone who can read the report. Nothing on the timeline is
+     * written by a person — it is the platform's own record of what happened —
+     * so there is nothing here the reporter may not see.
+     */
+    List<ReportActivityResponse> findActivities(UUID reportId);
 
     ReportResponse triage(UUID id, TriageReportRequest request);
 

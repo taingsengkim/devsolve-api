@@ -207,6 +207,24 @@ public class Report extends BasedEntity {
     private LocalDateTime resolvedAt;
 
     /**
+     * The first time anybody but the reporter acted on this report.
+     *
+     * <p>The number a researcher judges a program by before deciding to spend a
+     * weekend on it, and the one thing the report row could never answer
+     * afterwards: {@code triagedAt} is overwritten by every re-triage, so a
+     * report answered in an hour and re-triaged a month later looks, from that
+     * column alone, like a month of silence.
+     *
+     * <p>Stamped once and never cleared, by {@code ReportActivityRecorder} —
+     * every path that acts on a report already goes through it, so no single
+     * kind of response gets to be the one that counts. Null on reports that
+     * predate this column and on reports nobody has answered yet; a metric over
+     * these has to read that as "no data", not as zero.
+     */
+    @Column(name = "first_responded_at")
+    private LocalDateTime firstRespondedAt;
+
+    /**
      * What resolving this finding was worth to its reporter, and when that was
      * settled. Both null until the organization first resolves the report.
      *

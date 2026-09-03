@@ -115,6 +115,8 @@ class ReportRetestWorkflowTest {
     @Mock
     private HacktivityRecorder hacktivityRecorder;
     @Mock
+    private ReportActivityRepository reportActivityRepository;
+    @Mock
     private CommentRepository commentRepository;
 
     @AfterEach
@@ -1034,6 +1036,11 @@ class ReportRetestWorkflowTest {
                 eventPublisher,
                 new ReportRateLimiter(new InMemoryRateLimitStore()),
                 hacktivityRecorder,
+                // Real, over a mocked repository: every retest transition these
+                // cases drive is meant to leave a timeline entry, and a mocked
+                // recorder would hide one that stopped.
+                new ReportActivityRecorder(reportActivityRepository),
+                reportActivityRepository,
                 commentRepository
         );
     }

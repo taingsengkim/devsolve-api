@@ -61,6 +61,15 @@ public record ReportResponse(
         List<RetestSummary> retestHistory,
         LocalDateTime submittedAt,
         LocalDateTime triagedAt,
+
+        /**
+         * The first time anybody but the reporter acted on the report. Null
+         * while it is still waiting, and on reports that predate the column.
+         * Unlike {@code triagedAt} this is never overwritten, so it is the one
+         * that answers how long the reporter actually waited.
+         */
+        LocalDateTime firstRespondedAt,
+
         LocalDateTime resolvedAt,
         Integer reputationPoints,
         LocalDateTime reputationAwardedAt,

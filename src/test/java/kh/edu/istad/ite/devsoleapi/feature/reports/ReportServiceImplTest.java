@@ -117,6 +117,9 @@ class ReportServiceImplTest {
             hacktivityRecorder;
 
     @Mock
+    private ReportActivityRepository reportActivityRepository;
+
+    @Mock
     private ReportMapper reportMapper;
 
     @Mock
@@ -1510,6 +1513,12 @@ class ReportServiceImplTest {
                 // limiter rather than around a mock of it.
                 new ReportRateLimiter(new InMemoryRateLimitStore()),
                 hacktivityRecorder,
+                // Real, over a mocked repository: the timeline is written on
+                // every transition these cases exercise, and a mock of the
+                // recorder would let a transition stop recording itself without
+                // a single test noticing.
+                new ReportActivityRecorder(reportActivityRepository),
+                reportActivityRepository,
                 commentRepository
         );
     }

@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.reports.dto;
 
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
+import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportActivity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportAttachment;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportRetest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.ReportReward;
@@ -59,6 +60,7 @@ public class ReportMapper {
                         .toList(),
                 report.getSubmittedAt(),
                 report.getTriagedAt(),
+                report.getFirstRespondedAt(),
                 report.getResolvedAt(),
                 report.getReputationPoints(),
                 report.getReputationAwardedAt(),
@@ -142,6 +144,19 @@ public class ReportMapper {
                 retest.getAttachmentIds() == null
                         ? List.of()
                         : List.copyOf(retest.getAttachmentIds())
+        );
+    }
+
+    public ReportActivityResponse toActivityResponse(ReportActivity activity) {
+        return new ReportActivityResponse(
+                activity.getId(),
+                activity.getActivityType(),
+                toActorSummary(activity.getActor()),
+                activity.getFromState(),
+                activity.getToState(),
+                activity.getSeverity(),
+                activity.getDetail(),
+                activity.getCreatedAt()
         );
     }
 

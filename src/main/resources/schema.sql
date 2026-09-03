@@ -2569,3 +2569,95 @@ BEGIN
     END IF;
 END
 $$^^^
+-- Report timeline --------------------------------------------------------------
+--
+-- One row per thing that happened to a report, append-only.
+--
+-- The reports row only ever holds where things ended up, which is enough to
+-- render a report and nowhere near enough to answer how it got there -- the
+-- question both sides ask the moment they disagree. A report that was
+-- confirmed, paid, reopened by a failed retest and resolved again reads, from
+-- that row alone, as a report that was simply resolved. Disputes are decided on
+-- exactly that history, so it has to exist somewhere it cannot be edited after
+-- the fact.
+--
+-- actor_id is nullable because the platform itself acts: a retest that lapses
+-- on its deadline is closed by the clock, and attributing that to the last
+-- person who touched the report would be the one lie this table exists to
+-- prevent.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_type WHERE typname = 'report_activity_type_enum'
+    ) THEN
+        CREATE TYPE public.report_activity_type_enum AS ENUM (
+            'submitted',
+            'state_changed',
+            'severity_changed',
+            'reward_granted',
+            'retest_requested',
+            'retest_submitted',
+            'retest_expired',
+            'disclosure_changed'
+        );
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.report_activities (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            report_id UUID NOT NULL
+                REFERENCES public.reports (id) ON DELETE CASCADE,
+            -- Not ON DELETE CASCADE: deleting the member who triaged a report
+            -- must not delete the record that it was triaged.
+            actor_id UUID
+                REFERENCES public.user_profiles (id),
+            activity_type public.report_activity_type_enum NOT NULL,
+            from_state public.report_state_enum,
+            to_state public.report_state_enum,
+            severity public.severity_enum,
+            detail TEXT,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now()
+        );
+    END IF;
+
+    IF to_regclass('public.report_activities') IS NOT NULL THEN
+        -- The CREATE above is skipped on a database where Hibernate built this
+        -- table first, taking its column defaults with it. Setting them here is
+        -- what makes the two paths agree.
+        ALTER TABLE public.report_activities
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.report_activities
+            ALTER COLUMN created_at SET DEFAULT now();
+
+        -- Every read of this table is "the whole history for one report", in
+        -- order. Nothing else queries it.
+        CREATE INDEX IF NOT EXISTS idx_report_activities_report_id
+            ON public.report_activities (report_id, created_at);
+    END IF;
+END
+$$^^^
+
+-- First response ---------------------------------------------------------------
+--
+-- When anybody but the reporter first acted on the report. The number a
+-- researcher judges a program by, and the one thing the row could not answer
+-- afterwards: triaged_at is overwritten by every re-triage, so a report
+-- answered in an hour and re-triaged a month later looks, from that column
+-- alone, like a month of silence.
+--
+-- Null on every report that existed before this column. A metric over these
+-- has to read null as "no data" rather than as zero, so the medians start
+-- empty and fill in as reports are answered.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL THEN
+        ALTER TABLE public.reports
+            ADD COLUMN IF NOT EXISTS first_responded_at TIMESTAMP(6);
+    END IF;
+END
+$$^^^

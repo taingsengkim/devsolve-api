@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
@@ -32,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URI;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -104,6 +106,18 @@ public class ReportController {
     @GetMapping("/reports/{id}")
     public ReportResponse findById(@PathVariable UUID id) {
         return reportService.findById(id);
+    }
+
+    /**
+     * How this report got to where it is, oldest entry first.
+     *
+     * <p>Unpaged: a report's history is bounded by how many times people acted
+     * on it, which is tens at the very most, and a timeline read a page at a
+     * time is a timeline nobody renders correctly.
+     */
+    @GetMapping("/reports/{id}/activities")
+    public List<ReportActivityResponse> findActivities(@PathVariable UUID id) {
+        return reportService.findActivities(id);
     }
 
     @PatchMapping("/reports/{id}/triage")
