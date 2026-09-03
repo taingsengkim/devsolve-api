@@ -112,17 +112,19 @@ class VirusTotalContentGuardTest {
         verify(verifier, never()).verify(any(), any(), any(), any(), any());
     }
 
+    /**
+     * The check that actually catches a bad link: VirusTotal already has a
+     * report on it. One lookup, nothing submitted, nothing waited for.
+     */
     @Test
     void rejectsMaliciousUrlsWithAnActionable422() {
-        when(gateway.submitUrl("https://malicious.example"))
-                .thenReturn(pending("scan-id"));
-        when(gateway.getAnalysis("scan-id")).thenReturn(
-                new VirusTotalScanResponse(
-                        "scan-id",
+        when(gateway.findByUrl("https://malicious.example")).thenReturn(
+                Optional.of(new VirusTotalScanResponse(
+                        "url-id",
                         "completed",
                         VirusTotalScanResponse.Verdict.MALICIOUS,
                         Map.of("malicious", 4)
-                )
+                ))
         );
 
         DetailedApiException exception = assertThrows(
@@ -131,6 +133,8 @@ class VirusTotalContentGuardTest {
         );
 
         assertEquals(422, exception.getStatusCode().value());
+        verify(gateway, never()).submitUrl(any());
+        verify(gateway, never()).getAnalysis(any());
     }
 
     /**
@@ -158,10 +162,8 @@ class VirusTotalContentGuardTest {
 
     @Test
     void ignoresNonUrlReportTargetsAndDeduplicatesLinks() {
-        when(gateway.submitUrl("https://example.com/reference"))
-                .thenReturn(pending("scan-id"));
-        when(gateway.getAnalysis("scan-id"))
-                .thenReturn(clean("scan-id"));
+        when(gateway.findByUrl("https://example.com/reference"))
+                .thenReturn(Optional.of(clean("url-id")));
 
         guard.requireSafeUrl("/api/v1/users/1");
         guard.requireSafeUrls(List.of(
@@ -169,8 +171,8 @@ class VirusTotalContentGuardTest {
                 "https://example.com/reference"
         ));
 
-        verify(gateway, never()).submitUrl("/api/v1/users/1");
-        verify(gateway).submitUrl("https://example.com/reference");
+        verify(gateway, never()).findByUrl("/api/v1/users/1");
+        verify(gateway).findByUrl("https://example.com/reference");
     }
 
     @Test
@@ -188,34 +190,90 @@ class VirusTotalContentGuardTest {
     }
 
     /**
-     * A URL comes back in seconds rather than minutes, so it is still resolved
-     * in front of the caller — including the give-up at the end of the budget.
+     * A link nobody has ever scanned is not a dangerous link. Most references
+     * in a bug report — a CVE page, an OWASP article, the endpoint being
+     * reported — have no VirusTotal report at all, and holding a researcher's
+     * submission for that protects nobody.
      */
     @Test
-    void aUrlAnalysisThatNeverCompletesStillFailsClosed() {
-        when(gateway.submitUrl("https://example.com"))
-                .thenReturn(pending("scan-id"));
-        when(gateway.getAnalysis("scan-id")).thenReturn(pending("scan-id"));
+    void aUrlVirusTotalHasNeverSeenIsAllowedThrough() {
+        when(gateway.findByUrl("https://example.com"))
+                .thenReturn(Optional.empty());
+
+        guard.requireSafeUrl("https://example.com");
+
+        verify(gateway, never()).submitUrl(any());
+    }
+
+    /**
+     * The whole point of the change. Submitting and polling cost one call plus
+     * up to max-polls more per link, and a report carries a target endpoint
+     * plus every reference — enough to exhaust a free quota on one submission,
+     * and enough backoff to outlast the proxy in front of this.
+     */
+    @Test
+    void aLinkCostsOneLookupAndNoWaiting() {
+        List<Duration> waits = new ArrayList<>();
+        VirusTotalContentGuard timed = new VirusTotalContentGuard(
+                gateway,
+                alertService,
+                verifier,
+                true,
+                Duration.ofSeconds(20),
+                6,
+                false,
+                waits::add
+        );
+        when(gateway.findByUrl("https://example.com"))
+                .thenReturn(Optional.of(clean("url-id")));
+
+        timed.requireSafeUrl("https://example.com");
+
+        assertEquals(List.of(), waits);
+        verify(gateway).findByUrl("https://example.com");
+        verify(gateway, never()).getAnalysis(any());
+    }
+
+    /** A quota refusal on the lookup is still a refusal when failing closed. */
+    @Test
+    void aUrlLookupThatIsRefusedStillFailsClosed() {
+        when(gateway.findByUrl("https://example.com"))
+                .thenThrow(new VirusTotalUnavailableException(
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "VirusTotal rate limit was reached"
+                ));
 
         VirusTotalUnavailableException exception = assertThrows(
                 VirusTotalUnavailableException.class,
                 () -> guard.requireSafeUrl("https://example.com")
         );
 
-        assertEquals(504, exception.getStatusCode().value());
+        assertEquals(429, exception.getStatusCode().value());
     }
 
     @Test
+    void failOpenLetsAnUnansweredUrlThrough() {
+        when(gateway.findByUrl("https://example.com"))
+                .thenThrow(new VirusTotalUnavailableException(
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "VirusTotal rate limit was reached"
+                ));
+
+        guard(true, true).requireSafeUrl("https://example.com");
+
+        verify(gateway).findByUrl("https://example.com");
+    }
+
+    /** Fail-open is about no answer, never about ignoring a bad one. */
+    @Test
     void failOpenStillRejectsAMaliciousVerdict() {
-        when(gateway.submitUrl("https://malicious.example"))
-                .thenReturn(pending("scan-id"));
-        when(gateway.getAnalysis("scan-id")).thenReturn(
-                new VirusTotalScanResponse(
-                        "scan-id",
+        when(gateway.findByUrl("https://malicious.example")).thenReturn(
+                Optional.of(new VirusTotalScanResponse(
+                        "url-id",
                         "completed",
                         VirusTotalScanResponse.Verdict.MALICIOUS,
                         Map.of("malicious", 4)
-                )
+                ))
         );
 
         DetailedApiException exception = assertThrows(
@@ -227,26 +285,22 @@ class VirusTotalContentGuardTest {
         assertEquals(422, exception.getStatusCode().value());
     }
 
+    /**
+     * The cost is per link and the list is user input, so a submission cannot
+     * spend an unbounded number of lookups.
+     */
     @Test
-    void checksBeforeWaitingTheFullPollInterval() {
-        List<Duration> waits = new ArrayList<>();
-        VirusTotalContentGuard slow = new VirusTotalContentGuard(
-                gateway,
-                alertService,
-                verifier,
-                true,
-                Duration.ofSeconds(20),
-                3,
-                false,
-                waits::add
-        );
-        when(gateway.submitUrl("https://example.com"))
-                .thenReturn(pending("scan-id"));
-        when(gateway.getAnalysis("scan-id")).thenReturn(clean("scan-id"));
+    void theNumberOfLinksOneSubmissionMayScanIsCapped() {
+        List<String> links = new ArrayList<>();
+        for (int index = 0; index < 30; index++) {
+            links.add("https://example.com/reference/" + index);
+        }
+        when(gateway.findByUrl(any())).thenReturn(Optional.empty());
 
-        slow.requireSafeUrl("https://example.com");
+        guard.requireSafeUrls(links);
 
-        assertEquals(List.of(Duration.ofSeconds(5)), waits);
+        verify(gateway, times(VirusTotalContentGuard.MAX_URLS_PER_SUBMISSION))
+                .findByUrl(any());
     }
 
     @Test

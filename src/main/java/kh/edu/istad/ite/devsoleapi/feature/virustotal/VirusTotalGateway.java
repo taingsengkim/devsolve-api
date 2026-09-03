@@ -26,5 +26,16 @@ public interface VirusTotalGateway {
 
     VirusTotalScanResponse submitUrl(String url);
 
+    /**
+     * What VirusTotal already knows about a URL, in one request and without
+     * submitting anything.
+     *
+     * <p>The counterpart to {@link #findByHash}, and there for the same reason:
+     * a fresh analysis takes minutes and several polls, which is neither
+     * affordable on a metered quota nor available inside an HTTP request. An
+     * empty result means VirusTotal has no report for it, not that it is safe.
+     */
+    Optional<VirusTotalScanResponse> findByUrl(String url);
+
     VirusTotalScanResponse getAnalysis(String analysisId);
 }

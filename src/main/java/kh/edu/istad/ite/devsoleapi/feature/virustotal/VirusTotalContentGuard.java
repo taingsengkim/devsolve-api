@@ -45,6 +45,13 @@ import java.util.function.Supplier;
 @Slf4j
 public class VirusTotalContentGuard {
 
+    /**
+     * How many distinct links one submission may spend a lookup on. A report
+     * is capped at ten reference links plus its target endpoint, so this only
+     * bites on a submission already at the limit.
+     */
+    static final int MAX_URLS_PER_SUBMISSION = 11;
+
     private final VirusTotalGateway gateway;
     private final VirusTotalAlertService alertService;
     private final DeferredVirusTotalVerifier verifier;
@@ -219,25 +226,66 @@ public class VirusTotalContentGuard {
         }
     }
 
+    /**
+     * Refuses a link VirusTotal already knows to be dangerous, and lets
+     * everything else through.
+     *
+     * <p>One lookup, no submission, no polling — the same shape the file path
+     * settled on, arrived at the same way. Submitting and waiting cost one call
+     * plus up to {@code max-polls} more per URL, and a report carries a target
+     * endpoint and every reference link: a single submission could spend
+     * twenty-eight requests against a quota of four a minute, and each URL sat
+     * through ninety-five seconds of backoff behind a proxy that cuts at sixty.
+     * So it refused reports when the quota ran out, and hung when it had not.
+     *
+     * <p>What is lost is a verdict on a link nobody has ever scanned. That is
+     * worth losing: a bug report's links are CVE pages, OWASP articles and the
+     * endpoint being reported, and holding up a security researcher's report
+     * because MITRE has not been scanned lately protects nobody.
+     */
     public void requireSafeUrl(String url) {
         if (!enabled || !isHttpUrl(url)) {
             return;
         }
-        requireClean(
-                () -> gateway.submitUrl(url.trim()),
+
+        Optional<VirusTotalScanResponse> known;
+        try {
+            known = gateway.findByUrl(url.trim());
+        } catch (VirusTotalUnavailableException exception) {
+            if (!failOpen) {
+                throw exception;
+            }
+            log.warn(
+                    "Accepting an unchecked URL because VirusTotal would not"
+                            + " answer and fail-open is on: {}",
+                    exception.getReason()
+            );
+            return;
+        }
+
+        // No report is not a verdict. VirusTotal has simply never been shown
+        // this link, which is true of most links in a bug report.
+        known.ifPresent(result -> rejectIfNotClean(
+                result,
                 "URL",
                 null,
                 null,
                 AttachmentScanContext.NONE
-        );
+        ));
     }
 
+    /**
+     * Capped, because the cost is per link and the caller is user input. A
+     * report listing forty references is not forty times more suspicious, it is
+     * forty times more expensive.
+     */
     public void requireSafeUrls(Collection<String> urls) {
         if (!enabled || urls == null || urls.isEmpty()) {
             return;
         }
-        Set<String> uniqueUrls = new LinkedHashSet<>(urls);
-        uniqueUrls.forEach(this::requireSafeUrl);
+        new LinkedHashSet<>(urls).stream()
+                .limit(MAX_URLS_PER_SUBMISSION)
+                .forEach(this::requireSafeUrl);
     }
 
     private void requireClean(

@@ -18,7 +18,9 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.JsonNode;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -173,6 +175,58 @@ public class VirusTotalClient implements VirusTotalGateway {
                 .body(JsonNode.class));
 
         return submissionOf(response);
+    }
+
+    /**
+     * VirusTotal identifies a URL report by the unpadded base64url of the URL
+     * itself, so an existing report is one GET away with nothing submitted.
+     *
+     * <p>A 404 is the ordinary answer for a URL nobody has ever scanned, and
+     * comes back empty rather than as a failure — same contract as
+     * {@link #findByHash}.
+     */
+    @Override
+    public Optional<VirusTotalScanResponse> findByUrl(String url) {
+        requireConfigured();
+        if (url == null || url.isBlank()) {
+            return Optional.empty();
+        }
+
+        String identifier = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(url.trim().getBytes(StandardCharsets.UTF_8));
+
+        JsonNode response;
+        try {
+            response = restClient.get()
+                    .uri("/urls/{id}", identifier)
+                    .header(API_KEY_HEADER, apiKey)
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            return Optional.of(rethrow(exception));
+        } catch (RestClientException exception) {
+            log.warn("VirusTotal URL lookup could not be completed", exception);
+            throw upstreamFailure("VirusTotal is currently unavailable");
+        }
+
+        JsonNode analysisStats = requiredData(response)
+                .path("attributes")
+                .path("last_analysis_stats");
+        if (analysisStats.isMissingNode()) {
+            return Optional.empty();
+        }
+
+        Map<String, Integer> stats = statsOf(analysisStats);
+        return Optional.of(new VirusTotalScanResponse(
+                identifier,
+                "completed",
+                verdictOf("completed", stats),
+                stats
+        ));
     }
 
     @Override
