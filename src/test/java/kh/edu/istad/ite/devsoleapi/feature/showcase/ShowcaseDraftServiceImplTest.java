@@ -4,6 +4,7 @@ import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import jakarta.validation.ValidatorFactory;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.SaveShowcaseDraftRequest;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -51,6 +52,9 @@ class ShowcaseDraftServiceImplTest {
 
     @Mock
     private ShowCasesService showCasesService;
+
+    @Mock
+    private ImageStorageService imageStorageService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -205,6 +209,85 @@ class ShowcaseDraftServiceImplTest {
     }
 
     /**
+     * The image and the draft are thrown away together. Nothing else points at
+     * it — the draft was never posted — so leaving it behind would strand a
+     * file with no trace of what it was for.
+     */
+    @Test
+    void discardingADraftAlsoDiscardsItsCover() {
+        UUID authorId = UUID.randomUUID();
+        authenticate("USER", authorId);
+
+        ShowcaseDraft draft = ShowcaseDraft.builder()
+                .id(UUID.randomUUID())
+                .coverImageUrl("https://file.example/showcase-drafts/x/cover.png")
+                .build();
+        when(showcaseDraftRepository.findByIdAndAuthor_Id(
+                draft.getId(),
+                authorId
+        )).thenReturn(Optional.of(draft));
+
+        service().delete(draft.getId());
+
+        verify(imageStorageService)
+                .remove("https://file.example/showcase-drafts/x/cover.png");
+        verify(showcaseDraftRepository).delete(draft);
+    }
+
+    /**
+     * The opposite of discarding. The showcase now points at that object, so
+     * cleaning it up here would blank the cover of the post just created.
+     */
+    @Test
+    void postingADraftKeepsItsCover() {
+        UUID authorId = UUID.randomUUID();
+        authenticate("USER", authorId);
+
+        ShowcaseDraft draft = ShowcaseDraft.builder()
+                .id(UUID.randomUUID())
+                .categoryId(UUID.randomUUID())
+                .title("Something worth reading")
+                .overview("With enough detail to judge.")
+                .coverImageUrl("https://file.example/showcase-drafts/x/cover.png")
+                .build();
+        when(showcaseDraftRepository.findByIdAndAuthor_Id(
+                draft.getId(),
+                authorId
+        )).thenReturn(Optional.of(draft));
+
+        service().submit(draft.getId());
+
+        verify(imageStorageService, never()).remove(any());
+        verify(showcaseDraftRepository).delete(draft);
+    }
+
+    /**
+     * Autosave sends the whole document. A client that forgets to echo the
+     * current cover back must not thereby destroy the file — clearing the field
+     * is not the same act as deleting the image.
+     */
+    @Test
+    void anAutosaveThatDropsTheCoverUrlDoesNotDeleteTheFile() {
+        UUID authorId = UUID.randomUUID();
+        authenticate("USER", authorId);
+
+        ShowcaseDraft draft = ShowcaseDraft.builder()
+                .id(UUID.randomUUID())
+                .author(mock(UserProfile.class))
+                .coverImageUrl("https://file.example/showcase-drafts/x/cover.png")
+                .build();
+        when(showcaseDraftRepository.findByIdAndAuthor_Id(
+                draft.getId(),
+                authorId
+        )).thenReturn(Optional.of(draft));
+        when(showcaseDraftRepository.save(draft)).thenReturn(draft);
+
+        service().save(draft.getId(), emptyRequest());
+
+        verify(imageStorageService, never()).remove(any());
+    }
+
+    /**
      * Autosave fires before anything is typed, so an entirely empty save has to
      * be a valid one.
      */
@@ -225,6 +308,7 @@ class ShowcaseDraftServiceImplTest {
                 showcaseDraftRepository,
                 userProfileRepository,
                 showCasesService,
+                imageStorageService,
                 VALIDATOR_FACTORY.getValidator()
         );
     }

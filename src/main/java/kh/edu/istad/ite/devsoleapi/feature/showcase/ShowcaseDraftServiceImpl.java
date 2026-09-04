@@ -4,6 +4,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
+import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.SaveShowcaseDraftRequest;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashSet;
@@ -48,6 +50,7 @@ public class ShowcaseDraftServiceImpl implements ShowcaseDraftService {
     private final ShowcaseDraftRepository showcaseDraftRepository;
     private final UserProfileRepository userProfileRepository;
     private final ShowCasesService showCasesService;
+    private final ImageStorageService imageStorageService;
     private final Validator validator;
 
     @Override
@@ -104,8 +107,47 @@ public class ShowcaseDraftServiceImpl implements ShowcaseDraftService {
 
     @Override
     @Transactional
+    public ShowcaseDraftResponse uploadCoverImage(UUID id, MultipartFile file) {
+        ShowcaseDraft draft = findOwnDraft(id);
+        draft.setCoverImageUrl(imageStorageService.replace(
+                coverImagePrefix(draft.getId()),
+                draft.getCoverImageUrl(),
+                file
+        ));
+        return toResponse(showcaseDraftRepository.save(draft));
+    }
+
+    @Override
+    @Transactional
+    public ShowcaseDraftResponse removeCoverImage(UUID id) {
+        ShowcaseDraft draft = findOwnDraft(id);
+        imageStorageService.remove(draft.getCoverImageUrl());
+        draft.setCoverImageUrl(null);
+        return toResponse(showcaseDraftRepository.save(draft));
+    }
+
+    @Override
+    @Transactional
     public void delete(UUID id) {
-        showcaseDraftRepository.delete(findOwnDraft(id));
+        ShowcaseDraft draft = findOwnDraft(id);
+        // Nothing else points at it — the draft was never posted — so throwing
+        // the draft away has to throw the image away too, or an abandoned
+        // cover outlives every trace of what it was for.
+        imageStorageService.remove(draft.getCoverImageUrl());
+        showcaseDraftRepository.delete(draft);
+    }
+
+    /**
+     * Keyed by the draft, and left there when the draft becomes a showcase.
+     *
+     * <p>Submitting deliberately does not move the object: the key namespace is
+     * a namespace and nothing reads meaning from it, while copying the bytes
+     * across at submit would open a window where the showcase points at one of
+     * two objects depending on which half failed. Replacing the cover on the
+     * posted showcase cleans this one up through the ordinary path.
+     */
+    private String coverImagePrefix(UUID draftId) {
+        return "showcase-drafts/" + draftId + "/cover";
     }
 
     @Override
@@ -135,10 +177,20 @@ public class ShowcaseDraftServiceImpl implements ShowcaseDraftService {
         // handoff all behave exactly as they always did. Sharing one
         // transaction means a refusal leaves the draft untouched.
         ShowCasesResponse response = showCasesService.create(request);
+        // The draft row goes; the cover image deliberately stays. The showcase
+        // now points at that object, so removing it here — as delete() does —
+        // would blank the cover of the post that was just created.
         showcaseDraftRepository.delete(draft);
         return response;
     }
 
+    /**
+     * Sets fields and nothing else. Notably it does not delete a stored cover
+     * when the incoming {@code coverImageUrl} is null: autosave sends the whole
+     * document, so a client that forgets to echo the current cover back would
+     * otherwise destroy a file the author never asked to remove. Removing one
+     * is an explicit act — see {@link #removeCoverImage}.
+     */
     private void apply(ShowcaseDraft draft, SaveShowcaseDraftRequest request) {
         draft.setCategoryId(request.categoryId());
         draft.setTitle(request.title());
