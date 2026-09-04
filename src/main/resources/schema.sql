@@ -2704,3 +2704,96 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- Showcase and solution drafts -------------------------------------------------
+--
+-- Work somebody has started and not posted. Separate tables rather than a DRAFT
+-- state on showcases and solutions, for the reason report_drafts is separate:
+-- title and overview are NOT NULL on a showcase, and summary, body and approach
+-- are all required on a solution -- a draft has none of them after the first
+-- keystroke. Carrying drafts on the real tables would mean relaxing those
+-- columns for every genuine row and then auditing every listing, feed, search
+-- index, count and moderation query to exclude a state they were never written
+-- to expect, where anything missed puts unfinished work in front of the public.
+--
+-- Nothing here is validated beyond a length cap. Autosave has to accept a form
+-- mid-keystroke, so the rules live at submit, where the draft is turned into a
+-- real request and put through the same validated path a direct post takes.
+--
+-- category_id and problem_id are plain identifiers rather than foreign keys: a
+-- draft can outlive the category being removed or the problem being closed, and
+-- a constraint would either block that or delete somebody's unfinished work
+-- with it. Submit resolves them through the normal lookups and refuses if they
+-- have stopped being valid.
+DO $$
+BEGIN
+    IF to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.showcase_drafts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            author_id UUID NOT NULL
+                REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+            category_id UUID,
+            title VARCHAR(255),
+            overview TEXT,
+            cover_image_url VARCHAR(500),
+            live_url VARCHAR(500),
+            repo_url VARCHAR(500),
+            video_url VARCHAR(500),
+            tag_ids JSONB,
+            tags JSONB,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS public.solution_drafts (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            author_id UUID NOT NULL
+                REFERENCES public.user_profiles (id) ON DELETE CASCADE,
+            problem_id UUID NOT NULL,
+            summary VARCHAR(250),
+            body_markdown TEXT,
+            approach_type VARCHAR(20),
+            tradeoffs TEXT,
+            verification_steps JSONB,
+            tested_with JSONB,
+            resources JSONB,
+            created_at TIMESTAMP(6) NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP(6) NOT NULL DEFAULT now()
+        );
+    END IF;
+
+    IF to_regclass('public.showcase_drafts') IS NOT NULL THEN
+        -- The CREATE above is skipped on a database where Hibernate built this
+        -- table first, taking its column defaults with it. Setting them here is
+        -- what makes the two paths agree.
+        ALTER TABLE public.showcase_drafts
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.showcase_drafts
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.showcase_drafts
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        -- Every read is "my drafts, newest edit first". Nothing else queries
+        -- this table.
+        CREATE INDEX IF NOT EXISTS idx_showcase_drafts_author
+            ON public.showcase_drafts (author_id, updated_at DESC);
+    END IF;
+
+    IF to_regclass('public.solution_drafts') IS NOT NULL THEN
+        ALTER TABLE public.solution_drafts
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.solution_drafts
+            ALTER COLUMN created_at SET DEFAULT now();
+        ALTER TABLE public.solution_drafts
+            ALTER COLUMN updated_at SET DEFAULT now();
+
+        CREATE INDEX IF NOT EXISTS idx_solution_drafts_author
+            ON public.solution_drafts (author_id, updated_at DESC);
+
+        -- "Have I already started answering this problem?", which the answer
+        -- form asks on open.
+        CREATE INDEX IF NOT EXISTS idx_solution_drafts_author_problem
+            ON public.solution_drafts (author_id, problem_id);
+    END IF;
+END
+$$^^^
