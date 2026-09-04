@@ -154,6 +154,13 @@ public record ReportResponse(
     ) {
     }
 
+    /**
+     * @param respondBy when the reporter's window to accept or refuse a triage
+     *                  severity closes. Set only while {@code status} is
+     *                  AWAITING_REPORTER; null everywhere else, including on
+     *                  disputes raised before that step existed. Silence past
+     *                  it settles at the triage severity.
+     */
     public record DisputeSummary(
             UUID id,
             DisputeStatus status,
@@ -163,7 +170,8 @@ public record ReportResponse(
             UUID resolvedBy,
             String resolutionNotes,
             LocalDateTime createdAt,
-            LocalDateTime resolvedAt
+            LocalDateTime resolvedAt,
+            LocalDateTime respondBy
     ) {
     }
 }

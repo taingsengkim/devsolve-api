@@ -30,6 +30,14 @@ public record DisputeResponse(
         UUID resolvedBy,
         String resolutionNotes,
         LocalDateTime createdAt,
-        LocalDateTime resolvedAt
+        LocalDateTime resolvedAt,
+
+        /**
+         * When the reporter's window to answer closes. Set only while
+         * {@code status} is AWAITING_REPORTER — a dispute in the
+         * administrators' queue has already been answered, so this is null on
+         * everything they can act on.
+         */
+        LocalDateTime respondBy
 ) {
 }

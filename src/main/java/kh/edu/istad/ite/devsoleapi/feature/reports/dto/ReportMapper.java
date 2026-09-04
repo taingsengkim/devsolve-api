@@ -194,7 +194,8 @@ public class ReportMapper {
                         : dispute.getResolvedBy().getId(),
                 dispute.getResolutionNotes(),
                 dispute.getCreatedAt(),
-                dispute.getResolvedAt()
+                dispute.getResolvedAt(),
+                dispute.getRespondBy()
         );
     }
 }
