@@ -35,7 +35,20 @@ public interface TagRepository extends JpaRepository<Tag, UUID> {
             """)
     List<Tag> search(@Param("query") String query, Pageable pageable);
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    /**
+     * Deliberately not {@code clearAutomatically}. That clears the whole
+     * persistence context rather than the {@link Tag} rows this touches, and
+     * every caller is part-way through writing a problem or a showcase which it
+     * renders as soon as the tags are linked. Detaching it there turned "the
+     * author added a tag" into a {@code LazyInitializationException} while
+     * building the response — a 500 on a write that had otherwise succeeded.
+     *
+     * <p>Nothing assigns {@code usageCount} in Java, so the now-stale copies
+     * left in the context cannot be flushed back over this update. The most it
+     * costs is that the one response which added a tag reports the count from
+     * just before it.
+     */
+    @Modifying(flushAutomatically = true)
     @Query("""
             update Tag t
             set t.usageCount = t.usageCount + 1
@@ -43,7 +56,8 @@ public interface TagRepository extends JpaRepository<Tag, UUID> {
             """)
     int incrementUsageCounts(@Param("ids") Collection<UUID> ids);
 
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    /** Leaves the context alone for the reason on {@link #incrementUsageCounts}. */
+    @Modifying(flushAutomatically = true)
     @Query(
             value = """
                     update tags

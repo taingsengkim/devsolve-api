@@ -1,5 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.problem.tag;
 
+import jakarta.persistence.EntityManager;
+import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
+import kh.edu.istad.ite.devsoleapi.feature.problem.enums.ProblemStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -8,7 +12,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,6 +31,43 @@ class TagRepositoryTest {
 
     @Autowired
     private TagRepository tagRepository;
+
+    @Autowired
+    private ProblemRepository problemRepository;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    /**
+     * The usage-count updates once ran with {@code clearAutomatically}, which
+     * detached everything the caller was holding rather than just the tags. The
+     * services link the tags and then render the problem they have just
+     * written, so adding a tag returned a 500 from the response assembly while
+     * the write itself had gone through.
+     */
+    @Test
+    void updatingUsageCountsLeavesTheProblemBeingWrittenAttached() {
+        Tag tag = saveTag("Java", "java", 0);
+        UUID problemId = problemRepository.saveAndFlush(Problem.builder()
+                .authorId(UUID.randomUUID())
+                .categoryId(UUID.randomUUID())
+                .title("A valid repository test title")
+                .description("A valid repository test description")
+                .status(ProblemStatus.DRAFT)
+                .build()).getId();
+        // Cleared and re-read so the collection below is a real uninitialized
+        // proxy, which is the only state the detaching could be seen in.
+        entityManager.clear();
+        Problem problem = problemRepository.findById(problemId).orElseThrow();
+
+        tagRepository.incrementUsageCounts(Set.of(tag.getId()));
+        tagRepository.decrementUsageCounts(Set.of(tag.getId()));
+
+        assertDoesNotThrow(
+                () -> problem.getAcceptedSolutions().size(),
+                "a usage-count update must not detach the problem being written"
+        );
+    }
 
     @Test
     void prefixMatchesRankAboveSubstringMatchesRegardlessOfUsage() {
@@ -80,8 +124,8 @@ class TagRepositoryTest {
         return tags.stream().map(Tag::getSlug).toList();
     }
 
-    private void saveTag(String name, String slug, int usageCount) {
-        tagRepository.saveAndFlush(Tag.builder()
+    private Tag saveTag(String name, String slug, int usageCount) {
+        return tagRepository.saveAndFlush(Tag.builder()
                 .name(name)
                 .slug(slug)
                 .usageCount(usageCount)
