@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
@@ -41,6 +42,37 @@ public interface ReportService {
     List<ReportActivityResponse> findActivities(UUID reportId);
 
     ReportResponse triage(UUID id, TriageReportRequest request);
+
+    /**
+     * The reporter agreeing to a severity triage rated differently from their
+     * own claim. Settles the disagreement without an administrator, which is
+     * what most of them deserve, and unblocks the report.
+     */
+    ReportResponse acceptTriageSeverity(UUID reportId);
+
+    /**
+     * The reporter refusing it. This is what opens the dispute proper: the
+     * report stays without an agreed severity, and an administrator rules.
+     */
+    ReportResponse rejectTriageSeverity(
+            UUID reportId,
+            RejectTriageSeverityRequest request
+    );
+
+    /**
+     * Severity disagreements whose window has run out, oldest deadline first.
+     *
+     * <p>Read separately from {@link #autoAcceptTriageSeverity} so the sweep
+     * can settle each on its own — one row that cannot be closed should cost
+     * that report its deadline, not every other report's.
+     */
+    List<UUID> findOverdueSeverityDisputeIds();
+
+    /**
+     * Settles one unanswered disagreement at the triage severity. Does nothing
+     * if it has been answered or ruled on since it was listed.
+     */
+    void autoAcceptTriageSeverity(UUID disputeId);
 
     ReportResponse updateDisclosureStatus(
             UUID id,

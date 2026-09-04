@@ -26,6 +26,7 @@ import kh.edu.istad.ite.devsoleapi.feature.comments.Comment;
 import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
 import kh.edu.istad.ite.devsoleapi.feature.comments.enums.CommentableType;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
@@ -140,8 +141,23 @@ public class ReportServiceImpl implements ReportService {
             "resolvedAt"
     );
 
+    /**
+     * How long the reporter has to accept or refuse a triage severity they did
+     * not ask for. Matched to the retest window for the same reason: long
+     * enough to cover somebody being away, short enough that a program is not
+     * held by a researcher who has moved on.
+     */
+    private static final Duration SEVERITY_RESPONSE_WINDOW = Duration.ofDays(14);
+
+    /**
+     * A disagreement nobody has settled yet, in either of its two shapes: the
+     * reporter has not answered, or an administrator has not ruled. Both block
+     * triage and rewards — the report has no agreed severity, and everything
+     * downstream is priced off one.
+     */
     private static final Set<DisputeStatus> ACTIVE_DISPUTE_STATUSES =
             EnumSet.of(
+                    DisputeStatus.AWAITING_REPORTER,
                     DisputeStatus.OPEN,
                     DisputeStatus.UNDER_REVIEW
             );
@@ -377,6 +393,172 @@ public class ReportServiceImpl implements ReportService {
                 .stream()
                 .map(reportMapper::toActivityResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public ReportResponse acceptTriageSeverity(UUID reportId) {
+        Report report = findOwnReport(reportId);
+        Dispute dispute = findSeverityDisputeAwaitingReporter(report.getId());
+        settleAtTriageSeverity(
+                report,
+                dispute,
+                report.getReporter(),
+                "The reporter accepted the triage severity"
+        );
+        return reportMapper.toResponse(report);
+    }
+
+    @Override
+    @Transactional
+    public ReportResponse rejectTriageSeverity(
+            UUID reportId,
+            RejectTriageSeverityRequest request
+    ) {
+        Report report = findOwnReport(reportId);
+        Dispute dispute = findSeverityDisputeAwaitingReporter(report.getId());
+
+        dispute.setStatus(DisputeStatus.OPEN);
+        // The reporter's own words replace the line the platform wrote when it
+        // asked them. This is their dispute now, and their reasoning is the
+        // first thing an administrator reads.
+        dispute.setReason(request.reason().trim());
+        // The window belonged to their answer, and they have answered.
+        dispute.setRespondBy(null);
+        disputeRepository.saveAndFlush(dispute);
+
+        reportActivityRecorder.severitySettled(
+                report,
+                report.getReporter(),
+                null,
+                "The reporter refused the triage severity; an administrator"
+                        + " will decide"
+        );
+
+        // The organization hears it from the platform rather than finding out
+        // when the report stops moving. Administrators have their own dispute
+        // queue and do not need telling twice.
+        eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                organizationAuthorization.findUserIdsWithPermission(
+                        report.getProgram().getOrganizationId(),
+                        OrganizationPermission.TRIAGE_REPORTS
+                ),
+                report.getReporter().getId(),
+                "Severity disputed",
+                report.getReporter().getFullName()
+                        + " did not accept the triage severity on \""
+                        + report.getTitle()
+                        + "\". An administrator will settle it.",
+                NotificationType.DISPUTE,
+                report.getId(),
+                "report:" + report.getId() + ":severity-disputed:"
+                        + dispute.getId()
+        ));
+
+        return reportMapper.toResponse(report);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<UUID> findOverdueSeverityDisputeIds() {
+        return disputeRepository.findOverdueIds(
+                DisputeStatus.AWAITING_REPORTER,
+                LocalDateTime.now()
+        );
+    }
+
+    @Override
+    @Transactional
+    public void autoAcceptTriageSeverity(UUID disputeId) {
+        Dispute dispute = disputeRepository.findById(disputeId).orElse(null);
+        // Answered, or settled by an administrator, between the sweep listing
+        // it and reaching it. Either way there is nothing left to accept.
+        if (dispute == null
+                || dispute.getStatus() != DisputeStatus.AWAITING_REPORTER) {
+            return;
+        }
+
+        Report report = dispute.getReport();
+        settleAtTriageSeverity(
+                report,
+                dispute,
+                // Nobody accepted this. The clock did, and the timeline says so
+                // rather than crediting a person who never answered.
+                null,
+                "No answer within " + SEVERITY_RESPONSE_WINDOW.toDays()
+                        + " days; the triage severity stands"
+        );
+
+        eventPublisher.publishEvent(NotificationEvent.to(
+                report.getReporter().getId(),
+                "Severity settled",
+                "\"" + report.getTitle() + "\" is now rated "
+                        + report.getSeverity()
+                        + ". The window to contest it has closed.",
+                NotificationType.REPORT,
+                report.getId(),
+                "report:" + report.getId() + ":severity-auto-accepted:"
+                        + dispute.getId()
+        ));
+    }
+
+    /**
+     * Closes a severity disagreement at the rating triage gave it.
+     *
+     * <p>Dismissed rather than resolved, which is the same shape an
+     * administrator's dismissal takes: nobody overruled triage, so the rating
+     * stands. Writing {@code resolvedSeverity} is what makes it final —
+     * {@link #findSettledSeverity} reads it on every later triage, so the
+     * argument cannot be reopened by re-triaging.
+     *
+     * @param settledBy null when the window closed unanswered
+     */
+    private void settleAtTriageSeverity(
+            Report report,
+            Dispute dispute,
+            UserProfile settledBy,
+            String notes
+    ) {
+        Severity agreed = report.getTriageSeverity();
+        dispute.setStatus(DisputeStatus.DISMISSED);
+        dispute.setResolvedSeverity(agreed);
+        dispute.setResolvedBy(settledBy);
+        dispute.setResolutionNotes(notes);
+        dispute.setResolvedAt(LocalDateTime.now());
+        dispute.setRespondBy(null);
+        disputeRepository.saveAndFlush(dispute);
+
+        report.setSeverity(agreed);
+        reportActivityRecorder.severitySettled(
+                report,
+                settledBy,
+                agreed,
+                notes
+        );
+        reportRepository.saveAndFlush(report);
+    }
+
+    private Report findOwnReport(UUID reportId) {
+        requireRole(USER_ROLE);
+        Report report = reportRepository.findById(reportId)
+                .orElseThrow(this::reportNotFound);
+        if (!report.getReporter().getId().equals(currentUserId())) {
+            // Not 403: an unrelated user must not learn the report exists.
+            throw reportNotFound();
+        }
+        return report;
+    }
+
+    private Dispute findSeverityDisputeAwaitingReporter(UUID reportId) {
+        return disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        reportId,
+                        EnumSet.of(DisputeStatus.AWAITING_REPORTER)
+                )
+                .orElseThrow(() -> conflict(
+                        "This report has no severity decision awaiting your "
+                                + "answer"
+                ));
     }
 
     /**
@@ -1586,6 +1768,16 @@ public class ReportServiceImpl implements ReportService {
                 ));
     }
 
+    /**
+     * Puts a severity disagreement to the reporter before it reaches an
+     * administrator.
+     *
+     * <p>It used to open straight into the administrators' queue, which made
+     * the platform arbitrate arguments the two sides had not had. Most
+     * disagreements are one party reading the impact differently, and the
+     * reporter agreeing costs nobody anything. Refusing is what opens the
+     * dispute proper — see {@link #rejectTriageSeverity}.
+     */
     private void ensureSeverityDispute(Report report) {
         Dispute dispute = disputeRepository
                 .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
@@ -1597,11 +1789,36 @@ public class ReportServiceImpl implements ReportService {
                                 .report(report)
                                 .raisedBy(report.getReporter())
                                 .reason(
-                                        "Automatically opened because the reported and triage severities differ"
+                                        "The reported and triage severities differ; awaiting the reporter"
                                 )
-                                .status(DisputeStatus.OPEN)
+                                .status(DisputeStatus.AWAITING_REPORTER)
+                                .respondBy(
+                                        LocalDateTime.now()
+                                                .plus(SEVERITY_RESPONSE_WINDOW)
+                                )
                                 .build()
                 ));
+
+        if (dispute.getStatus() == DisputeStatus.AWAITING_REPORTER) {
+            eventPublisher.publishEvent(NotificationEvent.to(
+                    report.getReporter().getId(),
+                    "Confirm the severity of your report",
+                    "\"" + report.getTitle() + "\" was triaged as "
+                            + report.getTriageSeverity() + ", not "
+                            + report.getReportedSeverity()
+                            + ". Accept it, or ask an administrator to decide."
+                            + (dispute.getRespondBy() == null
+                                    ? ""
+                                    : " Silence past "
+                                            + dispute.getRespondBy()
+                                                    .toLocalDate()
+                                            + " accepts it."),
+                    NotificationType.REPORT,
+                    report.getId(),
+                    "report:" + report.getId() + ":severity-dispute:"
+                            + dispute.getId()
+            ));
+        }
 
         boolean alreadyLoaded = report.getDisputes().stream()
                 .anyMatch(candidate ->
@@ -1635,7 +1852,12 @@ public class ReportServiceImpl implements ReportService {
                 )
                 .ifPresent(dispute -> {
                     throw conflict(
-                            "An administrator must resolve the open severity dispute"
+                            dispute.getStatus()
+                                    == DisputeStatus.AWAITING_REPORTER
+                                    ? "The reporter has not yet accepted the "
+                                            + "triage severity"
+                                    : "An administrator must resolve the open "
+                                            + "severity dispute"
                     );
                 });
     }

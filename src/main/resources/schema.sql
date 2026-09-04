@@ -2661,3 +2661,46 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- Reporter acceptance of a triage severity ------------------------------------
+--
+-- A severity disagreement is now put to the reporter before it reaches an
+-- administrator. It used to open straight into the administrators' queue, which
+-- made the platform arbitrate arguments the two sides had not had yet -- most
+-- disagreements are one party reading the impact differently, and the reporter
+-- agreeing costs nobody anything.
+--
+-- respond_by is when their window closes. Silence past it settles at the triage
+-- severity: a report with no agreed severity cannot be resolved, rewarded or
+-- retested, so without a deadline one unresponsive researcher would freeze that
+-- report for good.
+--
+-- Null on every dispute that is not awaiting_reporter, including every dispute
+-- raised before this step existed -- the sweep skips those rather than settling
+-- them all at once.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_type WHERE typname = 'dispute_status_enum'
+    ) THEN
+        ALTER TYPE public.dispute_status_enum
+            ADD VALUE IF NOT EXISTS 'awaiting_reporter';
+    END IF;
+END
+$$^^^
+
+DO $$
+BEGIN
+    IF to_regclass('public.disputes') IS NOT NULL THEN
+        ALTER TABLE public.disputes
+            ADD COLUMN IF NOT EXISTS respond_by TIMESTAMP(6);
+
+        -- The hourly sweep, which on nearly every run matches nothing. Partial
+        -- so the index stays the size of the outstanding answers rather than of
+        -- every dispute ever raised.
+        CREATE INDEX IF NOT EXISTS idx_disputes_respond_by
+            ON public.disputes (respond_by)
+            WHERE respond_by IS NOT NULL;
+    END IF;
+END
+$$^^^

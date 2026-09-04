@@ -73,6 +73,26 @@ public class ReportActivityRecorder {
                 .build());
     }
 
+    /**
+     * A severity disagreement settling, by whoever settled it — the reporter
+     * accepting, an administrator ruling, or nobody at all when the window
+     * closed unanswered.
+     */
+    public void severitySettled(
+            Report report,
+            UserProfile actor,
+            Severity severity,
+            String detail
+    ) {
+        record(ReportActivity.builder()
+                .report(report)
+                .actor(actor)
+                .activityType(ReportActivityType.SEVERITY_CHANGED)
+                .severity(severity)
+                .detail(detail)
+                .build());
+    }
+
     public void rewardGranted(
             Report report,
             UserProfile actor,

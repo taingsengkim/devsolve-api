@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
@@ -126,6 +127,24 @@ public class ReportController {
             @Valid @RequestBody TriageReportRequest request
     ) {
         return reportService.triage(id, request);
+    }
+
+    /**
+     * The reporter's answer when triage rated their finding differently. Both
+     * are theirs alone: the organization has already had its say, and an
+     * administrator only hears about it if the reporter refuses.
+     */
+    @PostMapping("/reports/{id}/severity/accept")
+    public ReportResponse acceptTriageSeverity(@PathVariable UUID id) {
+        return reportService.acceptTriageSeverity(id);
+    }
+
+    @PostMapping("/reports/{id}/severity/reject")
+    public ReportResponse rejectTriageSeverity(
+            @PathVariable UUID id,
+            @Valid @RequestBody RejectTriageSeverityRequest request
+    ) {
+        return reportService.rejectTriageSeverity(id, request);
     }
 
     @PatchMapping("/reports/{id}/disclosure-status")

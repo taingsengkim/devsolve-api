@@ -45,6 +45,15 @@ public class DisputeServiceImpl implements DisputeService {
 
     private static final String ADMIN_ROLE = "ADMIN";
 
+    /**
+     * The administrators' queue: disputes that have reached them and are still
+     * waiting on a ruling.
+     *
+     * <p>Deliberately excludes {@code AWAITING_REPORTER}. That one is a
+     * disagreement the reporter has not answered yet, and it is not an
+     * administrator's to settle until they refuse it — stepping in earlier
+     * would decide, on the researcher's behalf, that there was an argument.
+     */
     private static final Set<DisputeStatus> ACTIVE_DISPUTE_STATUSES =
             EnumSet.of(
                     DisputeStatus.OPEN,
@@ -111,6 +120,12 @@ public class DisputeServiceImpl implements DisputeService {
         requireAdmin();
         Dispute dispute = findDispute(id);
 
+        if (dispute.getStatus() == DisputeStatus.AWAITING_REPORTER) {
+            throw conflict(
+                    "The reporter has not yet answered this severity "
+                            + "disagreement"
+            );
+        }
         if (!ACTIVE_DISPUTE_STATUSES.contains(dispute.getStatus())) {
             throw conflict("This dispute has already been settled");
         }
@@ -121,6 +136,12 @@ public class DisputeServiceImpl implements DisputeService {
             case DISMISSED -> dismiss(dispute, request);
             case OPEN -> throw badRequest(
                     "A dispute cannot be moved back to OPEN"
+            );
+            // Only the platform puts a dispute here, when triage and the
+            // reporter first disagree. An administrator ruling is the step
+            // after that one, never a way back into it.
+            case AWAITING_REPORTER -> throw badRequest(
+                    "A dispute cannot be sent back to the reporter"
             );
         };
     }

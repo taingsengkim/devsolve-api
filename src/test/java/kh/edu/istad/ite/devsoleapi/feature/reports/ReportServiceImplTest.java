@@ -22,6 +22,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
@@ -672,6 +673,128 @@ class ReportServiceImplTest {
                 report.getReporter(),
                 report.getDisputes().getFirst().getRaisedBy()
         );
+        assertEquals(
+                DisputeStatus.AWAITING_REPORTER,
+                report.getDisputes().getFirst().getStatus()
+        );
+    }
+
+    /**
+     * The point of asking the reporter first: agreeing costs nobody an
+     * administrator, and the report stops being blocked immediately.
+     */
+    @Test
+    void theReporterAcceptingSettlesTheSeverityWithoutAnAdministrator() {
+        Report report = newReport(Severity.MEDIUM);
+        report.setTriageSeverity(Severity.LOW);
+        Dispute dispute = awaitingDispute(report);
+        authenticate(report.getReporter().getId(), "USER");
+
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        report.getId(),
+                        EnumSet.of(DisputeStatus.AWAITING_REPORTER)
+                ))
+                .thenReturn(Optional.of(dispute));
+
+        service().acceptTriageSeverity(report.getId());
+
+        assertEquals(Severity.LOW, report.getSeverity());
+        assertEquals(DisputeStatus.DISMISSED, dispute.getStatus());
+        // Written so a later re-triage reads it back and cannot reopen the
+        // argument.
+        assertEquals(Severity.LOW, dispute.getResolvedSeverity());
+        assertSame(report.getReporter(), dispute.getResolvedBy());
+        assertNull(dispute.getRespondBy());
+    }
+
+    @Test
+    void theReporterRefusingSendsItToAnAdministrator() {
+        Report report = newReport(Severity.MEDIUM);
+        report.setTriageSeverity(Severity.LOW);
+        Dispute dispute = awaitingDispute(report);
+        authenticate(report.getReporter().getId(), "USER");
+
+        when(reportRepository.findById(report.getId()))
+                .thenReturn(Optional.of(report));
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        report.getId(),
+                        EnumSet.of(DisputeStatus.AWAITING_REPORTER)
+                ))
+                .thenReturn(Optional.of(dispute));
+
+        service().rejectTriageSeverity(
+                report.getId(),
+                new RejectTriageSeverityRequest(
+                        "  It is remotely exploitable without a session  "
+                )
+        );
+
+        // Still no agreed severity, so the report stays blocked until a ruling.
+        assertNull(report.getSeverity());
+        assertEquals(DisputeStatus.OPEN, dispute.getStatus());
+        assertEquals(
+                "It is remotely exploitable without a session",
+                dispute.getReason()
+        );
+        assertNull(dispute.getRespondBy());
+    }
+
+    /**
+     * Silence is not a veto. Without this a researcher who stopped reading
+     * their notifications would freeze the report for good — it could never be
+     * resolved, rewarded or retested.
+     */
+    @Test
+    void anUnansweredDisagreementSettlesAtTheTriageSeverity() {
+        Report report = newReport(Severity.MEDIUM);
+        report.setTriageSeverity(Severity.LOW);
+        Dispute dispute = awaitingDispute(report);
+        dispute.setRespondBy(LocalDateTime.now().minusDays(1));
+
+        when(disputeRepository.findById(dispute.getId()))
+                .thenReturn(Optional.of(dispute));
+
+        service().autoAcceptTriageSeverity(dispute.getId());
+
+        assertEquals(Severity.LOW, report.getSeverity());
+        assertEquals(DisputeStatus.DISMISSED, dispute.getStatus());
+        // Nobody accepted this, so nobody is credited with having done so.
+        assertNull(dispute.getResolvedBy());
+    }
+
+    /**
+     * Listed by the sweep, then answered before the sweep reached it.
+     */
+    @Test
+    void aDisagreementAnsweredBeforeTheSweepReachesItIsLeftAlone() {
+        Report report = newReport(Severity.MEDIUM);
+        report.setTriageSeverity(Severity.LOW);
+        Dispute dispute = awaitingDispute(report);
+        dispute.setStatus(DisputeStatus.OPEN);
+
+        when(disputeRepository.findById(dispute.getId()))
+                .thenReturn(Optional.of(dispute));
+
+        service().autoAcceptTriageSeverity(dispute.getId());
+
+        assertNull(report.getSeverity());
+        assertEquals(DisputeStatus.OPEN, dispute.getStatus());
+        verify(disputeRepository, never()).saveAndFlush(any(Dispute.class));
+    }
+
+    private Dispute awaitingDispute(Report report) {
+        return Dispute.builder()
+                .id(UUID.randomUUID())
+                .report(report)
+                .raisedBy(report.getReporter())
+                .reason("The reported and triage severities differ")
+                .status(DisputeStatus.AWAITING_REPORTER)
+                .respondBy(LocalDateTime.now().plusDays(14))
+                .build();
     }
 
     @Test
@@ -690,6 +813,7 @@ class ReportServiceImplTest {
                 .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
                         report.getId(),
                         EnumSet.of(
+                                DisputeStatus.AWAITING_REPORTER,
                                 DisputeStatus.OPEN,
                                 DisputeStatus.UNDER_REVIEW
                         )

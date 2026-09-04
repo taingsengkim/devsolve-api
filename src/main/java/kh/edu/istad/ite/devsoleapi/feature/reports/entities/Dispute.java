@@ -84,4 +84,19 @@ public class Dispute {
 
     @Column(name = "resolved_at")
     private LocalDateTime resolvedAt;
+
+    /**
+     * When the reporter's window to accept or refuse triage's severity runs
+     * out. Silence past this settles at triage's rating.
+     *
+     * <p>Stored rather than derived from {@code createdAt} so that changing the
+     * window later moves nobody's existing deadline — a reporter who was given
+     * fourteen days keeps fourteen days.
+     *
+     * <p>Null on every dispute that is not {@code AWAITING_REPORTER}, including
+     * every dispute raised before this step existed. The sweep skips those
+     * rather than lapsing them all at once.
+     */
+    @Column(name = "respond_by")
+    private LocalDateTime respondBy;
 }
