@@ -33,11 +33,18 @@ optional.
 
 `BUG` submissions require `expectedBehavior`, `actualBehavior`, and at least
 one reproduction step. Updates use `PATCH /api/v1/problems/{id}` and require
-the numeric ETag returned by `GET /api/v1/problems/{id}`:
+the numeric ETag:
 
 ```http
 If-Match: "7"
 ```
+
+Every response that carries a problem carries its current ETag — the reads,
+and the writes that create, edit, submit or attach to one. Take it from the
+most recent of those, not from the first: submitting moves the version, and so
+does the moderation decision that follows, which is a write the editing client
+never makes. A 412 means the copy being edited is behind; re-read the problem
+and edit from that.
 
 ## Create and revise a solution
 

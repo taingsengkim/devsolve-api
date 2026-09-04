@@ -131,19 +131,23 @@ public class ProblemController {
     }
 
     @PostMapping("/drafts")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ProblemResponse createDraft(
+    public ResponseEntity<ProblemResponse> createDraft(
             @Valid @RequestBody CreateProblemRequest request
     ) {
-        return problemService.createDraft(request);
+        return withEtag(
+                HttpStatus.CREATED,
+                problemService.createDraft(request)
+        );
     }
 
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public ProblemResponse createAndSubmit(
+    public ResponseEntity<ProblemResponse> createAndSubmit(
             @Valid @RequestBody CreateProblemRequest request
     ) {
-        return problemService.createAndSubmit(request);
+        return withEtag(
+                HttpStatus.CREATED,
+                problemService.createAndSubmit(request)
+        );
     }
 
     @PatchMapping("/{id}")
@@ -160,8 +164,8 @@ public class ProblemController {
     }
 
     @PostMapping("/{id}/submit")
-    public ProblemResponse submit(@PathVariable UUID id) {
-        return problemService.submit(id);
+    public ResponseEntity<ProblemResponse> submit(@PathVariable UUID id) {
+        return withEtag(problemService.submit(id));
     }
 
     @DeleteMapping("/{id}")
@@ -174,12 +178,14 @@ public class ProblemController {
             value = "/{id}/attachments",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
     )
-    @ResponseStatus(HttpStatus.CREATED)
-    public ProblemResponse uploadAttachment(
+    public ResponseEntity<ProblemResponse> uploadAttachment(
             @PathVariable UUID id,
             @RequestPart("file") MultipartFile file
     ) {
-        return problemService.uploadAttachment(id, file);
+        return withEtag(
+                HttpStatus.CREATED,
+                problemService.uploadAttachment(id, file)
+        );
     }
 
     @DeleteMapping("/{id}/attachments/{attachmentId}")
@@ -212,7 +218,24 @@ public class ProblemController {
     }
 
     private ResponseEntity<ProblemResponse> withEtag(ProblemResponse response) {
-        return ResponseEntity.ok()
+        return withEtag(HttpStatus.OK, response);
+    }
+
+    /**
+     * Every response carrying a problem carries its ETag, including the ones
+     * that created or moved it.
+     *
+     * <p>A client edits with {@code If-Match}, so the validator it holds has to
+     * come from the last write it made. Leaving it off a create or a submit
+     * meant a client following the header had nothing to send afterwards and
+     * one following the body's {@code version} was reading a number the next
+     * transition had already moved — either way the next edit came back 412.
+     */
+    private ResponseEntity<ProblemResponse> withEtag(
+            HttpStatus status,
+            ProblemResponse response
+    ) {
+        return ResponseEntity.status(status)
                 .eTag('"' + Long.toString(response.version()) + '"')
                 .body(response);
     }

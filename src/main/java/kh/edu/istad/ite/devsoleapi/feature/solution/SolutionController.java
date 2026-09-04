@@ -96,21 +96,25 @@ public class SolutionController {
     }
 
     @PutMapping("/problems/{problemId}/accepted-solutions")
-    public ProblemResponse setAcceptedSolution(
+    public ResponseEntity<ProblemResponse> setAcceptedSolution(
             @PathVariable UUID problemId,
             @Valid @RequestBody AcceptedSolutionRequest request
     ) {
-        return solutionService.setAcceptedSolution(problemId, request);
+        return withProblemEtag(
+                solutionService.setAcceptedSolution(problemId, request)
+        );
     }
 
     @DeleteMapping(
             "/problems/{problemId}/accepted-solutions/{solutionId}"
     )
-    public ProblemResponse removeAcceptedSolution(
+    public ResponseEntity<ProblemResponse> removeAcceptedSolution(
             @PathVariable UUID problemId,
             @PathVariable UUID solutionId
     ) {
-        return solutionService.removeAcceptedSolution(problemId, solutionId);
+        return withProblemEtag(
+                solutionService.removeAcceptedSolution(problemId, solutionId)
+        );
     }
 
     @PostMapping(
@@ -158,6 +162,19 @@ public class SolutionController {
     }
 
     private ResponseEntity<SolutionResponse> withEtag(SolutionResponse response) {
+        return ResponseEntity.ok()
+                .eTag('"' + Long.toString(response.version()) + '"')
+                .body(response);
+    }
+
+    /**
+     * Accepting a solution writes the problem too, so the author editing it
+     * needs the validator that write left behind rather than the one they were
+     * holding before it.
+     */
+    private ResponseEntity<ProblemResponse> withProblemEtag(
+            ProblemResponse response
+    ) {
         return ResponseEntity.ok()
                 .eTag('"' + Long.toString(response.version()) + '"')
                 .body(response);
