@@ -2,8 +2,8 @@
 
 This guide tests the Reports feature against a running DevSolve backend. It
 covers authentication, private report access, company triage, automatic
-severity agreement, automatic dispute creation, rewards, disclosure status,
-and role restrictions.
+severity agreement, the reporter's answer to a downgrade, administrator
+rulings, rewards, disclosure status, and role restrictions.
 
 ## 1. Prerequisites
 
@@ -52,11 +52,17 @@ The result should include:
 
 ```text
 trg_reconcile_report_severity
-trg_open_report_severity_dispute
 ```
 
-If they are missing, start the API once against the existing schema so that
-`src/main/resources/schema.sql` can install them.
+If it is missing, start the API once against the existing schema so that
+`src/main/resources/schema.sql` can install it.
+
+`trg_open_report_severity_dispute` must **not** be listed. It used to open a
+dispute from the database on any severity mismatch, straight into the
+administrators' queue, which got there before the application could ask the
+reporter anything. Dispute creation belongs to triage now, and `schema.sql`
+drops the trigger on startup. If the query still returns it, the API has not
+been restarted against the current schema.
 
 ## 3. Create a Postman environment
 
@@ -96,6 +102,7 @@ In Postman:
 | `weaknessId` | Optional; leave empty |
 | `reportId` | Leave empty |
 | `mismatchReportId` | Leave empty |
+| `upgradeReportId` | Leave empty |
 | `disputeId` | Leave empty |
 
 Select `DevSolve Local` as the active environment.
@@ -494,7 +501,10 @@ pm.test("Disagreement test report created", function () {
 });
 ```
 
-### 8.2 Triage with a different severity
+### 8.2 Triage below the reported severity
+
+Only a downgrade is disputed. Triage agreeing, or rating the finding *above*
+what was reported, settles the severity on the spot — see section 8.9.
 
 ```text
 PATCH {{baseUrl}}/reports/{{mismatchReportId}}/triage
@@ -514,7 +524,7 @@ Body:
 Post-response script:
 
 ```javascript
-pm.test("Severity mismatch opens a dispute", function () {
+pm.test("A downgrade is put to the reporter", function () {
     pm.response.to.have.status(200);
     const json = pm.response.json();
 
@@ -522,7 +532,9 @@ pm.test("Severity mismatch opens a dispute", function () {
     pm.expect(json.triageSeverity).to.eql("MEDIUM");
     pm.expect(json.severity).to.eql(null);
     pm.expect(json.dispute).to.be.an("object");
-    pm.expect(json.dispute.status).to.eql("OPEN");
+    // Not OPEN: the reporter is asked before an administrator is.
+    pm.expect(json.dispute.status).to.eql("AWAITING_REPORTER");
+    pm.expect(json.dispute.respondBy).to.not.eql(null);
 });
 ```
 
@@ -533,10 +545,10 @@ Send the same triage request again.
 Post-response script:
 
 ```javascript
-pm.test("Company cannot bypass an open dispute", function () {
+pm.test("Company cannot bypass a severity awaiting the reporter", function () {
     pm.response.to.have.status(409);
     const json = pm.response.json();
-    pm.expect(json.message).to.include("administrator");
+    pm.expect(json.message).to.include("reporter");
 });
 ```
 
@@ -559,10 +571,47 @@ Body:
 
 Expected status: `409 Conflict`.
 
-Nothing about this report can move until an Admin settles the disagreement.
-That is what section 8.5 onwards does.
+Nothing about this report can move until the severity is agreed. The reporter
+answers first; only if they refuse does an Admin get involved.
 
-### 8.5 Read the Admin dispute queue
+### 8.5 The reporter refuses the triage severity
+
+An Admin never sees this dispute until the reporter says they will not accept
+it. Accepting instead — `POST /reports/{{mismatchReportId}}/severity/accept`,
+no body — settles the report at `MEDIUM` and ends section 8 here, which is the
+path most disagreements take.
+
+```text
+POST {{baseUrl}}/reports/{{mismatchReportId}}/severity/reject
+Authorization: Bearer {{hackerToken}}
+```
+
+Body:
+
+```json
+{
+  "reason": "A crafted upload reaches command execution unauthenticated, which is not a MEDIUM."
+}
+```
+
+Post-response script:
+
+```javascript
+pm.test("Refusing escalates the dispute to an administrator", function () {
+    pm.response.to.have.status(200);
+    const json = pm.response.json();
+
+    pm.expect(json.severity).to.eql(null);
+    pm.expect(json.dispute.status).to.eql("OPEN");
+    pm.expect(json.dispute.respondBy).to.eql(null);
+});
+```
+
+Leaving it unanswered instead works too: silence past `respondBy` settles the
+report at the triage severity, so an unresponsive researcher cannot freeze a
+program's report for good.
+
+### 8.6 Read the Admin dispute queue
 
 ```text
 GET {{baseUrl}}/admin/disputes
@@ -592,7 +641,7 @@ pm.test("Dispute is waiting in the Admin queue", function () {
 });
 ```
 
-### 8.6 Claim the dispute for review
+### 8.7 Claim the dispute for review
 
 Optional, but it is what tells both sides somebody has picked the case up.
 
@@ -612,7 +661,7 @@ Body:
 
 The report stays frozen. Sending `finalSeverity` here is rejected with `400`.
 
-### 8.7 Rule on the severity
+### 8.8 Rule on the severity
 
 The Admin is not limited to the two severities on the table — the point of
 mediation is that a third number can be the correct one.
@@ -652,7 +701,7 @@ Omitting them returns `400`. To let the Company's assessment stand instead,
 send `{"status": "DISMISSED", "resolutionNotes": "..."}` with no
 `finalSeverity` — the report then settles on the triage severity.
 
-### 8.8 Confirm the report has unfrozen
+### 8.9 Confirm the report has unfrozen
 
 ```text
 GET {{baseUrl}}/reports/{{mismatchReportId}}
@@ -680,7 +729,44 @@ argument: the ruling stands, and a report gets one severity dispute in its
 life.
 
 A dispute that has already been settled cannot be decided twice — repeating
-8.7 returns `409`.
+8.8 returns `409`.
+
+### 8.10 Triage above the reported severity settles on its own
+
+The other direction is not a disagreement worth anybody's time. File a third
+report at `LOW`, then triage it as `HIGH`:
+
+```text
+PATCH {{baseUrl}}/reports/{{upgradeReportId}}/triage
+Authorization: Bearer {{companyToken}}
+```
+
+```json
+{
+  "triageSeverity": "HIGH",
+  "state": "VALID_CONFIRMED",
+  "duplicateOfId": null
+}
+```
+
+Post-response script:
+
+```javascript
+pm.test("An upgrade needs no dispute", function () {
+    pm.response.to.have.status(200);
+    const json = pm.response.json();
+
+    pm.expect(json.reportedSeverity).to.eql("LOW");
+    pm.expect(json.triageSeverity).to.eql("HIGH");
+    // Triage's number, and agreed immediately: nobody is shortchanged by a
+    // rating above their own claim, so there is nothing to put to the reporter.
+    pm.expect(json.severity).to.eql("HIGH");
+    pm.expect(json.dispute).to.eql(null);
+});
+```
+
+The report is resolvable and rewardable straight away, and resolving it pays
+the reporter the standing for a `HIGH` rather than the `LOW` they claimed.
 
 ## 9. Privacy and role tests
 

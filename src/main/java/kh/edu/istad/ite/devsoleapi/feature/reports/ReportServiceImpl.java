@@ -142,10 +142,10 @@ public class ReportServiceImpl implements ReportService {
     );
 
     /**
-     * How long the reporter has to accept or refuse a triage severity they did
-     * not ask for. Matched to the retest window for the same reason: long
-     * enough to cover somebody being away, short enough that a program is not
-     * held by a researcher who has moved on.
+     * How long the reporter has to accept or refuse a triage severity below
+     * the one they reported. Matched to the retest window for the same reason:
+     * long enough to cover somebody being away, short enough that a program is
+     * not held by a researcher who has moved on.
      */
     private static final Duration SEVERITY_RESPONSE_WINDOW = Duration.ofDays(14);
 
@@ -613,15 +613,20 @@ public class ReportServiceImpl implements ReportService {
         // neither overwrite the agreed severity nor re-open the argument, or
         // the two sides could bounce the report between them for ever.
         Severity ruledSeverity = findSettledSeverity(report.getId());
-        boolean severityMatches = report.getReportedSeverity()
-                == request.triageSeverity();
+        // Only a downgrade is worth stopping for. Triage agreeing settles it,
+        // and so does triage rating the finding higher than the reporter dared
+        // — the reporter is the only party a severity can shortchange, and one
+        // above their own claim does not. Asking them to confirm good news
+        // would hold the report for a fortnight to hear the obvious answer.
+        boolean lowered = request.triageSeverity()
+                .compareTo(report.getReportedSeverity()) < 0;
         report.setSeverity(
                 ruledSeverity != null
                         ? ruledSeverity
-                        : (severityMatches ? request.triageSeverity() : null)
+                        : (lowered ? null : request.triageSeverity())
         );
 
-        boolean opensDispute = ruledSeverity == null && !severityMatches;
+        boolean opensDispute = ruledSeverity == null && lowered;
 
         boolean newlyResolved = targetState == ReportState.RESOLVED
                 && report.getResolvedAt() == null;
@@ -651,8 +656,9 @@ public class ReportServiceImpl implements ReportService {
                 targetState,
                 report.getSeverity(),
                 report.getSeverity() == null
-                        ? "Triage severity " + request.triageSeverity()
-                                + " does not match the reported severity"
+                        ? "Triage lowered the severity to "
+                                + request.triageSeverity() + " from the "
+                                + report.getReportedSeverity() + " reported"
                         : null
         );
         reportRepository.saveAndFlush(report);
@@ -1789,7 +1795,7 @@ public class ReportServiceImpl implements ReportService {
                                 .report(report)
                                 .raisedBy(report.getReporter())
                                 .reason(
-                                        "The reported and triage severities differ; awaiting the reporter"
+                                        "Triage rated the finding below the reported severity; awaiting the reporter"
                                 )
                                 .status(DisputeStatus.AWAITING_REPORTER)
                                 .respondBy(

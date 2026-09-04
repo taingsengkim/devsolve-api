@@ -772,7 +772,13 @@ BEGIN
         NEW.severity := NULL;
     ELSIF NEW.triage_severity IS NULL THEN
         NEW.severity := NULL;
-    ELSIF NEW.reported_severity = NEW.triage_severity THEN
+    -- Ordered comparison, not equality: severity_enum is declared ascending
+    -- (none < low < medium < high < critical), so this is "triage did not rate
+    -- the finding below what was reported". Agreeing settles it, and so does
+    -- rating it higher -- the reporter is the only party a severity can
+    -- shortchange, and one above their own claim does not. Only a downgrade
+    -- leaves the report without an agreed severity.
+    ELSIF NEW.triage_severity >= NEW.reported_severity THEN
         NEW.severity := NEW.triage_severity;
     ELSE
         NEW.severity := NULL;
@@ -782,50 +788,24 @@ BEGIN
 END
 $$^^^
 
-CREATE OR REPLACE FUNCTION public.open_report_severity_dispute()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    -- Only a fresh assessment can open a dispute. Hibernate writes every column
-    -- on any report save, so this trigger also fires for updates that touched
-    -- neither severity — a disclosure change, an administrator writing the
-    -- ruled severity — and without this guard resolving a dispute would open
-    -- another one on the very next save, deadlocking the report for good.
-    IF TG_OP = 'UPDATE'
-       AND NEW.reported_severity IS NOT DISTINCT FROM OLD.reported_severity
-       AND NEW.triage_severity IS NOT DISTINCT FROM OLD.triage_severity THEN
-        RETURN NEW;
-    END IF;
-
-    IF NEW.triage_severity IS NOT NULL
-       AND NEW.reported_severity <> NEW.triage_severity
-       -- A report gets one severity dispute, ever. Once an administrator has
-       -- ruled, the ruling stands and re-triaging cannot reopen the argument,
-       -- so this looks for any dispute rather than only a live one.
-       AND NOT EXISTS (
-           SELECT 1
-           FROM public.disputes d
-           WHERE d.report_id = NEW.id
-       ) THEN
-        INSERT INTO public.disputes (
-            report_id,
-            raised_by,
-            reason,
-            status
-        )
-        VALUES (
-            NEW.id,
-            NEW.reporter_id,
-            'Automatically opened because the reported and triage severities differ',
-            'open'
-        );
-    END IF;
-
-    RETURN NEW;
-END
-$$^^^
-
+-- open_report_severity_dispute() used to live here, opening a dispute from the
+-- database whenever the two severities differed. It is gone, and the block
+-- below drops it from every database that still has it.
+--
+-- It inserted with status 'open', which is the administrators' queue. That was
+-- right when a disagreement went straight to an administrator, and wrong from
+-- the moment disagreements started being put to the reporter first: the trigger
+-- fires on the same flush that writes triage_severity, so it always got there
+-- before ReportServiceImpl.ensureSeverityDispute, which then found a live
+-- dispute and left it alone. The reporter was never asked, and respond_by was
+-- never set, so the expiry sweep could not settle it either.
+--
+-- Dispute creation belongs to one writer now, and it is the application: triage
+-- is the only path that writes triage_severity, and it knows the status, the
+-- response window and who to notify. The BEFORE trigger above stays -- deciding
+-- the agreed severity from rows already committed is exactly what a trigger is
+-- good at, and it is what keeps an administrator's ruling from being written
+-- back out by the next ordinary save.
 DO $$
 BEGIN
     IF to_regclass('public.reports') IS NOT NULL
@@ -834,10 +814,13 @@ BEGIN
         EXECUTE 'CREATE TRIGGER trg_reconcile_report_severity BEFORE INSERT OR UPDATE OF reported_severity, triage_severity ON public.reports FOR EACH ROW EXECUTE FUNCTION public.reconcile_report_severity()';
 
         EXECUTE 'DROP TRIGGER IF EXISTS trg_open_report_severity_dispute ON public.reports';
-        EXECUTE 'CREATE TRIGGER trg_open_report_severity_dispute AFTER INSERT OR UPDATE OF reported_severity, triage_severity ON public.reports FOR EACH ROW EXECUTE FUNCTION public.open_report_severity_dispute()';
     END IF;
 END
 $$^^^
+
+-- After the trigger, never before: a function still wired to one cannot be
+-- dropped.
+DROP FUNCTION IF EXISTS public.open_report_severity_dispute()^^^
 
 DO $$
 BEGIN

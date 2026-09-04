@@ -478,6 +478,91 @@ class ReportServiceImplTest {
     }
 
     /**
+     * A disagreement in the reporter's favour is not one worth holding a report
+     * for a fortnight to settle. Only a downgrade can shortchange them, so only
+     * a downgrade has to be put to them.
+     */
+    @Test
+    void higherCompanyTriageSettlesAtTheHigherSeverityWithoutDispute() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.LOW);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.HIGH,
+                        ReportState.VALID_CONFIRMED,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals(Severity.HIGH, report.getTriageSeverity());
+        // Triage's number, not the reporter's: the organization read the
+        // finding and rated it higher, and that is the rating it is worth.
+        assertEquals(Severity.HIGH, report.getSeverity());
+        assertEquals(ReportState.VALID_CONFIRMED, report.getState());
+        verify(disputeRepository, never()).save(any(Dispute.class));
+    }
+
+    /**
+     * An upgrade settles on its own, so a report triaged above what was
+     * reported is resolvable in the same call — there is no severity left to
+     * agree on.
+     */
+    @Test
+    void aHigherTriageSeverityDoesNotBlockResolution() {
+        UUID ownerId = UUID.randomUUID();
+        Report report = newReport(Severity.MEDIUM);
+        report.setState(ReportState.VALID_CONFIRMED);
+        Organization organization = activeOrganization(
+                report.getProgram().getOrganizationId(),
+                ownerId
+        );
+        authenticate(ownerId, "COMPANY");
+
+        stubCompanyOwnedReport(report, organization, ownerId);
+        when(disputeRepository
+                .findFirstByReportIdAndStatusInOrderByCreatedAtDesc(
+                        eq(report.getId()),
+                        anyCollection()
+                ))
+                .thenReturn(Optional.empty());
+        when(reportRepository.saveAndFlush(report)).thenReturn(report);
+        when(userProfileRepository.awardReputation(any(), anyInt(), anyInt()))
+                .thenReturn(1);
+
+        service().triage(
+                report.getId(),
+                new TriageReportRequest(
+                        Severity.CRITICAL,
+                        ReportState.RESOLVED,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals(Severity.CRITICAL, report.getSeverity());
+        assertEquals(ReportState.RESOLVED, report.getState());
+        assertNotNull(report.getResolvedAt());
+        verify(disputeRepository, never()).save(any(Dispute.class));
+    }
+
+    /**
      * The classification a reporter picks is a guess from a catalog they may
      * not know well. Triage is where it gets settled.
      */
@@ -631,7 +716,7 @@ class ReportServiceImplTest {
     }
 
     @Test
-    void mismatchingCompanyTriageLeavesFinalBlankAndOpensDispute() {
+    void lowerCompanyTriageLeavesFinalBlankAndOpensDispute() {
         UUID ownerId = UUID.randomUUID();
         Report report = newReport(Severity.CRITICAL);
         Organization organization = activeOrganization(
