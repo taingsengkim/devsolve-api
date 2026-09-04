@@ -4,6 +4,9 @@ import kh.edu.istad.ite.devsoleapi.feature.comments.Comment;
 import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
 import kh.edu.istad.ite.devsoleapi.feature.notification.dto.NotificationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.notification.sse.SseEmitterService;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
+import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.Test;
@@ -43,6 +46,15 @@ class NotificationEventTest {
     private CommentRepository commentRepository;
 
     @Mock
+    private ProblemRepository problemRepository;
+
+    @Mock
+    private SolutionRepository solutionRepository;
+
+    @Mock
+    private ShowCasesRepository showCasesRepository;
+
+    @Mock
     private UserProfileRepository userProfileRepository;
 
     @Mock
@@ -57,6 +69,9 @@ class NotificationEventTest {
                 sseEmitterService,
                 new NotificationResponseMapper(
                         commentRepository,
+                        problemRepository,
+                        solutionRepository,
+                        showCasesRepository,
                         userProfileRepository
                 ),
                 notificationMailer

@@ -3,6 +3,11 @@ package kh.edu.istad.ite.devsoleapi.feature.notification;
 import kh.edu.istad.ite.devsoleapi.feature.comments.Comment;
 import kh.edu.istad.ite.devsoleapi.feature.comments.CommentRepository;
 import kh.edu.istad.ite.devsoleapi.feature.notification.dto.NotificationResponse;
+import kh.edu.istad.ite.devsoleapi.feature.problem.Problem;
+import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemRepository;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.ShowCasesRepository;
+import kh.edu.istad.ite.devsoleapi.feature.solution.Solution;
+import kh.edu.istad.ite.devsoleapi.feature.solution.SolutionRepository;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -44,6 +49,15 @@ class NotificationServiceImplTest {
 
     @Mock
     private CommentRepository commentRepository;
+
+    @Mock
+    private ProblemRepository problemRepository;
+
+    @Mock
+    private SolutionRepository solutionRepository;
+
+    @Mock
+    private ShowCasesRepository showCasesRepository;
 
     @Mock
     private UserProfileRepository userProfileRepository;
@@ -140,6 +154,89 @@ class NotificationServiceImplTest {
     }
 
     @Test
+    void solutionNotificationNamesWhoWroteTheSolution() {
+        UUID userId = UUID.randomUUID();
+        UUID solutionId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Notification notification = notification(userId);
+        notification.setNotifiableType(NotificationType.SOLUTION);
+        notification.setNotifiableId(solutionId);
+
+        Solution solution = Solution.builder()
+                .id(solutionId)
+                .authorId(authorId)
+                .build();
+        UserProfile profile = new UserProfile();
+        profile.setId(authorId);
+        profile.setUsername("sok.dara");
+        profile.setFullName("Sok Dara");
+        profile.setAvatarUrl("https://cdn.example.com/sok-dara.png");
+
+        authenticate(userId);
+        when(notificationRepository.findInbox(
+                eq(userId),
+                eq(false),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(notification)));
+        when(solutionRepository.findAllById(List.of(solutionId)))
+                .thenReturn(List.of(solution));
+        when(userProfileRepository.findAllById(List.of(authorId)))
+                .thenReturn(List.of(profile));
+
+        NotificationResponse response = new NotificationServiceImpl(
+                notificationRepository,
+                responseMapper(),
+                preferenceRepository
+        ).getMine(false, 0, 20).getContent().getFirst();
+
+        assertEquals(authorId, response.authorId());
+        assertEquals("sok.dara", response.authorUsername());
+        assertEquals("Sok Dara", response.authorName());
+        assertEquals(
+                "https://cdn.example.com/sok-dara.png",
+                response.authorAvatarUrl()
+        );
+    }
+
+    /**
+     * "Your problem was published" points at the reader's own problem. There is
+     * no person behind it — the platform decided — so it must not come back
+     * wearing the reader's face.
+     */
+    @Test
+    void aNotificationAboutOnesOwnContentStaysFaceless() {
+        UUID userId = UUID.randomUUID();
+        UUID problemId = UUID.randomUUID();
+        Notification notification = notification(userId);
+        notification.setNotifiableType(NotificationType.PROBLEM);
+        notification.setNotifiableId(problemId);
+
+        Problem problem = Problem.builder()
+                .id(problemId)
+                .authorId(userId)
+                .build();
+
+        authenticate(userId);
+        when(notificationRepository.findInbox(
+                eq(userId),
+                eq(false),
+                any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(notification)));
+        when(problemRepository.findAllById(List.of(problemId)))
+                .thenReturn(List.of(problem));
+
+        NotificationResponse response = new NotificationServiceImpl(
+                notificationRepository,
+                responseMapper(),
+                preferenceRepository
+        ).getMine(false, 0, 20).getContent().getFirst();
+
+        assertNull(response.authorId());
+        assertNull(response.authorName());
+        verifyNoInteractions(userProfileRepository);
+    }
+
+    @Test
     void removedCommentNotificationDoesNotReidentifyItsAuthor() {
         UUID userId = UUID.randomUUID();
         UUID commentId = UUID.randomUUID();
@@ -189,6 +286,9 @@ class NotificationServiceImplTest {
     private NotificationResponseMapper responseMapper() {
         return new NotificationResponseMapper(
                 commentRepository,
+                problemRepository,
+                solutionRepository,
+                showCasesRepository,
                 userProfileRepository
         );
     }

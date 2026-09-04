@@ -14,6 +14,9 @@ public record NotificationResponse(
         UUID notifiableId,
         @JsonInclude(JsonInclude.Include.NON_NULL)
         UUID authorId,
+        /** The handle a profile link is built from, when there is a person. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        String authorUsername,
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String authorName,
         @JsonInclude(JsonInclude.Include.NON_NULL)
