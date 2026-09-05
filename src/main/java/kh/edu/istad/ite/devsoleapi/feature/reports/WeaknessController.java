@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.WeaknessResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.WeaknessUsageResponse;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -44,6 +46,23 @@ public class WeaknessController {
             Pageable pageable
     ) {
         return weaknessService.findActive(search, pageable);
+    }
+
+    /**
+     * The classes this platform actually receives, most reported first.
+     *
+     * <p>Ahead of {@code /{id}} in this file for the same reason it has to be:
+     * "popular" would otherwise be read as a UUID and fail parsing before it
+     * ever reached here.
+     *
+     * <p>Ordered by report count, so the sort on this one is not negotiable and
+     * a {@code sort} parameter is refused rather than ignored.
+     */
+    @GetMapping("/popular")
+    public List<WeaknessUsageResponse> findPopular(
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        return weaknessService.findPopular(limit);
     }
 
     @GetMapping("/{id}")

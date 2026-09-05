@@ -4,19 +4,25 @@ import kh.edu.istad.ite.devsoleapi.common.exception.ResourceNotFoundException;
 import kh.edu.istad.ite.devsoleapi.common.pagination.PageableValidator;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateWeaknessRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.SuggestedWeaknessResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.UpdateWeaknessRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.WeaknessMapper;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.WeaknessResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.WeaknessUsageResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Weakness;
+import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -43,6 +49,30 @@ import java.util.regex.Pattern;
 public class WeaknessServiceImpl implements WeaknessService {
 
     private static final String ADMIN_ROLE = "ADMIN";
+
+    /**
+     * A picker showing "what people report most" is a shortcut, not a second
+     * catalog. Past a handful of entries it stops being a shortcut, and the
+     * full list is one request away at {@code /api/v1/weaknesses}.
+     */
+    private static final int MAX_POPULAR = 50;
+
+    /** Excludes an entry nothing has ever been filed under. */
+    private static final long REPORTED_AT_LEAST_ONCE = 1L;
+
+    /**
+     * The states that mean a triager read the report and agreed with it.
+     *
+     * <p>{@code RETESTING} counts: the finding is agreed and understood, and
+     * what is outstanding is only whether the fix holds. {@code NEW} and
+     * {@code TRIAGING} do not — nobody has ruled on them yet, and counting them
+     * would credit a class for reports that may still be rejected.
+     */
+    private static final Set<ReportState> VALID_STATES = Set.of(
+            ReportState.VALID_CONFIRMED,
+            ReportState.RETESTING,
+            ReportState.RESOLVED
+    );
 
     private static final Set<String> WEAKNESS_SORT_PROPERTIES = Set.of(
             "id",
@@ -79,6 +109,154 @@ public class WeaknessServiceImpl implements WeaknessService {
     @Override
     public WeaknessResponse findById(UUID id) {
         return weaknessMapper.toResponse(findWeakness(id));
+    }
+
+    /**
+     * The top of the catalog by volume, for a submission form that would rather
+     * show a reporter the five classes this platform actually receives than a
+     * scroll of thirty in alphabetical order.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<WeaknessUsageResponse> findPopular(int limit) {
+        if (limit < 1 || limit > MAX_POPULAR) {
+            throw badRequest(
+                    "limit must be between 1 and " + MAX_POPULAR
+            );
+        }
+        return toUsageResponses(weaknessRepository.findActiveUsage(
+                VALID_STATES,
+                REPORTED_AT_LEAST_ONCE,
+                PageRequest.of(0, limit)
+        ).getContent());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<WeaknessUsageResponse> findUsageForAdmin(
+            boolean includeUnused,
+            boolean activeOnly,
+            Pageable pageable
+    ) {
+        requireAdmin();
+        // Unsorted on purpose: the ordering is an aggregate the query owns, and
+        // a caller's sort would be appended after it rather than replace it.
+        Pageable unsorted = unsorted(pageable);
+        long minReports = includeUnused ? 0L : REPORTED_AT_LEAST_ONCE;
+
+        Page<WeaknessUsageProjection> page = activeOnly
+                ? weaknessRepository.findActiveUsage(
+                        VALID_STATES,
+                        minReports,
+                        unsorted
+                )
+                : weaknessRepository.findAllUsage(
+                        VALID_STATES,
+                        minReports,
+                        unsorted
+                );
+
+        long classified = reportRepository.countByWeaknessIsNotNull();
+        return page.map(row -> toUsageResponse(row, classified));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<SuggestedWeaknessResponse> findSuggestedForAdmin(
+            Pageable pageable
+    ) {
+        requireAdmin();
+        Page<SuggestedWeaknessProjection> page = reportRepository
+                .findSuggestedWeaknesses(unsorted(pageable));
+
+        // One lookup for the page rather than one per suggestion. A name that
+        // is already in the catalog is the interesting case here: it means
+        // reporters are typing a class they could have picked, so the fix is
+        // the picker rather than a new entry.
+        List<String> normalized = page.getContent().stream()
+                .map(SuggestedWeaknessProjection::getNormalized)
+                .filter(Objects::nonNull)
+                .toList();
+        Set<String> inCatalog = normalized.isEmpty()
+                ? Set.of()
+                : Set.copyOf(weaknessRepository.findNamesInLowerCase(
+                        normalized
+                ));
+
+        return page.map(row -> new SuggestedWeaknessResponse(
+                row.getName(),
+                row.getReportCount(),
+                row.getNormalized() != null
+                        && inCatalog.contains(row.getNormalized()),
+                row.getFirstSuggestedAt(),
+                row.getLastSuggestedAt()
+        ));
+    }
+
+    private List<WeaknessUsageResponse> toUsageResponses(
+            List<WeaknessUsageProjection> rows
+    ) {
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        long classified = reportRepository.countByWeaknessIsNotNull();
+        return rows.stream()
+                .map(row -> toUsageResponse(row, classified))
+                .toList();
+    }
+
+    private WeaknessUsageResponse toUsageResponse(
+            WeaknessUsageProjection row,
+            long classifiedReports
+    ) {
+        return new WeaknessUsageResponse(
+                row.getId(),
+                row.getCweId(),
+                row.getName(),
+                row.getIsActive(),
+                row.getReportCount(),
+                row.getValidCount(),
+                share(row.getReportCount(), classifiedReports),
+                row.getLastReportedAt()
+        );
+    }
+
+    /**
+     * Zero rather than a division by zero on a platform that has not classified
+     * anything yet — which is also the honest answer: no share of nothing.
+     */
+    private double share(long reportCount, long classifiedReports) {
+        if (classifiedReports <= 0) {
+            return 0d;
+        }
+        return Math.round(
+                reportCount * 1_000d / classifiedReports
+        ) / 10d;
+    }
+
+    /**
+     * Refuses a sort rather than dropping one.
+     *
+     * <p>These listings are ordered by a count that only exists inside their
+     * query, so a caller's sort cannot be honoured — and a sort silently ignored
+     * is worse than one refused, because the caller believes it took.
+     */
+    private Pageable unsorted(Pageable pageable) {
+        if (pageable.getSort().isSorted()) {
+            throw badRequest(
+                    "This listing is ordered by how much each weakness is "
+                            + "reported and cannot be re-sorted"
+            );
+        }
+        // Still through the validator, which is what caps the page size.
+        Pageable validated = PageableValidator.requireAllowedSort(
+                pageable,
+                Set.of()
+        );
+        return PageRequest.of(
+                validated.getPageNumber(),
+                validated.getPageSize()
+        );
     }
 
     @Override

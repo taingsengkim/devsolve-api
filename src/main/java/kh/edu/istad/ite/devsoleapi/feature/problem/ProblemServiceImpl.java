@@ -111,9 +111,21 @@ public class ProblemServiceImpl implements ProblemService {
      */
     private static final Set<ProblemStatus> LIVE_EDITABLE_STATUSES =
             EnumSet.of(ProblemStatus.PUBLISHED, ProblemStatus.RESOLVED);
+    /**
+     * Work still in the queue, which its author may still correct.
+     *
+     * <p>An edit here leaves the problem pending and puts the corrected version
+     * back through the automatic check, so the ordinary way out of a hold is to
+     * fix what the check objected to rather than to wait for a moderator to say
+     * no and then start again. Held to the publication rules, because that is
+     * where it is going.
+     */
+    private static final Set<ProblemStatus> QUEUED_EDITABLE_STATUSES =
+            EnumSet.of(ProblemStatus.PENDING_APPROVAL);
     private static final Set<ProblemStatus> EDITABLE_STATUSES = EnumSet.of(
             ProblemStatus.DRAFT,
             ProblemStatus.REJECTED,
+            ProblemStatus.PENDING_APPROVAL,
             ProblemStatus.PUBLISHED,
             ProblemStatus.RESOLVED
     );
@@ -493,8 +505,10 @@ public class ProblemServiceImpl implements ProblemService {
 
         // An edit to live content has to clear the same bar the moderator
         // approved it against, or a published problem could be emptied out
-        // one PATCH at a time.
-        if (LIVE_EDITABLE_STATUSES.contains(problem.getStatus())) {
+        // one PATCH at a time. A queued one is held to it for the same reason
+        // its submission was: it is on its way to the same page.
+        boolean queued = QUEUED_EDITABLE_STATUSES.contains(problem.getStatus());
+        if (queued || LIVE_EDITABLE_STATUSES.contains(problem.getStatus())) {
             validateForPublication(problem);
         }
 
@@ -504,6 +518,16 @@ public class ProblemServiceImpl implements ProblemService {
         }
         if (request.tagIds() != null || request.newTagNames() != null) {
             replaceTags(saved, request.tagIds(), request.newTagNames());
+        }
+
+        // A pending problem is corrected in place: the status does not move, so
+        // it keeps its position in the moderator's queue, but what the check
+        // and the moderator will read is now the edited version. Without this
+        // an author who was told their post lacked detail could add the detail
+        // and still be judged on the draft that was held.
+        if (queued) {
+            reviewLanguage(saved);
+            offerForAutoApproval(saved);
         }
         return toResponse(saved);
     }
@@ -1064,12 +1088,6 @@ public class ProblemServiceImpl implements ProblemService {
     private void requireOwnedEditable(Problem problem) {
         if (!problem.getAuthorId().equals(currentUserId())) {
             throw forbidden("You are not the author of this problem");
-        }
-        if (problem.getStatus() == ProblemStatus.PENDING_APPROVAL) {
-            throw conflict(
-                    "A problem awaiting moderation cannot be edited; wait "
-                            + "for the decision, then edit it"
-            );
         }
         if (!EDITABLE_STATUSES.contains(problem.getStatus())) {
             throw conflict("A closed problem can no longer be edited");

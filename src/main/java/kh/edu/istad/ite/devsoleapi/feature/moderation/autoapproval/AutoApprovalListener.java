@@ -29,6 +29,7 @@ public class AutoApprovalListener {
     private final ProblemService problemService;
     private final ShowCasesService showCasesService;
     private final AutoApprovalHoldNotifier holdNotifier;
+    private final AutoApprovalRecorder recorder;
 
     @Async("autoApprovalTaskExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -39,6 +40,13 @@ public class AutoApprovalListener {
                     event.title(),
                     event.prose()
             );
+            // Recorded before anything is done about it, and for every outcome
+            // including the ones nobody is notified about. This row is what an
+            // author's own pending post shows them, and a post whose verdict
+            // was never written down is back to being indistinguishable from a
+            // queue nobody is working.
+            record(event, decision);
+
             if (!decision.approved()) {
                 // Info, not debug. A hold is the outcome that looks identical
                 // to the feature being broken — nothing moves, and without a
@@ -53,10 +61,14 @@ public class AutoApprovalListener {
                 // The author is the one person waiting on this, and a hold they
                 // are never told about looks exactly like a queue nobody is
                 // working. Silent when the hold was not about their writing.
-                holdNotifier.notifyAuthor(event, decision.hold());
+                holdNotifier.notifyAuthor(event, decision);
                 return;
             }
             if (publish(event)) {
+                // The author hears about this one from the publication itself:
+                // both services notify them from the same path a moderator's
+                // approval goes through, so an automatic publication and a
+                // human one read identically to the person who submitted it.
                 log.info(
                         "Auto-approved {} {}: {}",
                         event.target(),
@@ -68,6 +80,27 @@ public class AutoApprovalListener {
             // The post stays in the queue, which is where it already was.
             log.error(
                     "Auto-approval failed for {} {}",
+                    event.target(),
+                    event.contentId(),
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Never lets a failed write turn into a failed check. A verdict that was
+     * reached and acted on but not stored is worth a warning, not the error the
+     * caller's catch would log — the post still went where the check sent it.
+     */
+    private void record(
+            ContentSubmittedEvent event,
+            AutoApprovalDecision decision
+    ) {
+        try {
+            recorder.record(event, decision);
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "Could not record the auto-approval verdict on {} {}",
                     event.target(),
                     event.contentId(),
                     exception

@@ -2,8 +2,10 @@ package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateWeaknessRequest;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.SuggestedWeaknessResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.UpdateWeaknessRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.WeaknessResponse;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.WeaknessUsageResponse;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
@@ -53,6 +55,55 @@ public class WeaknessAdminController {
             Pageable pageable
     ) {
         return weaknessService.findForAdmin(search, activeOnly, pageable);
+    }
+
+    /**
+     * The catalog ranked by how much of it is being used, so an administrator
+     * can see which classes this platform actually receives instead of guessing
+     * from the alphabetical list they curate.
+     *
+     * <p>Fixed ordering — most reported first — because the count it sorts on
+     * exists only inside that query. A {@code sort} parameter is refused rather
+     * than silently dropped.
+     *
+     * @param includeUnused entries no report has ever been filed under. Off by
+     *                      default; on, this is the list for deciding what to
+     *                      retire
+     * @param activeOnly    defaults to false, matching the listing above: a
+     *                      retired entry's history is exactly what says whether
+     *                      retiring it was right
+     */
+    @GetMapping("/stats")
+    public Page<WeaknessUsageResponse> findUsage(
+            @RequestParam(defaultValue = "false") boolean includeUnused,
+            @RequestParam(defaultValue = "false") boolean activeOnly,
+            @PageableDefault(size = 20)
+            @ParameterObject
+            Pageable pageable
+    ) {
+        return weaknessService.findUsageForAdmin(
+                includeUnused,
+                activeOnly,
+                pageable
+        );
+    }
+
+    /**
+     * What reporters typed when nothing in the catalog fit, grouped and counted
+     * — the platform's record of where its own vocabulary is short.
+     *
+     * <p>These are not catalog entries and never become them on their own. A
+     * name several reporters reached for is a candidate to add here with
+     * {@code POST}; adding it does not rewrite the reports that suggested it,
+     * which triage reclassifies as it settles each one.
+     */
+    @GetMapping("/suggested")
+    public Page<SuggestedWeaknessResponse> findSuggested(
+            @PageableDefault(size = 20)
+            @ParameterObject
+            Pageable pageable
+    ) {
+        return weaknessService.findSuggestedForAdmin(pageable);
     }
 
     @PostMapping

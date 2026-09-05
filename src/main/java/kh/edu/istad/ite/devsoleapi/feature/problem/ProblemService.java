@@ -73,8 +73,14 @@ public interface ProblemService {
     ProblemResponse createAndSubmit(CreateProblemRequest request);
 
     /**
-     * Applies an edit to a draft, a rejected problem, or live published work.
-     * Live edits stay published; they do not go back through moderation.
+     * Applies an edit to a draft, a rejected problem, one still waiting in the
+     * review queue, or live published work.
+     *
+     * <p>Live edits stay published; they do not go back through moderation. An
+     * edit to a queued problem leaves it queued and in the same position, and
+     * puts the corrected version back through the automatic check — so an author
+     * told their post lacked detail can add the detail rather than wait to be
+     * rejected for the version they have already fixed.
      */
     ProblemResponse update(
             UUID id,

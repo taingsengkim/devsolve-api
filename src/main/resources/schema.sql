@@ -2528,6 +2528,57 @@ CREATE TABLE IF NOT EXISTS public.auto_approval_settings (
     updated_at  TIMESTAMP(6) NOT NULL DEFAULT now()
 )^^^
 
+-- Auto-approval verdicts -------------------------------------------------------
+--
+-- What the automatic check decided about one post, kept so the post can show its
+-- author why it is where it is. Before this the decision existed only in a log
+-- line written for an operator and a notification that is gone once dismissed,
+-- so a pending post looked the same whether the check had held it for a reason
+-- the author could fix or whether nobody had looked yet.
+--
+-- One row per post, replaced when the post is edited and checked again: the
+-- question it answers is "why is this post where it is now", and a superseded
+-- verdict describes writing that no longer exists. No foreign key, because the
+-- content_id points into whichever table the target names -- and a verdict
+-- outliving a deleted post is harmless, since every read is scoped to the author
+-- asking about their own.
+CREATE TABLE IF NOT EXISTS public.content_auto_reviews (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    target      VARCHAR(20) NOT NULL,
+    content_id  UUID NOT NULL,
+    author_id   UUID,
+    title       VARCHAR(255),
+    approved    BOOLEAN NOT NULL DEFAULT FALSE,
+    hold        VARCHAR(20),
+    reason      TEXT,
+    checked_at  TIMESTAMP(6) NOT NULL DEFAULT now()
+)^^^
+
+
+-- "IF NOT EXISTS" above only lands its defaults on a database that did not
+-- already have the table. Where Hibernate built it first the columns are NOT
+-- NULL with no default, because @GeneratedValue and the Java-side timestamp
+-- supply those values. Setting them here is what makes the two paths agree.
+DO $$
+BEGIN
+    IF to_regclass('public.content_auto_reviews') IS NOT NULL THEN
+        ALTER TABLE public.content_auto_reviews
+            ALTER COLUMN id SET DEFAULT gen_random_uuid();
+        ALTER TABLE public.content_auto_reviews
+            ALTER COLUMN checked_at SET DEFAULT now();
+
+        -- One verdict per post. Also the lookup the recorder does before every
+        -- write and the one a pending post's page does to explain itself.
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_content_auto_reviews_target_content
+            ON public.content_auto_reviews (target, content_id);
+
+        -- "My posts and what the check made of them", newest first.
+        CREATE INDEX IF NOT EXISTS idx_content_auto_reviews_author
+            ON public.content_auto_reviews (author_id, checked_at DESC);
+    END IF;
+END
+$$^^^
+
 -- Reporter-named weakness ------------------------------------------------------
 --
 -- A reporter picks a class from the catalog, says they are not sure, or names
@@ -2549,6 +2600,21 @@ BEGIN
     IF to_regclass('public.report_drafts') IS NOT NULL THEN
         ALTER TABLE public.report_drafts
             ADD COLUMN IF NOT EXISTS suggested_weakness VARCHAR(255);
+    END IF;
+END
+$$^^^
+
+
+-- Reading the gaps back out. Grouping reporter-named classes touches only the
+-- rows that have one, which on a mature database is a small fraction of
+-- reports -- so the index is partial, and expression-based to match the
+-- lower(btrim(...)) the grouping is on.
+DO $$
+BEGIN
+    IF to_regclass('public.reports') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_reports_suggested_weakness
+            ON public.reports (lower(btrim(suggested_weakness)))
+            WHERE suggested_weakness IS NOT NULL;
     END IF;
 END
 $$^^^

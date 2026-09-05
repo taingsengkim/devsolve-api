@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.autoapproval.ContentSubmittedEvent;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.ProfanityFlagger;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CreateProblemRequest;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemModerationRequest;
@@ -499,10 +500,64 @@ class ProblemServiceImplTest {
     }
 
     @Test
-    void aProblemUnderReviewCannotBeEdited() {
+    void authorCorrectsAProblemThatIsStillInTheQueue() {
         UUID authorId = UUID.randomUUID();
-        Problem problem = editableProblem(authorId);
+        UUID categoryId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, categoryId);
         problem.setStatus(ProblemStatus.PENDING_APPROVAL);
+        problem.setPublishedAt(null);
+        authenticate(authorId, "USER");
+        when(problemRepository.findActiveById(problem.getId()))
+                .thenReturn(Optional.of(problem));
+        when(categoryRepository.findByIdAndScopeAndIsActiveTrue(
+                categoryId,
+                CategoryScope.PROBLEM
+        )).thenReturn(Optional.of(category(categoryId)));
+        stubResponseDependencies(problem, authorId);
+
+        service.update(
+                problem.getId(),
+                new ProblemUpdateRequest(
+                        null,
+                        "A corrected title that is long enough",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                ),
+                problem.getVersion()
+        );
+
+        assertEquals(
+                "A corrected title that is long enough",
+                problem.getTitle()
+        );
+        // Still queued, and in the same place in the queue. The edit is a
+        // correction to something already submitted, not a resubmission.
+        assertEquals(ProblemStatus.PENDING_APPROVAL, problem.getStatus());
+
+        // The corrected version is what gets checked. Judging the edit on the
+        // draft that was held is the whole failure this replaces.
+        ArgumentCaptor<Object> published =
+                ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher, org.mockito.Mockito.atLeastOnce())
+                .publishEvent(published.capture());
+        assertTrue(published.getAllValues().stream()
+                .anyMatch(event -> event instanceof ContentSubmittedEvent
+                        submitted
+                        && submitted.contentId().equals(problem.getId())
+                        && "A corrected title that is long enough"
+                                .equals(submitted.title())));
+    }
+
+    @Test
+    void aQueuedProblemCannotBeEditedBelowThePublishingBar() {
+        UUID authorId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        Problem problem = publishedProblem(authorId, categoryId);
+        problem.setStatus(ProblemStatus.PENDING_APPROVAL);
+        problem.setPublishedAt(null);
         authenticate(authorId, "USER");
         when(problemRepository.findActiveById(problem.getId()))
                 .thenReturn(Optional.of(problem));
@@ -513,7 +568,7 @@ class ProblemServiceImplTest {
                         problem.getId(),
                         new ProblemUpdateRequest(
                                 null,
-                                "Another title entirely",
+                                "too short",
                                 null,
                                 null,
                                 null,
@@ -524,7 +579,8 @@ class ProblemServiceImplTest {
                 )
         );
 
-        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        verify(problemRepository, never()).saveAndFlush(problem);
     }
 
     @Test

@@ -11,7 +11,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,6 +30,8 @@ class AutoApprovalHoldNotifierTest {
     private static final UUID AUTHOR = UUID.randomUUID();
     private static final UUID CONTENT = UUID.randomUUID();
     private static final String TITLE = "Race in the outbox poller";
+    private static final String REASON =
+            "Too little detail to tell what the post is about";
 
     @Mock
     private NotificationDispatcher notificationDispatcher;
@@ -40,11 +41,14 @@ class AutoApprovalHoldNotifierTest {
 
     /**
      * The whole point of the feature: a hold about the writing reaches the
-     * person who did the writing.
+     * person who did the writing, with the sentence that decided it.
      */
     @Test
     void anUnclearHoldTellsTheAuthorWhatToDo() {
-        notifier.notifyAuthor(event(AutoApprovalTarget.PROBLEM), AutoApprovalHold.UNCLEAR);
+        notifier.notifyAuthor(
+                event(AutoApprovalTarget.PROBLEM),
+                AutoApprovalDecision.hold(AutoApprovalHold.UNCLEAR, REASON)
+        );
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
         verify(notificationDispatcher).dispatch(
@@ -57,17 +61,22 @@ class AutoApprovalHoldNotifierTest {
         );
         assertTrue(body.getValue().contains(TITLE));
         assertTrue(body.getValue().contains("fuller description"));
+        assertTrue(body.getValue().contains(REASON));
     }
 
     /**
      * An outage is not news the author can use, and saying the check did not
-     * run invites them to resubmit in the hope of catching it working.
+     * run invites them to resubmit in the hope of catching it working. The
+     * verdict is still stored, so an author who goes looking is told plainly.
      */
     @Test
     void aHoldThatWasNotAboutTheSubmissionTellsThemNothing() {
         notifier.notifyAuthor(
                 event(AutoApprovalTarget.PROBLEM),
-                AutoApprovalHold.NOT_CHECKED
+                AutoApprovalDecision.hold(
+                        AutoApprovalHold.NOT_CHECKED,
+                        "The review model was unavailable"
+                )
         );
 
         verifyNoInteractions(notificationDispatcher);
@@ -83,21 +92,30 @@ class AutoApprovalHoldNotifierTest {
                         TITLE,
                         "prose"
                 ),
-                AutoApprovalHold.UNCLEAR
+                AutoApprovalDecision.hold(AutoApprovalHold.UNCLEAR, REASON)
         );
 
         verifyNoInteractions(notificationDispatcher);
     }
 
     /**
-     * The model's own sentence names what gave an adversarial submission away.
-     * That belongs in the log, not in a message to its author.
+     * An unsafe hold gets the reason too.
+     *
+     * <p>It used to be the one category that did not, on the argument that the
+     * model's sentence names what gave an adversarial submission away. It is
+     * included now because the same sentence is the only thing an honestly
+     * mislabelled post — a penetration test write-up read as an attack — gives
+     * its author to work with, and no hold publishes anything either way: a
+     * person still reads it.
      */
     @Test
-    void anUnsafeHoldDoesNotCoachTheAuthor() {
+    void anUnsafeHoldSaysWhatTheCheckSaid() {
         notifier.notifyAuthor(
                 event(AutoApprovalTarget.SHOWCASE),
-                AutoApprovalHold.UNSAFE
+                AutoApprovalDecision.hold(
+                        AutoApprovalHold.UNSAFE,
+                        "Reads as an attack on a third party"
+                )
         );
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
@@ -109,19 +127,41 @@ class AutoApprovalHoldNotifierTest {
                 eq(CONTENT),
                 eq("showcase:" + CONTENT + ":auto-held:UNSAFE")
         );
+        // Still no coaching on how to get past this one: the wording says what
+        // happened, and only the check's own sentence is added to it.
         assertFalse(body.getValue().contains("fuller description"));
-        assertEquals(
-                "\"" + TITLE + "\" was set aside by the automatic check for a"
-                        + " moderator to read.",
-                body.getValue()
+        assertTrue(body.getValue().contains("set aside by the automatic check"));
+        assertTrue(body.getValue()
+                .contains("Reads as an attack on a third party"));
+    }
+
+    /**
+     * A verdict the model gave no wording for still reads as a sentence, rather
+     * than trailing off into an empty quotation.
+     */
+    @Test
+    void aHoldWithNoReasonStandsOnItsOwn() {
+        notifier.notifyAuthor(
+                event(AutoApprovalTarget.PROBLEM),
+                AutoApprovalDecision.hold(AutoApprovalHold.UNCLEAR, "  ")
         );
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(notificationDispatcher).dispatch(
+                any(), anyString(), body.capture(), any(), any(), anyString()
+        );
+        assertFalse(body.getValue().contains("The check's own words"));
+        assertTrue(body.getValue().endsWith("all the check needs."));
     }
 
     @Test
     void anOffTopicHoldSaysSo() {
         notifier.notifyAuthor(
                 event(AutoApprovalTarget.PROBLEM),
-                AutoApprovalHold.OFF_TOPIC
+                AutoApprovalDecision.hold(
+                        AutoApprovalHold.OFF_TOPIC,
+                        "This is a recipe"
+                )
         );
 
         ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
@@ -129,12 +169,13 @@ class AutoApprovalHoldNotifierTest {
                 any(), anyString(), body.capture(), any(), any(), anyString()
         );
         assertTrue(body.getValue().contains("software or security"));
+        assertTrue(body.getValue().contains("This is a recipe"));
     }
 
     /**
      * The notification is the last thing to happen and the least important. A
      * dead SSE connection or a lost row must not surface as an auto-approval
-     * failure, because the decision itself is already made and logged.
+     * failure, because the decision itself is already made, stored and logged.
      */
     @Test
     void aFailedDeliveryIsSwallowed() {
@@ -144,24 +185,28 @@ class AutoApprovalHoldNotifierTest {
 
         notifier.notifyAuthor(
                 event(AutoApprovalTarget.PROBLEM),
-                AutoApprovalHold.UNCLEAR
+                AutoApprovalDecision.hold(AutoApprovalHold.UNCLEAR, REASON)
         );
     }
 
     /**
      * Two checks of one submission — what a create followed straight away by a
-     * cover upload produces — must not become two notifications. The key is
-     * what the dispatcher dedupes on, so it has to be stable across attempts.
+     * cover upload produces, and what every edit to a queued post produces —
+     * must not become two notifications. The key is what the dispatcher dedupes
+     * on, so it has to be stable across attempts and across wordings.
      */
     @Test
     void theSameHoldOnTheSamePostKeysTheSameEvent() {
         notifier.notifyAuthor(
                 event(AutoApprovalTarget.SHOWCASE),
-                AutoApprovalHold.UNCLEAR
+                AutoApprovalDecision.hold(AutoApprovalHold.UNCLEAR, REASON)
         );
         notifier.notifyAuthor(
                 event(AutoApprovalTarget.SHOWCASE),
-                AutoApprovalHold.UNCLEAR
+                AutoApprovalDecision.hold(
+                        AutoApprovalHold.UNCLEAR,
+                        "A differently worded sentence about the same hold"
+                )
         );
 
         // Both attempts carry one key, which is what lets the dispatcher's

@@ -56,4 +56,14 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+
+    // Gradle gives a test worker 512 MB by default, which this suite has
+    // outgrown: a full run loads a dozen Spring contexts, several of them
+    // against Testcontainers PostgreSQL, and the context cache holds every one
+    // of them open for the rest of the run. Past the limit the failure is an
+    // OutOfMemoryError surfacing as "unexpected exception during bean
+    // creation" in whichever context happened to be loading — which reads like
+    // a broken bean rather than a full heap, and lands on a different test each
+    // time.
+    maxHeapSize = '2g'
 }

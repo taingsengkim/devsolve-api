@@ -100,6 +100,49 @@ public interface ReportRepository
      */
     long countByWeaknessId(UUID weaknessId);
 
+    /**
+     * The denominator for "how much of what we receive is this class". Reports
+     * triage has not classified are left out of it rather than counted as a
+     * class of their own: an unclassified backlog is a statement about the
+     * queue, and folding it in makes every real class look rarer than it is.
+     */
+    long countByWeaknessIsNotNull();
+
+    /**
+     * What reporters typed when the catalog had nothing that fit, grouped so it
+     * reads as a list of gaps rather than a list of reports.
+     *
+     * <p>Grouped on the lower-cased, trimmed text: "SSRF", "ssrf " and "Ssrf"
+     * are one missing class reported three times. {@code max} picks a spelling
+     * to show — arbitrary between them, and stable for a given set of rows.
+     *
+     * <p>Ordered here rather than by the pageable, for the same reason as the
+     * catalog usage query: the order is over a count that only exists inside
+     * this query.
+     */
+    @Query(value = """
+            select lower(trim(report.suggestedWeakness)) as normalized,
+                   max(report.suggestedWeakness) as name,
+                   count(report.id) as reportCount,
+                   min(report.submittedAt) as firstSuggestedAt,
+                   max(report.submittedAt) as lastSuggestedAt
+            from Report report
+            where report.suggestedWeakness is not null
+              and trim(report.suggestedWeakness) <> ''
+            group by lower(trim(report.suggestedWeakness))
+            order by count(report.id) desc,
+                     lower(trim(report.suggestedWeakness)) asc
+            """,
+            countQuery = """
+            select count(distinct lower(trim(report.suggestedWeakness)))
+            from Report report
+            where report.suggestedWeakness is not null
+              and trim(report.suggestedWeakness) <> ''
+            """)
+    Page<SuggestedWeaknessProjection> findSuggestedWeaknesses(
+            Pageable pageable
+    );
+
 
     Page<Report> findByReporterIdAndStateAndDisclosureStatus(
             UUID reporterId,
