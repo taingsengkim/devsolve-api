@@ -640,8 +640,8 @@ public class CommentServiceImpl implements CommentService {
             requireVisible(comment, access.canViewInternal());
         }
         UUID userId = currentUserId();
-        if (!comment.getAuthorId().equals(userId)
-                && !AuthUtils.hasRole(ADMIN_ROLE)) {
+        boolean author = comment.getAuthorId().equals(userId);
+        if (!author && !AuthUtils.hasRole(ADMIN_ROLE)) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     "Only the comment author or an admin can delete it"
@@ -653,7 +653,18 @@ public class CommentServiceImpl implements CommentService {
 
         LocalDateTime now = LocalDateTime.now();
         if (commentRepository.countLiveChildren(id) > 0) {
-            tombstone(comment, userId, CommentRemovalReason.AUTHOR, now);
+            // Whose decision it was, not whose comment it was. An admin
+            // reaching this endpoint used to leave a tombstone claiming the
+            // author had taken their own words down, which is the one thing
+            // CommentRemovalReason exists to tell apart.
+            tombstone(
+                    comment,
+                    userId,
+                    author
+                            ? CommentRemovalReason.AUTHOR
+                            : CommentRemovalReason.MODERATOR,
+                    now
+            );
             return;
         }
 

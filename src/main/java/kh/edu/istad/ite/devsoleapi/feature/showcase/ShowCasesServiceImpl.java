@@ -797,6 +797,50 @@ public class ShowCasesServiceImpl implements ShowCasesService {
         showCaseRepository.save(showCase);
     }
 
+    /**
+     * The same soft delete {@link #softDelete} performs, on an administrator's
+     * authority instead of the author's.
+     *
+     * <p>Soft rather than hard on purpose. A takedown is a moderation decision
+     * somebody may have to answer for later, and the row is the only thing left
+     * that says what was removed; {@code hardDelete} erases the evidence along
+     * with the post. The cover image is kept for the same reason.
+     *
+     * <p>Idempotent through the lookup: a showcase already deleted is not found,
+     * so a second takedown reads as 404 rather than silently writing a second
+     * moderation record against content nobody can see.
+     */
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(
+                    cacheNames = CacheNames.SHOWCASE_DETAIL,
+                    key = "#showcaseId"
+            ),
+            @CacheEvict(cacheNames = {
+                    CacheNames.SHOWCASE_LISTING,
+                    CacheNames.SHOWCASE_LISTING_RANKED
+            }, allEntries = true)
+    })
+    public void removeByAdmin(UUID showcaseId) {
+        if (!AuthUtils.hasRole("ADMIN")) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can take a showcase down"
+            );
+        }
+
+        ShowCases showCase = showCaseRepository
+                .findByIdAndDeletedAtIsNull(showcaseId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Showcase not found."
+                ));
+
+        showCase.setDeletedAt(LocalDateTime.now());
+        showCaseRepository.save(showCase);
+    }
+
     @Override
     @Transactional
     @Caching(evict = {

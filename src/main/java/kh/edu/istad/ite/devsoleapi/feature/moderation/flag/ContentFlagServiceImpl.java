@@ -2,11 +2,11 @@ package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 
 import org.springframework.transaction.annotation.Transactional;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
-import kh.edu.istad.ite.devsoleapi.feature.comments.CommentService;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.action.ModerationTargetType;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
-import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.takedown.ContentTakedownService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,8 +27,7 @@ public class ContentFlagServiceImpl implements ContentFlagService{
     private final UserProfileRepository userProfileRepository;
     private final ContentFlagRepository contentFlagRepository;
     private final ContentFlagMapper contentFlagMapper;
-    private final CommentService commentService;
-    private final ProgramService programService;
+    private final ContentTakedownService contentTakedownService;
 
     @Override
     @Transactional
@@ -191,7 +190,11 @@ public class ContentFlagServiceImpl implements ContentFlagService{
         );
 
         if (request.removeContent()) {
-            removeFlaggedContent(flag, adminId);
+            contentTakedownService.takeDown(
+                    moderationTargetOf(flag.getFlaggableType()),
+                    flag.getFlaggableId(),
+                    flag.getResolutionNote()
+            );
         }
 
         ContentFlag savedFlag =
@@ -202,34 +205,30 @@ public class ContentFlagServiceImpl implements ContentFlagService{
     }
 
     /**
-     * Acts on the content the flag points at.
+     * The same content, named the way the moderation history names it.
      *
-     * <p>Comments and programs are wired up: each has a single removal path an
-     * admin owns, so resolving through here and removing through the feature's
-     * own admin endpoint mean the same thing. The remaining flaggable types
-     * have their own review workflows — a showcase goes back through the
-     * review queue, a problem through its moderation status — and reaching
-     * around those from here would leave two paths that disagree about what
-     * "removed" means. Resolving a flag on one of those still records the
-     * decision, which is what it did before.
+     * <p>Two enums for one idea, which is worth being explicit about: a flag
+     * says what a reader can report, and a moderation action says what an
+     * administrator can act on. They happen to agree on all five flaggable
+     * kinds, and the mapping is spelled out rather than done by
+     * {@code valueOf(name())} so that adding a value to one of them is a
+     * compile error here instead of a runtime one on a moderator's screen.
+     *
+     * <p>All five types are now removable through here. They used to reach two
+     * — comment and program — and throw 400 for the rest, which rolled the
+     * whole transaction back and left the flag pending with the admin's
+     * resolution note discarded. Every type going through
+     * {@code ContentTakedownService} means resolving a flag and taking content
+     * down from the admin console are the same act, recorded the same way.
      */
-    private void removeFlaggedContent(ContentFlag flag, UUID adminId) {
-        switch (flag.getFlaggableType()) {
-            case COMMENT -> commentService.removeByModerator(
-                    flag.getFlaggableId(),
-                    adminId
-            );
-            case PROGRAM -> programService.removeProgramByAdmin(
-                    flag.getFlaggableId()
-            );
-            default -> throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Content removal on resolve is only supported for "
-                            + "comments and programs; use the "
-                            + flag.getFlaggableType().name().toLowerCase()
-                            + " moderation endpoints instead"
-            );
-        }
+    private ModerationTargetType moderationTargetOf(FlaggableType type) {
+        return switch (type) {
+            case PROBLEM -> ModerationTargetType.PROBLEM;
+            case SHOWCASE -> ModerationTargetType.SHOWCASE;
+            case SOLUTION -> ModerationTargetType.SOLUTION;
+            case COMMENT -> ModerationTargetType.COMMENT;
+            case PROGRAM -> ModerationTargetType.PROGRAM;
+        };
     }
 
     private ContentFlag findFlag(UUID id) {

@@ -72,7 +72,22 @@ public interface ShowCasesService {
     ShowCasesResponse removeCoverImage(UUID showcaseId);
 
     void softDelete(UUID showcaseId);
-//
+
+    /**
+     * Takes a showcase down on an administrator's authority rather than its
+     * author's.
+     *
+     * <p>Separate from {@link #softDelete} because that one is the author's own
+     * delete and refuses anybody else. Problems and solutions admit an admin
+     * through their author delete already; showcases had no admin path at all,
+     * so a showcase could be rejected back into the review queue but never
+     * actually removed.
+     *
+     * <p>Reached through {@code ContentTakedownService}, which records who did
+     * it and why.
+     */
+    void removeByAdmin(UUID showcaseId);
+
     void hardDelete(UUID showcaseId);
 
     void cancelRevision(UUID showcaseId);

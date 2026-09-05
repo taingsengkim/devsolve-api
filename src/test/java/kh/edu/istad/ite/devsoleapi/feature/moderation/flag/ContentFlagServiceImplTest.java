@@ -1,9 +1,9 @@
 package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 
-import kh.edu.istad.ite.devsoleapi.feature.comments.CommentService;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.action.ModerationTargetType;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
-import kh.edu.istad.ite.devsoleapi.feature.program.ProgramService;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.takedown.ContentTakedownService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -52,10 +52,7 @@ class ContentFlagServiceImplTest {
     private ContentFlagMapper contentFlagMapper;
 
     @Mock
-    private CommentService commentService;
-
-    @Mock
-    private ProgramService programService;
+    private ContentTakedownService contentTakedownService;
 
     private ContentFlagServiceImpl service;
 
@@ -65,8 +62,7 @@ class ContentFlagServiceImplTest {
                 userProfileRepository,
                 contentFlagRepository,
                 contentFlagMapper,
-                commentService,
-                programService
+                contentTakedownService
         );
     }
 
@@ -220,23 +216,33 @@ class ContentFlagServiceImplTest {
 
         service.resolveFlag(flagId, request);
 
-        verify(programService).removeProgramByAdmin(programId);
+        verify(contentTakedownService).takeDown(
+                ModerationTargetType.PROGRAM,
+                programId,
+                "Program scope invites attacks on third parties."
+        );
         assertEquals(FlagStatus.REVIEWED, flag.getStatus());
     }
 
+    /**
+     * Every flaggable type is removable from here now. This one used to throw
+     * 400 and roll the whole transaction back, which left the flag pending and
+     * discarded the note the admin had just written.
+     */
     @Test
-    void resolvingAShowcaseFlagWithRemovalStillPointsAtItsOwnWorkflow() {
+    void resolvingAShowcaseFlagWithRemovalTakesTheShowcaseDown() {
         UUID adminId = UUID.randomUUID();
         UUID flagId = UUID.randomUUID();
+        UUID showcaseId = UUID.randomUUID();
         UserProfile admin = new UserProfile();
         admin.setId(adminId);
         ContentFlag flag = new ContentFlag();
         flag.setId(flagId);
         flag.setStatus(FlagStatus.PENDING);
         flag.setFlaggableType(FlaggableType.SHOWCASE);
-        flag.setFlaggableId(UUID.randomUUID());
+        flag.setFlaggableId(showcaseId);
         ResolveFlagRequest request = new ResolveFlagRequest(
-                "Duplicate of an earlier report.",
+                "Step-by-step instructions for attacking a third party.",
                 true
         );
 
@@ -245,15 +251,53 @@ class ContentFlagServiceImplTest {
                 .thenReturn(Optional.of(flag));
         when(userProfileRepository.findById(adminId))
                 .thenReturn(Optional.of(admin));
+        when(contentFlagRepository.save(flag)).thenReturn(flag);
+        when(contentFlagMapper.mapContentFlagToFlagResponse(flag))
+                .thenReturn(response(flagId, FlagStatus.REVIEWED));
 
-        ResponseStatusException exception = assertThrows(
-                ResponseStatusException.class,
-                () -> service.resolveFlag(flagId, request)
+        service.resolveFlag(flagId, request);
+
+        verify(contentTakedownService).takeDown(
+                ModerationTargetType.SHOWCASE,
+                showcaseId,
+                "Step-by-step instructions for attacking a third party."
+        );
+        assertEquals(FlagStatus.REVIEWED, flag.getStatus());
+        assertNotNull(flag.getReviewedAt());
+    }
+
+    /**
+     * Resolving without the removal box ticked must not touch the content. The
+     * flag closes, the post stays up.
+     */
+    @Test
+    void resolvingWithoutRemovalLeavesTheContentAlone() {
+        UUID adminId = UUID.randomUUID();
+        UUID flagId = UUID.randomUUID();
+        UserProfile admin = new UserProfile();
+        admin.setId(adminId);
+        ContentFlag flag = new ContentFlag();
+        flag.setId(flagId);
+        flag.setStatus(FlagStatus.PENDING);
+        flag.setFlaggableType(FlaggableType.COMMENT);
+        flag.setFlaggableId(UUID.randomUUID());
+
+        authenticate(adminId, true);
+        when(contentFlagRepository.findById(flagId))
+                .thenReturn(Optional.of(flag));
+        when(userProfileRepository.findById(adminId))
+                .thenReturn(Optional.of(admin));
+        when(contentFlagRepository.save(flag)).thenReturn(flag);
+        when(contentFlagMapper.mapContentFlagToFlagResponse(flag))
+                .thenReturn(response(flagId, FlagStatus.REVIEWED));
+
+        service.resolveFlag(
+                flagId,
+                new ResolveFlagRequest("Not a policy breach.", false)
         );
 
-        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
-        verifyNoInteractions(programService);
-        verifyNoInteractions(commentService);
+        verifyNoInteractions(contentTakedownService);
+        assertEquals(FlagStatus.REVIEWED, flag.getStatus());
     }
 
     private FlagResponse response(
