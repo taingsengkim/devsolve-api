@@ -116,6 +116,18 @@ public final class CacheNames {
     public static final String ORGANIZATION_ANALYTICS =
             "organization-analytics";
 
+    /**
+     * The whole platform statistics response, under one constant key: the
+     * endpoint takes no parameters and has no viewer, so there is nothing else
+     * to key it by.
+     *
+     * <p>Nothing evicts it. Every payout, submission, triage decision and
+     * publish moves one of the four figures in it, and reaching into all of
+     * those write paths for a landing-page counter would be coupling out of
+     * proportion to what it buys. The TTL is the whole mechanism.
+     */
+    public static final String PLATFORM_STATS = "platform-stats";
+
     private CacheNames() {
     }
 }

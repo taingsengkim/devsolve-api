@@ -6,6 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.analytics.dto.OrganizationAnalyticsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.DuplicateJudgements;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
+import kh.edu.istad.ite.devsoleapi.feature.platformstats.dto.PlatformStatsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.ProgramListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.program.dto.PublicProgramResponseDto;
@@ -183,6 +184,14 @@ public class CacheConfig implements CachingConfigurer {
                                     .serializeValuesWith(
                                             organizationAnalyticsSerializer()
                                     )
+                    )
+                    .withCacheConfiguration(
+                            CacheNames.PLATFORM_STATS,
+                            defaults
+                                    .entryTtl(DEFAULT_TTL)
+                                    .serializeValuesWith(
+                                            platformStatsSerializer()
+                                    )
                     );
         };
     }
@@ -276,6 +285,15 @@ public class CacheConfig implements CachingConfigurer {
                         CACHE_MAPPER.constructType(
                                 OrganizationAnalyticsResponse.class
                         )
+                )
+        );
+    }
+
+    static SerializationPair<PlatformStatsResponse> platformStatsSerializer() {
+        return SerializationPair.fromSerializer(
+                new JacksonJsonRedisSerializer<>(
+                        CACHE_MAPPER,
+                        CACHE_MAPPER.constructType(PlatformStatsResponse.class)
                 )
         );
     }

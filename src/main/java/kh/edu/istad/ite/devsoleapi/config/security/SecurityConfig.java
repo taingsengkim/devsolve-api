@@ -63,6 +63,14 @@ public class SecurityConfig {
 //        http.cors(Customizer.withDefaults());
         http.authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/register").permitAll()
+                // The landing page's headline counters. Aggregates over what is
+                // already public — the program listing, confirmed findings and
+                // the payouts the hacktivity feed prints one by one — so it
+                // names no report, no researcher and no company.
+                .requestMatchers(
+                        HttpMethod.GET,
+                        "/api/v1/public/stats"
+                ).permitAll()
                 .requestMatchers(
                         HttpMethod.GET,
                         "/api/v1/hacktivity",

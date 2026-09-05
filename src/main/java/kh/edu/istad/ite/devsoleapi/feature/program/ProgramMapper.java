@@ -23,11 +23,13 @@ import kh.edu.istad.ite.devsoleapi.feature.program.program_update.dto.ProgramUpd
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -159,13 +161,23 @@ public class ProgramMapper {
         );
     }
 
+    /**
+     * @param averageTriageDays the unrounded mean, or null where nothing has
+     *                          been triaged. Rounded here rather than in SQL so
+     *                          the query stays a plain average and one place
+     *                          decides what the card shows.
+     */
     public ProgramSummaryResponseDto toSummaryDto(
             Program program,
             Organization organization,
             List<ProgramAsset> inScopeAssets,
             long followerCount,
-            long totalSubmissions
+            long totalSubmissions,
+            long resolvedReports,
+            Double averageTriageDays
     ) {
+        List<ProgramAssetResponseDto> assets =
+                toInScopeAssetResponses(inScopeAssets);
         return new ProgramSummaryResponseDto(
                 program.getId(),
                 program.getOrganizationId(),
@@ -178,14 +190,58 @@ public class ProgramMapper {
                 program.getOffersBounties(),
                 program.getMinimumBounty(),
                 program.getMaximumBounty(),
-                toInScopeAssetResponses(inScopeAssets),
+                assets,
+                scopeOf(assets),
+                topSeverityOf(assets),
                 program.getViewCount(),
                 followerCount,
                 totalSubmissions,
+                resolvedReports,
+                roundTriageDays(averageTriageDays),
                 program.getPublishedAt(),
                 program.getCreatedAt(),
                 program.getUpdatedAt()
         );
+    }
+
+    /**
+     * The distinct asset types on offer, in the order they first appear so the
+     * list is stable between reads of the same program rather than reshuffling
+     * under the reader.
+     */
+    private List<String> scopeOf(List<ProgramAssetResponseDto> assets) {
+        return assets.stream()
+                .map(ProgramAssetResponseDto::assetType)
+                .filter(Objects::nonNull)
+                .map(Enum::name)
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * The highest ceiling any in-scope target sets. Null when none of them
+     * declares one, which says the program has not decided rather than that it
+     * caps findings at NONE.
+     */
+    private Severity topSeverityOf(List<ProgramAssetResponseDto> assets) {
+        return assets.stream()
+                .map(ProgramAssetResponseDto::maxSeverity)
+                .filter(Objects::nonNull)
+                // Severity is declared least to most severe, so the natural
+                // enum order is the one being asked for here.
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+    }
+
+    /**
+     * Half a day rounds up: a card saying "1 day" against a mean of 0.5 is
+     * closer to honest than "0 days", which reads as no wait at all.
+     */
+    private Integer roundTriageDays(Double averageTriageDays) {
+        if (averageTriageDays == null || averageTriageDays.isNaN()) {
+            return null;
+        }
+        return (int) Math.max(0, Math.round(averageTriageDays));
     }
 
     public PublicProgramResponseDto toPublicResponseDto(

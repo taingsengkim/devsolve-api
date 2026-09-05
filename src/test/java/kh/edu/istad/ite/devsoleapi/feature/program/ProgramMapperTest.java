@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -314,7 +315,9 @@ class ProgramMapperTest {
                 organization(program),
                 List.of(inScope, outOfScope),
                 8,
-                13
+                13,
+                9,
+                2.6
         );
 
         assertEquals(program.getId(), result.id());
@@ -334,6 +337,11 @@ class ProgramMapperTest {
         assertEquals(1, result.inScopeAssets().size());
         assertEquals(8, result.followerCount());
         assertEquals(13, result.totalSubmissions());
+        assertEquals(9, result.resolvedReports());
+        assertEquals(3, result.avgTriageDays());
+        // Derived from the in-scope assets alone, so the out-of-scope one does
+        // not put a target on the card that nobody is allowed to test.
+        assertEquals(List.of("URL"), result.scope());
         assertEquals(
                 "https://app.acme.test",
                 result.inScopeAssets().getFirst().identifier()
@@ -341,6 +349,63 @@ class ProgramMapperTest {
         assertEquals(240, result.description().length());
         assertTrue(result.description().endsWith("…"));
         assertEquals(program.getMaximumBounty(), result.maximumBounty());
+    }
+
+    /**
+     * The card's headline severity is the most a finding could be rated, not
+     * whatever the first target happens to declare.
+     */
+    @Test
+    void publicSummaryTakesTheHighestSeverityAnyInScopeTargetAdmits() {
+        Program program = program();
+        program.setRewards(null);
+        ProgramAsset api = asset(program, true, "https://api.acme.test");
+        api.setAssetType(AssetType.API);
+        api.setMaxSeverity(Severity.MEDIUM);
+        ProgramAsset site = asset(program, true, "https://app.acme.test");
+        site.setMaxSeverity(Severity.CRITICAL);
+        ProgramAsset undeclared = asset(program, true, "https://cdn.acme.test");
+
+        ProgramSummaryResponseDto result = mapper.toSummaryDto(
+                program,
+                organization(program),
+                List.of(api, site, undeclared),
+                0,
+                0,
+                0,
+                null
+        );
+
+        assertEquals(Severity.CRITICAL, result.topSeverity());
+        // First-seen order, and each type once however many targets share it.
+        assertEquals(List.of("API", "URL"), result.scope());
+    }
+
+    /**
+     * Null rather than zero: nothing has been triaged, and a card reading
+     * "0 days" would claim same-day triage on a program that has never
+     * answered anybody.
+     */
+    @Test
+    void publicSummaryLeavesTriageTimeUnsetWhenNothingHasBeenTriaged() {
+        Program program = program();
+        program.setRewards(null);
+
+        ProgramSummaryResponseDto result = mapper.toSummaryDto(
+                program,
+                organization(program),
+                List.of(),
+                0,
+                0,
+                0,
+                null
+        );
+
+        assertNull(result.avgTriageDays());
+        // No target declares a ceiling, which is not the same as capping
+        // findings at NONE.
+        assertNull(result.topSeverity());
+        assertEquals(List.of(), result.scope());
     }
 
     private ProgramAsset asset(

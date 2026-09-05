@@ -4,10 +4,12 @@ import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.RelatedShowcaseResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseAuthorCard;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewHistoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseTagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcasestep.dto.ShowcaseStepResponse;
+import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
@@ -101,6 +103,23 @@ public abstract class ShowCasesMapper {
                 .build();
     }
 
+    /**
+     * The author beside a card. Reads nothing the summary did not already
+     * touch — the author row is loaded for {@code authorName} either way — so
+     * a page of cards costs no extra query for it.
+     */
+    private ShowcaseAuthorCard authorCard(UserProfile author) {
+        if (author == null) {
+            return null;
+        }
+        return new ShowcaseAuthorCard(
+                author.getId(),
+                author.getUsername(),
+                author.getFullName(),
+                author.getAvatarUrl()
+        );
+    }
+
     /** One card in the "more like this" strip; see the record for what it omits. */
     public RelatedShowcaseResponse mapShowCaseToRelatedResponse(
             ShowCases showCase
@@ -135,6 +154,7 @@ public abstract class ShowCasesMapper {
                                 ? showCase.getAuthor().getFullName()
                                 : null
                 )
+                .author(authorCard(showCase.getAuthor()))
                 .categoryId(
                         showCase.getCategory() != null
                                 ? showCase.getCategory().getId()
@@ -222,6 +242,7 @@ public abstract class ShowCasesMapper {
                                 ? showcase.getAuthor().getFullName()
                                 : null
                 )
+                .author(authorCard(showcase.getAuthor()))
                 .categoryId(
                         revision.getCategory() != null
                                 ? revision.getCategory().getId()

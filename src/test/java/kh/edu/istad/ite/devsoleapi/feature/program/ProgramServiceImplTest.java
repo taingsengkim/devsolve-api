@@ -1458,19 +1458,22 @@ class ProgramServiceImplTest {
         IdCountProjection followerCount = org.mockito.Mockito.mock(
                 IdCountProjection.class
         );
-        IdCountProjection submissionCount = org.mockito.Mockito.mock(
-                IdCountProjection.class
-        );
+        ReportRepository.ProgramReportStats reportStats =
+                org.mockito.Mockito.mock(
+                        ReportRepository.ProgramReportStats.class
+                );
         when(followerCount.getId()).thenReturn(program.getId());
         when(followerCount.getTotal()).thenReturn(8L);
-        when(submissionCount.getId()).thenReturn(program.getId());
-        when(submissionCount.getTotal()).thenReturn(13L);
+        when(reportStats.getId()).thenReturn(program.getId());
+        when(reportStats.getTotalSubmissions()).thenReturn(13L);
+        when(reportStats.getResolvedReports()).thenReturn(9L);
+        when(reportStats.getAverageTriageDays()).thenReturn(2.6);
         when(followRepository.countByFollowableIds(
                 FollowType.PROGRAM,
                 Set.of(program.getId())
         )).thenReturn(List.of(followerCount));
-        when(reportRepository.countByProgramIds(Set.of(program.getId())))
-                .thenReturn(List.of(submissionCount));
+        when(reportRepository.findStatsByProgramIds(Set.of(program.getId())))
+                .thenReturn(List.of(reportStats));
 
         ProgramSummaryResponseDto response = service(new ProgramMapper())
                 .getPublicPrograms(
@@ -1494,6 +1497,8 @@ class ProgramServiceImplTest {
         assertEquals(21, response.viewCount());
         assertEquals(8, response.followerCount());
         assertEquals(13, response.totalSubmissions());
+        assertEquals(9, response.resolvedReports());
+        assertEquals(3, response.avgTriageDays());
         assertEquals(
                 "https://app.acme.test",
                 response.inScopeAssets().getFirst().identifier()

@@ -1,7 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 
-import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
@@ -41,16 +40,56 @@ public interface ReportRepository
             @Param("state") ReportState state
     );
 
-    @Query("""
-            select report.program.id as id,
-                   count(report.id) as total
-            from Report report
-            where report.program.id in :programIds
-            group by report.program.id
-            """)
-    List<IdCountProjection> countByProgramIds(
+    /**
+     * The three report figures a program card shows, in one pass over the
+     * reports of a whole page of programs.
+     *
+     * <p>Native because the mean has no JPQL spelling — {@code EXTRACT(EPOCH …)}
+     * and an aggregate {@code FILTER} both belong to Postgres. Cast to
+     * {@code double precision} because {@code EXTRACT} changed return type
+     * between Postgres versions and a projection getter cannot be right for
+     * both.
+     *
+     * <p>Subtracting from a null {@code triaged_at} yields null and {@code AVG}
+     * skips nulls, so the mean already covers only the reports that reached
+     * triage — and comes back null, not zero, for a program where nothing has.
+     * Zero would read as "triaged the same day", which is the opposite of "no
+     * data yet".
+     *
+     * <p>Measured against {@code triaged_at}, which every re-triage overwrites.
+     * A program that answers in an hour and revisits a report a month later
+     * therefore looks slower here than it was. The company dashboard's mean
+     * triage time is built the same way, so the two agree.
+     */
+    @Query(value = """
+            SELECT r.program_id AS "id",
+                   COUNT(*) AS "totalSubmissions",
+                   COUNT(*) FILTER (
+                       WHERE r.state = 'resolved'
+                   ) AS "resolvedReports",
+                   CAST(AVG(
+                       EXTRACT(EPOCH FROM (r.triaged_at - r.submitted_at))
+                           / 86400
+                   ) AS double precision) AS "averageTriageDays"
+            FROM public.reports r
+            WHERE r.program_id IN (:programIds)
+            GROUP BY r.program_id
+            """, nativeQuery = true)
+    List<ProgramReportStats> findStatsByProgramIds(
             @Param("programIds") Collection<UUID> programIds
     );
+
+    interface ProgramReportStats {
+
+        UUID getId();
+
+        long getTotalSubmissions();
+
+        long getResolvedReports();
+
+        /** Null when no report on the program has been triaged yet. */
+        Double getAverageTriageDays();
+    }
 
     @EntityGraph(attributePaths = {
             "program",

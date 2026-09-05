@@ -33,8 +33,8 @@ import java.util.stream.Collectors;
  *
  * <p>Everything the listing needs is loaded here rather than by the caller, so
  * a hit costs no queries at all: one page is five round trips otherwise — the
- * programs, their organizations, their in-scope assets, and an aggregate each
- * for follower and submission counts.
+ * programs, their organizations, their in-scope assets, an aggregate for
+ * follower counts, and one more for the three report figures a card carries.
  */
 @Component
 @RequiredArgsConstructor
@@ -109,16 +109,26 @@ public class ProgramListingCache {
                 loadPublicProgramContext(programs.getContent());
 
         List<ProgramSummaryResponseDto> content = programs.stream()
-                .map(program -> mapper.toSummaryDto(
-                        program,
-                        context.organizations().get(program.getOrganizationId()),
-                        context.assetsByProgram().getOrDefault(
-                                program.getId(),
-                                List.of()
-                        ),
-                        context.followerCounts().getOrDefault(program.getId(), 0L),
-                        context.submissionCounts().getOrDefault(program.getId(), 0L)
-                ))
+                .map(program -> {
+                    ReportRepository.ProgramReportStats reports =
+                            context.reportStats().get(program.getId());
+                    return mapper.toSummaryDto(
+                            program,
+                            context.organizations()
+                                    .get(program.getOrganizationId()),
+                            context.assetsByProgram().getOrDefault(
+                                    program.getId(),
+                                    List.of()
+                            ),
+                            context.followerCounts()
+                                    .getOrDefault(program.getId(), 0L),
+                            reports == null ? 0L : reports.getTotalSubmissions(),
+                            reports == null ? 0L : reports.getResolvedReports(),
+                            reports == null
+                                    ? null
+                                    : reports.getAverageTriageDays()
+                    );
+                })
                 .toList();
 
         return new ProgramListingSlice(content, programs.getTotalElements());
@@ -164,15 +174,21 @@ public class ProgramListingCache {
                         programIds
                 )
         );
-        Map<UUID, Long> submissionCounts = toCountMap(
-                reportRepository.countByProgramIds(programIds)
-        );
+        // Submissions, resolutions and mean triage time in one aggregate: a
+        // card shows all three, and they are the same scan over the same rows.
+        Map<UUID, ReportRepository.ProgramReportStats> reportStats =
+                reportRepository.findStatsByProgramIds(programIds)
+                        .stream()
+                        .collect(Collectors.toUnmodifiableMap(
+                                ReportRepository.ProgramReportStats::getId,
+                                stats -> stats
+                        ));
 
         return new PublicProgramContext(
                 organizations,
                 assetsByProgram,
                 followerCounts,
-                submissionCounts
+                reportStats
         );
     }
 
@@ -189,7 +205,7 @@ public class ProgramListingCache {
             Map<UUID, Organization> organizations,
             Map<UUID, List<ProgramAsset>> assetsByProgram,
             Map<UUID, Long> followerCounts,
-            Map<UUID, Long> submissionCounts
+            Map<UUID, ReportRepository.ProgramReportStats> reportStats
     ) {
     }
 }

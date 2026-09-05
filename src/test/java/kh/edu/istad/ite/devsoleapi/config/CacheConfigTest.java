@@ -4,6 +4,8 @@ import kh.edu.istad.ite.devsoleapi.feature.category.CategoryScope;
 import kh.edu.istad.ite.devsoleapi.feature.category.dto.CategoryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.analytics.dto.OrganizationAnalyticsResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.Industry;
+import kh.edu.istad.ite.devsoleapi.feature.platformstats.dto.PlatformStatsResponse;
+import kh.edu.istad.ite.devsoleapi.feature.platformstats.dto.PlatformStatsSeries;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.CachedProblem;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemListingSlice;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
@@ -39,6 +41,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -295,9 +298,13 @@ class CacheConfigTest {
                                 true,
                                 Severity.CRITICAL
                         )),
+                        List.of("WILDCARD"),
+                        Severity.CRITICAL,
                         1_204L,
                         87L,
                         42L,
+                        30L,
+                        3,
                         LocalDateTime.of(2026, 8, 21, 10, 0),
                         LocalDateTime.of(2026, 8, 20, 8, 0),
                         LocalDateTime.of(2026, 8, 22, 11, 30)
@@ -317,6 +324,85 @@ class CacheConfigTest {
                 new BigDecimal("5000.00"),
                 restored.content().getFirst().maximumBounty()
         );
+    }
+
+    @Test
+    void roundTripsPlatformStatsKeepingEverySeriesAtFullLength() {
+        SerializationPair<PlatformStatsResponse> stats =
+                CacheConfig.platformStatsSerializer();
+
+        PlatformStatsResponse original = new PlatformStatsResponse(
+                new BigDecimal("5240000.00"),
+                2_412L,
+                152L,
+                32_400L,
+                new PlatformStatsSeries(
+                        moneySeries(),
+                        countSeries(1_180),
+                        countSeries(72),
+                        countSeries(14_200)
+                ),
+                PlatformStatsResponse.SERIES_PERIOD,
+                PlatformStatsResponse.SERIES_MONTHS
+        );
+
+        PlatformStatsResponse restored = stats.read(stats.write(original));
+
+        assertNotNull(restored);
+        assertEquals(original, restored);
+        // A sparkline drawn from a truncated series would silently rescale
+        // rather than fail, so the length is worth asserting on its own.
+        assertEquals(
+                PlatformStatsResponse.SERIES_MONTHS,
+                restored.historicalSeries().disbursedUsd().size()
+        );
+        assertEquals(
+                new BigDecimal("5240000.00"),
+                restored.totalDisbursedUsd()
+        );
+    }
+
+    /**
+     * The shape a platform with no history at all serves. A null series is the
+     * signal to hide the charts, so a serializer that turned it into an empty
+     * record would have the frontend draw four flat lines through zero.
+     */
+    @Test
+    void roundTripsPlatformStatsWithNoSeriesAtAll() {
+        SerializationPair<PlatformStatsResponse> stats =
+                CacheConfig.platformStatsSerializer();
+
+        PlatformStatsResponse empty = new PlatformStatsResponse(
+                new BigDecimal("0.00"),
+                0L,
+                0L,
+                0L,
+                null,
+                PlatformStatsResponse.SERIES_PERIOD,
+                PlatformStatsResponse.SERIES_MONTHS
+        );
+
+        PlatformStatsResponse restored = stats.read(stats.write(empty));
+
+        assertNotNull(restored);
+        assertEquals(empty, restored);
+        assertNull(restored.historicalSeries());
+    }
+
+    private static List<BigDecimal> moneySeries() {
+        List<BigDecimal> series = new ArrayList<>();
+        for (int month = 0; month < PlatformStatsResponse.SERIES_MONTHS; month++) {
+            series.add(new BigDecimal(2_100_000 + month * 260_000).setScale(2));
+        }
+        return series;
+    }
+
+    private static List<Long> countSeries(long start) {
+        List<Long> series = new ArrayList<>();
+        for (int month = 0; month < PlatformStatsResponse.SERIES_MONTHS; month++) {
+            series.add(start + month * 110L);
+        }
+        return series;
     }
 
     @Test

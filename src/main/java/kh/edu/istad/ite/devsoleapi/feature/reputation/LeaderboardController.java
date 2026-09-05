@@ -3,10 +3,12 @@ package kh.edu.istad.ite.devsoleapi.feature.reputation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import kh.edu.istad.ite.devsoleapi.common.listing.ListingCache;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,7 +36,7 @@ public class LeaderboardController {
      * change.
      */
     @GetMapping("/leaderboard")
-    public Page<LeaderboardResponse> getLeaderboard(
+    public ResponseEntity<Page<LeaderboardResponse>> getLeaderboard(
 
             @Parameter(description = "Ranking window: DAY, WEEK, MONTH or "
                     + "ALL_TIME. Windowed boards score the findings resolved "
@@ -55,9 +57,13 @@ public class LeaderboardController {
             int size
     ) {
 
-        return leaderboardService.getLeaderboard(
+        // Carries no viewer state — a rank is a rank — but it goes through the
+        // same helper as the feeds so signed-in and anonymous readers are still
+        // kept in separate cache entries by Vary, rather than this one endpoint
+        // making its own rules about it.
+        return ListingCache.publicListing(leaderboardService.getLeaderboard(
                 period,
                 PageRequest.of(page, size)
-        );
+        ));
     }
 }

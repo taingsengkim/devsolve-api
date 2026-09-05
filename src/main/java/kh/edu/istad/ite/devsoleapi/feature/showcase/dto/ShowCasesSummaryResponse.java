@@ -8,6 +8,11 @@ import java.util.List;
 import java.util.UUID;
 
 /**
+ * @param author       the face and handle behind the card. {@code authorId}
+ *                     and {@code authorName} carry the same person flat, for
+ *                     clients that already read them; this is what a grid of
+ *                     cards needs to show who wrote each one and link to them.
+ *                     Null only where the showcase has no author row at all.
  * @param commentCount visible comments on this showcase, so a card can show
  *                     the discussion without fetching a page of it per card.
  * @param engagement   the same counters the detail page shows. A card without
@@ -27,6 +32,7 @@ public record ShowCasesSummaryResponse(
         UUID id,
         String authorId,
         String authorName,
+        ShowcaseAuthorCard author,
         UUID categoryId,
         String categoryName,
         String title,
