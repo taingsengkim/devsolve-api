@@ -112,7 +112,7 @@ class ShowCasesServiceImplTest {
     private ShowcaseCommentCounts showcaseCommentCounts;
 
     @Mock
-    private ShowcaseDetailEnricher showcaseDetailEnricher;
+    private ShowcaseEnricher showcaseEnricher;
 
     @Mock
     private ViewCountGuard viewCountGuard;
@@ -147,7 +147,7 @@ class ShowCasesServiceImplTest {
                         showcaseTagService,
                         showCasesMapper
                 ),
-                showcaseDetailEnricher,
+                showcaseEnricher,
                 new ShowcaseListingCache(
                         showCasesRepository,
                         showCasesMapper,
@@ -176,8 +176,10 @@ class ShowCasesServiceImplTest {
         // Likewise for the author card, the counters and the viewer flags: the
         // enricher has its own test, and here it hands back the response it was
         // given so the detail assertions still see what the mapper produced.
-        lenient().when(showcaseDetailEnricher.apply(any(), any()))
+        lenient().when(showcaseEnricher.applyToDetail(any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        lenient().when(showcaseEnricher.applyToPage(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @AfterEach
@@ -1389,3 +1391,4 @@ class ShowCasesServiceImplTest {
         );
     }
 }
+

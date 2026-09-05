@@ -52,6 +52,25 @@ public interface FollowRepository extends JpaRepository<Follow, UUID> {
             @Param("followableIds") Collection<UUID> followableIds
     );
 
+    /**
+     * Which of these ids the given viewer follows, for a whole page in one
+     * round trip. The mirror of {@code BookmarkRepository#findBookmarkedIds},
+     * and there for the same reason: a listing that asks per row costs a query
+     * per card.
+     */
+    @Query("""
+            select follow.followableId
+            from Follow follow
+            where follow.follower.id = :followerId
+              and follow.followableType = :followableType
+              and follow.followableId in :followableIds
+            """)
+    List<UUID> findFollowedIds(
+            @Param("followerId") UUID followerId,
+            @Param("followableType") FollowType followableType,
+            @Param("followableIds") Collection<UUID> followableIds
+    );
+
     @Query("""
             select follow
             from Follow follow

@@ -1,12 +1,15 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
+import kh.edu.istad.ite.devsoleapi.common.projection.IdCountProjection;
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.BookmarkRepository;
 import kh.edu.istad.ite.devsoleapi.feature.bookmark.BookmarkType;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowType;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.vote.Vote;
+import kh.edu.istad.ite.devsoleapi.feature.vote.VoteBreakdownProjection;
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteRepository;
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteSummaryProjection;
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
@@ -16,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -38,7 +43,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-class ShowcaseDetailEnricherTest {
+class ShowcaseEnricherTest {
 
     @Mock
     private ShowCasesRepository showCasesRepository;
@@ -55,14 +60,14 @@ class ShowcaseDetailEnricherTest {
     @Mock
     private FollowRepository followRepository;
 
-    private ShowcaseDetailEnricher enricher;
+    private ShowcaseEnricher enricher;
 
     private final UUID showcaseId = UUID.randomUUID();
     private final UUID authorId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
-        enricher = new ShowcaseDetailEnricher(
+        enricher = new ShowcaseEnricher(
                 showCasesRepository,
                 showcaseRevisionRepository,
                 voteRepository,
@@ -94,7 +99,7 @@ class ShowcaseDetailEnricherTest {
                 authorId
         )).thenReturn(21L);
 
-        ShowCasesResponse enriched = enricher.apply(showcase(), response());
+        ShowCasesResponse enriched = enricher.applyToDetail(showcase(), response());
 
         assertEquals(4L, enriched.engagement().voteScore());
         assertEquals(6L, enriched.engagement().upvoteCount());
@@ -134,7 +139,7 @@ class ShowcaseDetailEnricherTest {
                         authorId
                 )).thenReturn(true);
 
-        ShowCasesResponse enriched = enricher.apply(showcase(), response());
+        ShowCasesResponse enriched = enricher.applyToDetail(showcase(), response());
 
         assertTrue(enriched.author().followedByViewer());
         assertTrue(enriched.viewer().followingAuthor());
@@ -161,7 +166,7 @@ class ShowcaseDetailEnricherTest {
                 .voteValue((short) -1)
                 .build()));
 
-        ShowCasesResponse enriched = enricher.apply(showcase(), response());
+        ShowCasesResponse enriched = enricher.applyToDetail(showcase(), response());
 
         assertEquals("DOWN", enriched.viewer().vote());
     }
@@ -172,7 +177,7 @@ class ShowcaseDetailEnricherTest {
         when(showcaseRevisionRepository.existsByShowcase_Id(showcaseId))
                 .thenReturn(true);
 
-        ShowCasesResponse enriched = enricher.apply(showcase(), response());
+        ShowCasesResponse enriched = enricher.applyToDetail(showcase(), response());
 
         assertTrue(enriched.viewer().owner());
         assertTrue(enriched.viewer().canEdit());
@@ -184,7 +189,7 @@ class ShowcaseDetailEnricherTest {
     void aStrangerIsNotToldThatAnEditIsPending() {
         authenticate(UUID.randomUUID());
 
-        ShowCasesResponse enriched = enricher.apply(showcase(), response());
+        ShowCasesResponse enriched = enricher.applyToDetail(showcase(), response());
 
         assertFalse(enriched.viewer().owner());
         assertFalse(enriched.viewer().canDelete());
@@ -205,13 +210,216 @@ class ShowcaseDetailEnricherTest {
                 authorId
         )).thenReturn(21L);
 
-        ShowCasesResponse enriched = enricher.apply(showcase(), response());
+        ShowCasesResponse enriched = enricher.applyToDetail(showcase(), response());
 
         assertEquals(authorId, enriched.author().id());
         assertEquals("sokdara", enriched.author().username());
         assertEquals(140, enriched.author().reputation());
         assertEquals(7L, enriched.author().publishedShowcaseCount());
         assertEquals(21L, enriched.author().followerCount());
+    }
+
+    // ------------------------------------------------------------ whole page
+
+    @Test
+    void aPageOfCardsCostsAFixedNumberOfQueries() {
+        UUID viewerId = UUID.randomUUID();
+        authenticate(viewerId);
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID third = UUID.randomUUID();
+        List<UUID> ids = List.of(first, second, third);
+
+        when(voteRepository.summarizeAllDetailed(VoteType.SHOWCASE, ids))
+                .thenReturn(List.of(breakdown(first, 5L, 6L, 1L)));
+
+        enricher.applyToPage(page(
+                summary(first, authorId),
+                summary(second, authorId),
+                summary(third, authorId)
+        ));
+
+        // Three counters and three viewer lookups for the page, plus the one
+        // over the page's distinct authors — never one set per card.
+        verify(voteRepository, times(1))
+                .summarizeAllDetailed(VoteType.SHOWCASE, ids);
+        verify(bookmarkRepository, times(1))
+                .countAllByBookmarkableIds(BookmarkType.SHOWCASE, ids);
+        verify(followRepository, times(1))
+                .countByFollowableIds(FollowType.SHOWCASE, ids);
+        verify(voteRepository, times(1))
+                .findAllByUserIdAndVotableTypeAndVotableIdIn(
+                        viewerId,
+                        VoteType.SHOWCASE,
+                        ids
+                );
+        verify(followRepository, times(1)).findFollowedIds(
+                viewerId,
+                FollowType.USER,
+                List.of(authorId)
+        );
+        verify(voteRepository, never()).findByUserIdAndVotableTypeAndVotableId(
+                any(),
+                any(),
+                any()
+        );
+    }
+
+    @Test
+    void eachCardCarriesItsOwnScoreAndTheViewersOwnVote() {
+        UUID viewerId = UUID.randomUUID();
+        authenticate(viewerId);
+        UUID voted = UUID.randomUUID();
+        UUID untouched = UUID.randomUUID();
+        List<UUID> ids = List.of(voted, untouched);
+
+        when(voteRepository.summarizeAllDetailed(VoteType.SHOWCASE, ids))
+                .thenReturn(List.of(breakdown(voted, 12L, 14L, 2L)));
+        when(bookmarkRepository.countAllByBookmarkableIds(
+                BookmarkType.SHOWCASE,
+                ids
+        )).thenReturn(List.of(count(voted, 4L)));
+        when(voteRepository.findAllByUserIdAndVotableTypeAndVotableIdIn(
+                viewerId,
+                VoteType.SHOWCASE,
+                ids
+        )).thenReturn(List.of(Vote.builder()
+                .userId(viewerId)
+                .votableType(VoteType.SHOWCASE)
+                .votableId(voted)
+                .voteValue((short) 1)
+                .build()));
+        when(bookmarkRepository.findBookmarkedIds(
+                viewerId,
+                BookmarkType.SHOWCASE,
+                ids
+        )).thenReturn(List.of(voted));
+
+        List<ShowCasesSummaryResponse> cards = enricher.applyToPage(page(
+                summary(voted, authorId),
+                summary(untouched, authorId)
+        )).getContent();
+
+        assertEquals(12L, cards.get(0).engagement().voteScore());
+        assertEquals(14L, cards.get(0).engagement().upvoteCount());
+        assertEquals(4L, cards.get(0).engagement().bookmarkCount());
+        assertEquals("UP", cards.get(0).viewer().vote());
+        assertTrue(cards.get(0).viewer().bookmarked());
+
+        // A card absent from every aggregate has zero of each, not an unknown
+        // number — the same rule the comment counts follow.
+        assertEquals(0L, cards.get(1).engagement().voteScore());
+        assertEquals(0L, cards.get(1).engagement().bookmarkCount());
+        assertNull(cards.get(1).viewer().vote());
+        assertFalse(cards.get(1).viewer().bookmarked());
+    }
+
+    @Test
+    void aSignedOutReaderGetsThePageCountsAndNoViewerQueries() {
+        UUID id = UUID.randomUUID();
+
+        when(voteRepository.summarizeAllDetailed(
+                VoteType.SHOWCASE,
+                List.of(id)
+        )).thenReturn(List.of(breakdown(id, 3L, 3L, 0L)));
+
+        List<ShowCasesSummaryResponse> cards =
+                enricher.applyToPage(page(summary(id, authorId))).getContent();
+
+        assertEquals(3L, cards.getFirst().engagement().voteScore());
+        assertNull(cards.getFirst().viewer().vote());
+        assertFalse(cards.getFirst().viewer().canEdit());
+        verify(bookmarkRepository, never()).findBookmarkedIds(
+                any(),
+                any(),
+                any()
+        );
+        verify(followRepository, never()).findFollowedIds(any(), any(), any());
+    }
+
+    @Test
+    void theAuthorSeesTheirOwnCardsAsTheirs() {
+        authenticate(authorId);
+        UUID mine = UUID.randomUUID();
+        UUID theirs = UUID.randomUUID();
+
+        List<ShowCasesSummaryResponse> cards = enricher.applyToPage(page(
+                summary(mine, authorId),
+                summary(theirs, UUID.randomUUID())
+        )).getContent();
+
+        assertTrue(cards.get(0).viewer().owner());
+        assertTrue(cards.get(0).viewer().canEdit());
+        assertFalse(cards.get(1).viewer().owner());
+    }
+
+    @Test
+    void anEmptyPageIsNotQueriedAtAll() {
+        enricher.applyToPage(page());
+
+        verifyNoInteractions(
+                voteRepository,
+                bookmarkRepository,
+                followRepository,
+                showCasesRepository,
+                showcaseRevisionRepository
+        );
+    }
+
+    private Page<ShowCasesSummaryResponse> page(
+            ShowCasesSummaryResponse... cards
+    ) {
+        return new PageImpl<>(List.of(cards));
+    }
+
+    private ShowCasesSummaryResponse summary(UUID id, UUID author) {
+        return ShowCasesSummaryResponse.builder()
+                .id(id)
+                .authorId(author.toString())
+                .build();
+    }
+
+    private VoteBreakdownProjection breakdown(
+            UUID id,
+            long score,
+            long upvotes,
+            long downvotes
+    ) {
+        return new VoteBreakdownProjection() {
+            @Override
+            public UUID getId() {
+                return id;
+            }
+
+            @Override
+            public long getScore() {
+                return score;
+            }
+
+            @Override
+            public long getUpvotes() {
+                return upvotes;
+            }
+
+            @Override
+            public long getDownvotes() {
+                return downvotes;
+            }
+        };
+    }
+
+    private IdCountProjection count(UUID id, long total) {
+        return new IdCountProjection() {
+            @Override
+            public UUID getId() {
+                return id;
+            }
+
+            @Override
+            public long getTotal() {
+                return total;
+            }
+        };
     }
 
     private ShowCases showcase() {
@@ -271,3 +479,4 @@ class ShowcaseDetailEnricherTest {
         );
     }
 }
+
