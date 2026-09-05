@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -139,6 +141,91 @@ public interface ShowCasesRepository extends JpaRepository<ShowCases, UUID> {
     @EntityGraph(attributePaths = {"author", "category"})
     Page<ShowCases> findByAuthor_IdAndDeletedAtIsNull(
             UUID authorId,
+            Pageable pageable
+    );
+
+    /**
+     * How much published work an author has, for the card beside one of their
+     * showcases. Counts only what a visitor could open from it, which is why it
+     * is not {@code countByAuthor_Id}.
+     */
+    long countByAuthor_IdAndReviewStatusAndDeletedAtIsNull(
+            UUID authorId,
+            ReviewStatus reviewStatus
+    );
+
+    /**
+     * What to read next after {@code showcaseId}: anything published that
+     * shares one of its tags, or sits in the same category.
+     *
+     * <p>Ordered by how many tags it shares, so a showcase built on the same
+     * three technologies outranks one that merely landed in the same category.
+     * The count is a scalar subquery repeated in the ORDER BY rather than an
+     * aggregate join, for the reason {@link #searchPublishedByScore} gives: a
+     * GROUP BY would fight the fetch joins, and the strip is six rows.
+     *
+     * <p>The joins are written out rather than left to an entity graph because
+     * {@code category} is optional. An implicit {@code showcase.category.id} in
+     * the WHERE is an inner join, which would quietly drop every uncategorized
+     * showcase — including ones matching on tags, where the category was never
+     * the point.
+     *
+     * @param tagIds must not be empty; a showcase with no tags goes to
+     *               {@link #findRelatedByCategory} instead
+     */
+    @Query("""
+            SELECT showcase
+            FROM ShowCases showcase
+            JOIN FETCH showcase.author author
+            LEFT JOIN FETCH showcase.category category
+            WHERE showcase.id <> :showcaseId
+              AND showcase.reviewStatus = :reviewStatus
+              AND showcase.deletedAt IS NULL
+              AND (
+                    category.id = :categoryId
+                    OR EXISTS (
+                        SELECT sharedTag
+                        FROM ShowcaseTag sharedTag
+                        WHERE sharedTag.showcase = showcase
+                          AND sharedTag.tag.id IN :tagIds
+                    )
+              )
+            ORDER BY (
+                SELECT COUNT(scoredTag)
+                FROM ShowcaseTag scoredTag
+                WHERE scoredTag.showcase = showcase
+                  AND scoredTag.tag.id IN :tagIds
+            ) DESC,
+            COALESCE(showcase.viewCount, 0) DESC,
+            showcase.createdAt DESC,
+            showcase.id DESC
+            """)
+    List<ShowCases> findRelatedByTags(
+            @Param("showcaseId") UUID showcaseId,
+            @Param("categoryId") UUID categoryId,
+            @Param("tagIds") Collection<UUID> tagIds,
+            @Param("reviewStatus") ReviewStatus reviewStatus,
+            Pageable pageable
+    );
+
+    /** The same strip for a showcase carrying no tags to match on. */
+    @Query("""
+            SELECT showcase
+            FROM ShowCases showcase
+            JOIN FETCH showcase.author author
+            LEFT JOIN FETCH showcase.category category
+            WHERE showcase.id <> :showcaseId
+              AND showcase.reviewStatus = :reviewStatus
+              AND showcase.deletedAt IS NULL
+              AND category.id = :categoryId
+            ORDER BY COALESCE(showcase.viewCount, 0) DESC,
+                     showcase.createdAt DESC,
+                     showcase.id DESC
+            """)
+    List<ShowCases> findRelatedByCategory(
+            @Param("showcaseId") UUID showcaseId,
+            @Param("categoryId") UUID categoryId,
+            @Param("reviewStatus") ReviewStatus reviewStatus,
             Pageable pageable
     );
 

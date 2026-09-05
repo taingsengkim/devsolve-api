@@ -25,10 +25,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ShowcaseDetailCacheTest {
 
+    /**
+     * The category rides along as a second argument so the related strip can be
+     * built without re-reading the row, and it must stay out of the key: two
+     * arguments in the default key generator would make the entry unfindable by
+     * the evicts below, which name the showcase alone.
+     */
     @Test
-    void isKeyedByShowcaseId() throws NoSuchMethodException {
+    void isKeyedByShowcaseIdAloneDespiteTheCategoryArgument()
+            throws NoSuchMethodException {
         Cacheable cacheable = ShowcaseDetailCache.class
-                .getMethod("load", java.util.UUID.class)
+                .getMethod("load", java.util.UUID.class, java.util.UUID.class)
                 .getAnnotation(Cacheable.class);
 
         assertNotNull(cacheable);

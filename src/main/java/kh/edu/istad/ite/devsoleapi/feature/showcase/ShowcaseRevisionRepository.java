@@ -14,6 +14,13 @@ public interface ShowcaseRevisionRepository
 
     Optional<ShowcaseRevision> findByShowcase_Id(UUID showcaseId);
 
+    /**
+     * Whether an edit is waiting on a moderator. Only the author is ever told,
+     * so this is read instead of the revision itself: nothing on the detail
+     * page renders the pending content, only the fact that it exists.
+     */
+    boolean existsByShowcase_Id(UUID showcaseId);
+
     List<ShowcaseRevision> findByShowcase_IdIn(
             Collection<UUID> showcaseIds
     );

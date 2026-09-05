@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.showcase;
 
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.CreateShowCasesRequest;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.RelatedShowcaseResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
@@ -35,21 +36,23 @@ public abstract class ShowCasesMapper {
             ShowCases showCase,
             List<ShowcaseTagResponse> tags
     ) {
-        return mapShowCase(showCase, tags, null);
+        return mapShowCase(showCase, tags, null, null);
     }
 
     public ShowCasesResponse mapShowCaseToDetailResponse(
             ShowCases showCase,
             List<ShowcaseTagResponse> tags,
-            List<ShowcaseStepResponse> steps
+            List<ShowcaseStepResponse> steps,
+            List<RelatedShowcaseResponse> related
     ) {
-        return mapShowCase(showCase, tags, steps);
+        return mapShowCase(showCase, tags, steps, related);
     }
 
     private ShowCasesResponse mapShowCase(
             ShowCases showCase,
             List<ShowcaseTagResponse> tags,
-            List<ShowcaseStepResponse> steps
+            List<ShowcaseStepResponse> steps,
+            List<RelatedShowcaseResponse> related
     ) {
         return ShowCasesResponse.builder()
                 .id(showCase.getId())
@@ -93,8 +96,27 @@ public abstract class ShowCasesMapper {
 
                 .tags(tags)
                 .steps(steps)
+                .related(related)
 
                 .build();
+    }
+
+    /** One card in the "more like this" strip; see the record for what it omits. */
+    public RelatedShowcaseResponse mapShowCaseToRelatedResponse(
+            ShowCases showCase
+    ) {
+        return new RelatedShowcaseResponse(
+                showCase.getId(),
+                showCase.getTitle(),
+                showCase.getCoverImageUrl(),
+                showCase.getAuthor() != null
+                        ? showCase.getAuthor().getFullName()
+                        : null,
+                showCase.getCategory() != null
+                        ? showCase.getCategory().getName()
+                        : null,
+                showCase.getViewCount() != null ? showCase.getViewCount() : 0
+        );
     }
 
     public ShowCasesSummaryResponse mapShowCaseToSummaryResponse(

@@ -25,6 +25,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAsse
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reputation.dto.LeaderboardSlice;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.ReviewStatus;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.RelatedShowcaseResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowCasesSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseDetailParts;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseListingSlice;
@@ -34,6 +35,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair;
 
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -171,7 +174,15 @@ class CacheConfigTest {
                                 LocalDateTime.of(2026, 8, 30, 10, 0),
                                 null
                         )
-                )
+                ),
+                List.of(new RelatedShowcaseResponse(
+                        UUID.randomUUID(),
+                        "Fuzzing a parser",
+                        "https://example.test/cover.png",
+                        "Sok Dara",
+                        "Web Security",
+                        112
+                ))
         );
 
         ShowcaseDetailParts restored =
@@ -225,9 +236,27 @@ class CacheConfigTest {
                 CacheConfig.showcaseDetailSerializer();
 
         ShowcaseDetailParts bare =
-                new ShowcaseDetailParts(List.of(), List.of());
+                new ShowcaseDetailParts(List.of(), List.of(), List.of());
 
         assertEquals(bare, showcase.read(showcase.write(bare)));
+    }
+
+    /**
+     * An entry written before a field existed is still in Redis when the
+     * deployment that added it starts reading. Jackson fills the missing
+     * component with null, and every caller iterates all three lists.
+     */
+    @Test
+    void readsAnEntryWrittenBeforeTheRelatedStripExisted() {
+        SerializationPair<ShowcaseDetailParts> showcase =
+                CacheConfig.showcaseDetailSerializer();
+
+        ShowcaseDetailParts restored = showcase.read(ByteBuffer.wrap(
+                "{\"tags\":[],\"steps\":[]}".getBytes(StandardCharsets.UTF_8)
+        ));
+
+        assertNotNull(restored);
+        assertEquals(List.of(), restored.related());
     }
 
     @Test

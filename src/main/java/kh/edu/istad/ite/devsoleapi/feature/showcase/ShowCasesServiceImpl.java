@@ -79,6 +79,7 @@ public class ShowCasesServiceImpl implements ShowCasesService {
     private final ShowcaseCommentCounts showcaseCommentCounts;
     private final ViewCountGuard viewCountGuard;
     private final ShowcaseDetailCache showcaseDetailCache;
+    private final ShowcaseDetailEnricher showcaseDetailEnricher;
     private final ShowcaseListingCache showcaseListingCache;
 
     @Override
@@ -441,17 +442,28 @@ public class ShowCasesServiceImpl implements ShowCasesService {
             );
         }
 
-        // The showcase row above is read fresh every time; only its tags and
-        // steps come from the cache, so a soft delete or a moderation change
-        // still takes effect on the next request.
-        ShowcaseDetailParts parts = showcaseDetailCache.load(id);
+        // The showcase row above is read fresh every time; only its tags,
+        // steps and neighbours come from the cache, so a soft delete or a
+        // moderation change still takes effect on the next request. The author
+        // card, the counters and the viewer's own state are read fresh too —
+        // see ShowcaseDetailEnricher.
+        ShowcaseDetailParts parts = showcaseDetailCache.load(
+                id,
+                showcase.getCategory() == null
+                        ? null
+                        : showcase.getCategory().getId()
+        );
 
-        return showcaseCommentCounts.applyToDetail(
-                showCasesMapper.mapShowCaseToDetailResponse(
-                        showcase,
-                        parts.tags(),
-                        parts.steps()
-                )
+        ShowCasesResponse detail = showCasesMapper.mapShowCaseToDetailResponse(
+                showcase,
+                parts.tags(),
+                parts.steps(),
+                parts.related()
+        );
+
+        return showcaseDetailEnricher.apply(
+                showcase,
+                showcaseCommentCounts.applyToDetail(detail)
         );
     }
 

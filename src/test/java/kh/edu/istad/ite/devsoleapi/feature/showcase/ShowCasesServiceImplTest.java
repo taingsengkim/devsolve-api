@@ -4,8 +4,10 @@ import kh.edu.istad.ite.devsoleapi.common.listing.ListingSort;
 import kh.edu.istad.ite.devsoleapi.common.listing.ViewCountGuard;
 import kh.edu.istad.ite.devsoleapi.common.storage.ImageStorageService;
 import kh.edu.istad.ite.devsoleapi.feature.vote.VoteType;
+import kh.edu.istad.ite.devsoleapi.feature.category.Category;
 import kh.edu.istad.ite.devsoleapi.feature.category.CategoryRepository;
 import kh.edu.istad.ite.devsoleapi.feature.follow.FollowNotificationService;
+import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.RelatedShowcaseResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewQueueItemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewDetailResponse;
 import kh.edu.istad.ite.devsoleapi.feature.showcase.dto.ShowcaseReviewHistoryResponse;
@@ -110,6 +112,9 @@ class ShowCasesServiceImplTest {
     private ShowcaseCommentCounts showcaseCommentCounts;
 
     @Mock
+    private ShowcaseDetailEnricher showcaseDetailEnricher;
+
+    @Mock
     private ViewCountGuard viewCountGuard;
 
     private ShowCasesServiceImpl service;
@@ -136,10 +141,13 @@ class ShowCasesServiceImplTest {
                 // without a CacheManager, so these tests still assert against
                 // the queries they always did.
                 new ShowcaseDetailCache(
+                        showCasesRepository,
                         showcaseStepRepository,
                         showcaseStepMapper,
-                        showcaseTagService
+                        showcaseTagService,
+                        showCasesMapper
                 ),
+                showcaseDetailEnricher,
                 new ShowcaseListingCache(
                         showCasesRepository,
                         showCasesMapper,
@@ -164,6 +172,12 @@ class ShowCasesServiceImplTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(showcaseCommentCounts.applyToSummaries(any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Likewise for the author card, the counters and the viewer flags: the
+        // enricher has its own test, and here it hands back the response it was
+        // given so the detail assertions still see what the mapper produced.
+        lenient().when(showcaseDetailEnricher.apply(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @AfterEach
@@ -442,13 +456,109 @@ class ShowCasesServiceImplTest {
         when(showCasesMapper.mapShowCaseToDetailResponse(
                 showcase,
                 List.of(),
-                stepResponses
+                stepResponses,
+                List.of()
         )).thenReturn(expected);
 
         ShowCasesResponse actual = service.getById(showcaseId);
 
-        assertSame(expected, actual);
+        assertEquals(showcaseId, actual.id());
+        assertEquals("Published title", actual.title());
         assertEquals(stepResponses, actual.steps());
+        // A showcase with neither tags nor a category has nothing to point at,
+        // and must not be asked for neighbours.
+        verify(showCasesMapper).mapShowCaseToDetailResponse(
+                showcase,
+                List.of(),
+                stepResponses,
+                List.of()
+        );
+        verify(showCasesRepository, never()).findRelatedByTags(
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        );
+        verify(showCasesRepository, never()).findRelatedByCategory(
+                any(),
+                any(),
+                any(),
+                any()
+        );
+    }
+
+    @Test
+    void getByIdAttachesNeighboursSharingATag() {
+        UUID showcaseId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        UUID tagId = UUID.randomUUID();
+        ShowCases showcase = showcase(showcaseId, ownerId, "Published title");
+        showcase.setReviewStatus(ReviewStatus.APPROVED);
+        // Mocked rather than built: Category keeps its no-arg constructor
+        // package-private, and all the detail path asks of one is its id.
+        Category category = mock(Category.class);
+        when(category.getId()).thenReturn(categoryId);
+        showcase.setCategory(category);
+
+        List<ShowcaseTagResponse> tags = List.of(
+                new ShowcaseTagResponse(tagId, "Redis", "redis")
+        );
+        ShowCases neighbour = showcase(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "A neighbouring showcase"
+        );
+        RelatedShowcaseResponse neighbourCard = new RelatedShowcaseResponse(
+                neighbour.getId(),
+                "A neighbouring showcase",
+                null,
+                "Sok Dara",
+                "Caching",
+                12
+        );
+
+        when(showCasesRepository.findByIdAndDeletedAtIsNull(showcaseId))
+                .thenReturn(Optional.of(showcase));
+        when(showcaseTagService.tagsOfShowcase(showcaseId)).thenReturn(tags);
+        when(showcaseStepRepository
+                .findByShowcase_IdOrderByStepNumberAsc(showcaseId))
+                .thenReturn(List.of());
+        when(showCasesRepository.findRelatedByTags(
+                eq(showcaseId),
+                eq(categoryId),
+                eq(List.of(tagId)),
+                eq(ReviewStatus.APPROVED),
+                any(Pageable.class)
+        )).thenReturn(List.of(neighbour));
+        when(showCasesMapper.mapShowCaseToRelatedResponse(neighbour))
+                .thenReturn(neighbourCard);
+        when(showCasesMapper.mapShowCaseToDetailResponse(
+                showcase,
+                tags,
+                List.of(),
+                List.of(neighbourCard)
+        )).thenReturn(ShowCasesResponse.builder()
+                .id(showcaseId)
+                .related(List.of(neighbourCard))
+                .build());
+
+        ShowCasesResponse actual = service.getById(showcaseId);
+
+        assertEquals(List.of(neighbourCard), actual.related());
+        verify(showCasesMapper).mapShowCaseToDetailResponse(
+                showcase,
+                tags,
+                List.of(),
+                List.of(neighbourCard)
+        );
+        verify(showCasesRepository, never()).findRelatedByCategory(
+                any(),
+                any(),
+                any(),
+                any()
+        );
     }
 
     @Test
