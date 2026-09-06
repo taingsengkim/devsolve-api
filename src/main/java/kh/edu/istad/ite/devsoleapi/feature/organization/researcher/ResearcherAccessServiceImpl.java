@@ -14,11 +14,16 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.InviteRes
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ReportingEligibilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.RequestResearcherAccessRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ResearcherAccessResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.RemoveResearcherRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ResearcherRemovalResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ReviewResearcherAccessRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.enums.ResearcherAccessDecision;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.enums.ResearcherAccessStatus;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.enums.ResearcherRemovalScope;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.ProgramInvitationService;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramAccessRevocationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
@@ -57,6 +62,7 @@ public class ResearcherAccessServiceImpl implements ResearcherAccessService {
     private final OrganizationRepository organizationRepository;
     private final UserProfileRepository userProfileRepository;
     private final ProgramRepository programRepository;
+    private final ProgramInvitationService programInvitationService;
     private final OrganizationAuthorizationService organizationAuthorization;
     private final ResearcherAccessMapper mapper;
     private final ApplicationEventPublisher eventPublisher;
@@ -442,6 +448,74 @@ public class ResearcherAccessServiceImpl implements ResearcherAccessService {
                         access.map(OrganizationResearcher::getReviewNote)
                                 .orElse(null)
                 )
+        );
+    }
+
+    @Override
+    @Transactional
+    public ResearcherRemovalResponse removeResearcher(
+            UUID organizationId,
+            UUID researcherId,
+            RemoveResearcherRequest request
+    ) {
+        UUID reviewerId = currentUserId();
+        Organization organization =
+                organizationAuthorization.requirePermission(
+                        organizationId,
+                        reviewerId,
+                        OrganizationPermission.MANAGE_RESEARCHERS
+                );
+        String note = trimToNull(request.note());
+
+        // The private half first, and unconditionally. Both scopes take it: a
+        // company ending somebody's access to everything has certainly ended it
+        // to their confidential programs.
+        ProgramAccessRevocationResponse privatePrograms =
+                programInvitationService.revokeAllForOrganization(
+                        organizationId,
+                        researcherId
+                );
+
+        if (request.scope() != ResearcherRemovalScope.ENTIRE_COMPANY) {
+            return new ResearcherRemovalResponse(
+                    request.scope(),
+                    privatePrograms,
+                    false,
+                    null
+            );
+        }
+
+        OrganizationResearcher access = researcherAccessRepository
+                .findByOrganizationIdAndResearcherId(
+                        organizationId,
+                        researcherId
+                )
+                .orElse(null);
+
+        // Nothing held, or already closed. Not an error: a researcher who never
+        // had clearance with this company could not submit to its public
+        // programs to begin with, and the company's intent is satisfied.
+        if (access == null
+                || access.getStatus() == ResearcherAccessStatus.REVOKED) {
+            return new ResearcherRemovalResponse(
+                    request.scope(),
+                    privatePrograms,
+                    false,
+                    access == null ? null : ResearcherAccessStatus.REVOKED
+            );
+        }
+
+        ResearcherAccessStatus previous = access.getStatus();
+        access.revoke(findUserProfile(reviewerId), note);
+        OrganizationResearcher saved =
+                researcherAccessRepository.saveAndFlush(access);
+        notifyResearcherOfDecision(saved, organization, reviewerId, false);
+
+        return new ResearcherRemovalResponse(
+                request.scope(),
+                privatePrograms,
+                true,
+                previous
         );
     }
 

@@ -5,6 +5,8 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.InviteRes
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ReportingEligibilityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.RequestResearcherAccessRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ResearcherAccessResponse;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.RemoveResearcherRequest;
+import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ResearcherRemovalResponse;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.dto.ReviewResearcherAccessRequest;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.enums.ResearcherAccessStatus;
 import lombok.RequiredArgsConstructor;
@@ -77,6 +79,27 @@ public class ResearcherAccessController {
             @Valid @RequestBody ReviewResearcherAccessRequest request
     ) {
         return researcherAccessService.review(
+                organizationId,
+                userId,
+                request
+        );
+    }
+
+    /**
+     * Removes a researcher from a company, as far as the company asks.
+     *
+     * <p>The action offered beside a security incident. Both records that let
+     * somebody submit are closed in one call — their standing with the company
+     * and their private-program invitations — because doing it in two leaves a
+     * window between them and leaves whichever the operator forgets standing.
+     */
+    @PatchMapping("/organizations/{organizationId}/researchers/{userId}/removal")
+    public ResearcherRemovalResponse removeResearcher(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID userId,
+            @Valid @RequestBody RemoveResearcherRequest request
+    ) {
+        return researcherAccessService.removeResearcher(
                 organizationId,
                 userId,
                 request

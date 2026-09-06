@@ -2,10 +2,12 @@ package kh.edu.istad.ite.devsoleapi.feature.program.invitation;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.InviteToProgramRequest;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramAccessRevocationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramInvitationResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface ProgramInvitationService {
@@ -40,6 +42,32 @@ public interface ProgramInvitationService {
 
     /** The company withdraws access, however the researcher answered. */
     ProgramInvitationResponse revoke(UUID programId, UUID researcherId);
+
+    /**
+     * Everything one researcher holds across one company's programs.
+     *
+     * <p>The preview behind "remove this researcher": a company looking at a
+     * security incident knows who uploaded the file, not which of their
+     * programs that person is on.
+     */
+    List<ProgramInvitationResponse> findForOrganizationResearcher(
+            UUID organizationId,
+            UUID researcherId
+    );
+
+    /**
+     * Withdraws one researcher from every program a company runs, in one act.
+     *
+     * <p>Exists because the thing that prompts it — a researcher uploading a
+     * file a scanner called malicious — is a judgement about the person, not
+     * about one program. Revoking program by program means the company is
+     * racing the researcher across their own estate, and the one they reach
+     * last is the one that mattered.
+     */
+    ProgramAccessRevocationResponse revokeAllForOrganization(
+            UUID organizationId,
+            UUID researcherId
+    );
 
     /**
      * Whether this person may read this program at all.

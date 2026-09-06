@@ -7,6 +7,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.InviteToProgramRequest;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramAccessRevocationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
@@ -408,6 +409,140 @@ class ProgramInvitationServiceImplTest {
                 ResourceNotFoundException.class,
                 () -> service.accept(programId)
         );
+    }
+
+    // ---- removing a researcher from a whole company ----------------------
+
+    /**
+     * The action offered beside a security incident. One decision about a
+     * person, so it reaches every program at once — revoking one at a time
+     * means racing them across the company's estate.
+     */
+    @Test
+    void removingAResearcherWithdrawsThemFromEveryProgramAtOnce() {
+        UUID actorId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+        UUID researcherId = UUID.randomUUID();
+
+        Program accepted = privateProgram();
+        accepted.setOrganizationId(organizationId);
+        accepted.setName("Ledger");
+        Program pending = privateProgram();
+        pending.setOrganizationId(organizationId);
+        pending.setName("Wallet");
+
+        ProgramInvitation onAccepted = invitation(
+                accepted,
+                researcherId,
+                ProgramInvitationStatus.ACCEPTED
+        );
+        ProgramInvitation onPending = invitation(
+                pending,
+                researcherId,
+                ProgramInvitationStatus.INVITED
+        );
+
+        authenticate(actorId, true);
+        when(invitationRepository.findForOrganizationAndResearcher(
+                organizationId,
+                researcherId
+        )).thenReturn(List.of(onAccepted, onPending));
+
+        ProgramAccessRevocationResponse response = service
+                .revokeAllForOrganization(organizationId, researcherId);
+
+        assertEquals(2, response.revoked());
+        assertEquals(
+                ProgramInvitationStatus.REVOKED,
+                onAccepted.getStatus()
+        );
+        assertEquals(ProgramInvitationStatus.REVOKED, onPending.getStatus());
+        // Named, so the company can see what their click did — and told apart,
+        // because cutting off somebody mid-engagement is not the same as
+        // withdrawing an invitation they never answered.
+        assertEquals(
+                List.of(
+                        ProgramInvitationStatus.ACCEPTED,
+                        ProgramInvitationStatus.INVITED
+                ),
+                response.programs().stream()
+                        .map(ProgramAccessRevocationResponse.RevokedProgram
+                                ::previousStatus)
+                        .toList()
+        );
+        assertEquals("Ledger", response.programs().getFirst().programName());
+        verify(organizationAuthorization).requirePermission(
+                eq(organizationId),
+                eq(actorId),
+                eq(OrganizationPermission.MANAGE_RESEARCHERS)
+        );
+        // One notification for one decision, not one per program.
+        verify(eventPublisher).publishEvent(any(Object.class));
+    }
+
+    /**
+     * A declined invitation granted nothing, so there is nothing to take away.
+     * Counting it would tell the company they removed somebody from a program
+     * that person was never on.
+     */
+    @Test
+    void alreadyDeclinedAndRevokedInvitationsAreLeftAlone() {
+        UUID actorId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+        UUID researcherId = UUID.randomUUID();
+
+        Program declinedProgram = privateProgram();
+        declinedProgram.setOrganizationId(organizationId);
+        Program revokedProgram = privateProgram();
+        revokedProgram.setOrganizationId(organizationId);
+
+        ProgramInvitation declined = invitation(
+                declinedProgram,
+                researcherId,
+                ProgramInvitationStatus.DECLINED
+        );
+        ProgramInvitation alreadyRevoked = invitation(
+                revokedProgram,
+                researcherId,
+                ProgramInvitationStatus.REVOKED
+        );
+
+        authenticate(actorId, true);
+        when(invitationRepository.findForOrganizationAndResearcher(
+                organizationId,
+                researcherId
+        )).thenReturn(List.of(declined, alreadyRevoked));
+
+        ProgramAccessRevocationResponse response = service
+                .revokeAllForOrganization(organizationId, researcherId);
+
+        assertEquals(0, response.revoked());
+        assertTrue(response.programs().isEmpty());
+        assertEquals(ProgramInvitationStatus.DECLINED, declined.getStatus());
+        verify(invitationRepository, never()).saveAll(any());
+        // Nothing happened, so the researcher is told nothing.
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    /** A researcher on none of the company's programs is a no-op, not a 404. */
+    @Test
+    void removingAResearcherWhoHoldsNothingIsHarmless() {
+        UUID actorId = UUID.randomUUID();
+        UUID organizationId = UUID.randomUUID();
+        UUID researcherId = UUID.randomUUID();
+
+        authenticate(actorId, true);
+        when(invitationRepository.findForOrganizationAndResearcher(
+                organizationId,
+                researcherId
+        )).thenReturn(List.of());
+
+        ProgramAccessRevocationResponse response = service
+                .revokeAllForOrganization(organizationId, researcherId);
+
+        assertEquals(0, response.revoked());
+        assertEquals(organizationId, response.organizationId());
+        assertEquals(researcherId, response.researcherId());
     }
 
     // ---- fixtures --------------------------------------------------------

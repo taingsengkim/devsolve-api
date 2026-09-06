@@ -11,6 +11,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.InviteToProgramRequest;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramAccessRevocationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramInvitationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserStatus;
@@ -24,6 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -263,6 +266,94 @@ public class ProgramInvitationServiceImpl implements ProgramInvitationService {
         ));
 
         return mapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProgramInvitationResponse> findForOrganizationResearcher(
+            UUID organizationId,
+            UUID researcherId
+    ) {
+        organizationAuthorization.requirePermission(
+                organizationId,
+                currentUserId(),
+                OrganizationPermission.MANAGE_RESEARCHERS
+        );
+        return invitationRepository
+                .findForOrganizationAndResearcher(organizationId, researcherId)
+                .stream()
+                .map(mapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public ProgramAccessRevocationResponse revokeAllForOrganization(
+            UUID organizationId,
+            UUID researcherId
+    ) {
+        UUID actorId = currentUserId();
+        organizationAuthorization.requirePermission(
+                organizationId,
+                actorId,
+                OrganizationPermission.MANAGE_RESEARCHERS
+        );
+
+        List<ProgramInvitation> held = invitationRepository
+                .findForOrganizationAndResearcher(organizationId, researcherId);
+
+        List<ProgramInvitation> withdrawn = new ArrayList<>();
+        List<ProgramAccessRevocationResponse.RevokedProgram> programs =
+                new ArrayList<>();
+
+        for (ProgramInvitation invitation : held) {
+            ProgramInvitationStatus previous = invitation.getStatus();
+            // Only what actually grants something. A declined invitation gave
+            // no access, and revoking it would pad the count with a program the
+            // researcher was never on — which is the number the company reads
+            // to understand what they just did.
+            if (previous != ProgramInvitationStatus.INVITED
+                    && previous != ProgramInvitationStatus.ACCEPTED) {
+                continue;
+            }
+            invitation.revoke();
+            withdrawn.add(invitation);
+            programs.add(new ProgramAccessRevocationResponse.RevokedProgram(
+                    invitation.getProgram().getId(),
+                    invitation.getProgram().getName(),
+                    previous
+            ));
+        }
+
+        if (!withdrawn.isEmpty()) {
+            invitationRepository.saveAll(withdrawn);
+            // One notification naming the count, not one per program. Somebody
+            // being removed from six programs at once has been removed by one
+            // decision, and six identical alerts describe the implementation
+            // rather than what happened to them.
+            eventPublisher.publishEvent(NotificationEvent.toAllExcept(
+                    List.of(researcherId),
+                    actorId,
+                    "Private program access withdrawn",
+                    "Your access to " + withdrawn.size()
+                            + (withdrawn.size() == 1
+                                    ? " private program has"
+                                    : " private programs has")
+                            + " been withdrawn.",
+                    NotificationType.PROGRAM,
+                    organizationId,
+                    "program-invitations-revoked:" + organizationId
+                            + ":" + researcherId
+                            + ":" + LocalDateTime.now()
+            ));
+        }
+
+        return new ProgramAccessRevocationResponse(
+                organizationId,
+                researcherId,
+                withdrawn.size(),
+                List.copyOf(programs)
+        );
     }
 
     @Override

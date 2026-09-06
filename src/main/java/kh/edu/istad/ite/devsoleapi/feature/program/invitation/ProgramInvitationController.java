@@ -2,6 +2,7 @@ package kh.edu.istad.ite.devsoleapi.feature.program.invitation;
 
 import jakarta.validation.Valid;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.InviteToProgramRequest;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramAccessRevocationResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.dto.ProgramInvitationResponse;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -66,6 +68,28 @@ public class ProgramInvitationController {
             @PathVariable UUID userId
     ) {
         return programInvitationService.revoke(programId, userId);
+    }
+
+    /**
+     * What one researcher holds across one company's programs.
+     *
+     * <p>The preview behind removing them. A company reaching this from a
+     * security incident knows who uploaded the file and not which of their
+     * programs that person is on, so this is what lets the confirmation say
+     * "this removes them from 3 programs" instead of asking them to guess.
+     */
+    @GetMapping(
+            "/organizations/{organizationId}/researchers/{userId}"
+                    + "/program-invitations"
+    )
+    public List<ProgramInvitationResponse> findForOrganizationResearcher(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID userId
+    ) {
+        return programInvitationService.findForOrganizationResearcher(
+                organizationId,
+                userId
+        );
     }
 
     /**

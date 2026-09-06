@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -81,6 +82,30 @@ public interface ProgramInvitationRepository
             @Param("researcherId") UUID researcherId,
             @Param("status") ProgramInvitationStatus status,
             Pageable pageable
+    );
+
+    /**
+     * Everything one researcher holds with one company.
+     *
+     * <p>The question behind "remove this person from our programs" — asked
+     * from a security incident, where the company knows who uploaded the file
+     * and not which of their programs that person is on.
+     *
+     * <p>Ordered so the response is stable between the preview and the
+     * revocation that follows it.
+     */
+    @Query("""
+            select invitation
+            from ProgramInvitation invitation
+            join fetch invitation.program program
+            where program.organizationId = :organizationId
+              and program.deletedAt is null
+              and invitation.researcher.id = :researcherId
+            order by program.name asc
+            """)
+    List<ProgramInvitation> findForOrganizationAndResearcher(
+            @Param("organizationId") UUID organizationId,
+            @Param("researcherId") UUID researcherId
     );
 
     long countByProgram_IdAndStatus(
