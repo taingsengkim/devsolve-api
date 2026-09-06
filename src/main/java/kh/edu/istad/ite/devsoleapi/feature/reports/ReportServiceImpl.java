@@ -31,6 +31,7 @@ import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponseAssembler;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RewardReportRequest;
@@ -183,6 +184,7 @@ public class ReportServiceImpl implements ReportService {
     private final ProgramInvitationService programInvitationService;
     private final CompanyIdentityService companyIdentityService;
     private final ReportMapper reportMapper;
+    private final ReportResponseAssembler reportResponseAssembler;
     private final FollowNotificationService followNotificationService;
     private final AttachmentValidator attachmentValidator;
     private final ObjectStorageService objectStorageService;
@@ -320,7 +322,7 @@ public class ReportServiceImpl implements ReportService {
         // Mapped before the counters are refreshed: that query clears the
         // persistence context, and everything the response needs has to be
         // read while the entities are still managed.
-        ReportResponse response = reportMapper.toResponse(saved);
+        ReportResponse response = reportResponseAssembler.one(saved);
         refreshReportCounts(reporterId);
         return response;
     }
@@ -343,7 +345,7 @@ public class ReportServiceImpl implements ReportService {
     @Override
     @Transactional(readOnly = true)
     public ReportResponse findById(UUID id) {
-        return reportMapper.toResponse(findReportWithViewAccess(id));
+        return reportResponseAssembler.one(findReportWithViewAccess(id));
     }
 
     @Override
@@ -383,8 +385,9 @@ public class ReportServiceImpl implements ReportService {
                 pageable,
                 REPORT_SORT_PROPERTIES
         );
-        return reportRepository.findAll(specification, validatedPageable)
-                .map(reportMapper::toResponse);
+        return reportResponseAssembler.page(
+                reportRepository.findAll(specification, validatedPageable)
+        );
     }
 
     @Override
@@ -395,9 +398,12 @@ public class ReportServiceImpl implements ReportService {
                 pageable,
                 REPORT_SORT_PROPERTIES
         );
-        return reportRepository
-                .findByReporterId(currentUserId(), validatedPageable)
-                .map(reportMapper::toResponse);
+        return reportResponseAssembler.page(
+                reportRepository.findByReporterId(
+                        currentUserId(),
+                        validatedPageable
+                )
+        );
     }
 
     @Override
@@ -422,7 +428,7 @@ public class ReportServiceImpl implements ReportService {
                 report.getReporter(),
                 "The reporter accepted the triage severity"
         );
-        return reportMapper.toResponse(report);
+        return reportResponseAssembler.one(report);
     }
 
     @Override
@@ -471,7 +477,7 @@ public class ReportServiceImpl implements ReportService {
                         + dispute.getId()
         ));
 
-        return reportMapper.toResponse(report);
+        return reportResponseAssembler.one(report);
     }
 
     @Override
@@ -743,7 +749,7 @@ public class ReportServiceImpl implements ReportService {
 
         // Same ordering as create(): the refresh clears the persistence
         // context, so the response is built while the report is still managed.
-        ReportResponse response = reportMapper.toResponse(report);
+        ReportResponse response = reportResponseAssembler.one(report);
         if (reputationEarned > 0) {
             payReputation(report, reputationEarned);
         }
@@ -897,7 +903,7 @@ public class ReportServiceImpl implements ReportService {
                     "report-disclosed:" + report.getId()
             );
         }
-        return reportMapper.toResponse(report);
+        return reportResponseAssembler.one(report);
     }
 
     /**
@@ -960,7 +966,7 @@ public class ReportServiceImpl implements ReportService {
                 "report:" + report.getId() + ":reward:" + reward.getId()
         ));
 
-        return reportMapper.toResponse(report);
+        return reportResponseAssembler.one(report);
     }
 
     /**
@@ -1095,7 +1101,7 @@ public class ReportServiceImpl implements ReportService {
                         + ":requested"
         ));
 
-        ReportResponse response = reportMapper.toResponse(report);
+        ReportResponse response = reportResponseAssembler.one(report);
         refreshReportCounts(report.getReporter().getId());
         return response;
     }
@@ -1211,7 +1217,7 @@ public class ReportServiceImpl implements ReportService {
                         + ":completed"
         ));
 
-        ReportResponse response = reportMapper.toResponse(report);
+        ReportResponse response = reportResponseAssembler.one(report);
         refreshReportCounts(researcher.getId());
         return response;
     }
@@ -1521,7 +1527,7 @@ public class ReportServiceImpl implements ReportService {
                     .build();
             reportAttachmentRepository.saveAndFlush(attachment);
             report.getAttachments().add(attachment);
-            return reportMapper.toResponse(report);
+            return reportResponseAssembler.one(report);
         } catch (RuntimeException exception) {
             deleteStoredObjectQuietly(storageKey);
             throw exception;

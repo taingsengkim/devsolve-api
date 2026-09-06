@@ -26,6 +26,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponseAssembler;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Dispute;
 import kh.edu.istad.ite.devsoleapi.feature.reports.entities.Report;
@@ -124,6 +125,9 @@ class ReportServiceImplTest {
 
     @Mock
     private ReportMapper reportMapper;
+
+    @Mock
+    private ReportResponseAssembler reportResponseAssembler;
 
     @Mock
     private FollowNotificationService followNotificationService;
@@ -1719,6 +1723,7 @@ class ReportServiceImplTest {
                 programInvitationService,
                 companyIdentityService,
                 reportMapper,
+                reportResponseAssembler,
                 followNotificationService,
                 attachmentValidator,
                 objectStorageService,

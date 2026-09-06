@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports.dto;
 
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.EngagementType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisputeStatus;
@@ -23,9 +24,35 @@ import java.util.UUID;
  */
 public record ReportResponse(
         UUID id,
+
+        /**
+         * The short handle a triager reads out loud, derived from the id rather
+         * than stored: {@code RPT-} and the first eight characters of the UUID.
+         * Unique in practice and stable, but not guaranteed unique by the
+         * database — address the report by {@link #id}, show this to people.
+         */
+        String reportId,
+
         UUID programId,
         UUID reporterId,
+
+        /**
+         * Who filed it. The bare {@code reporterId} above is kept beside this
+         * so existing clients keep working; new ones should read this.
+         */
+        ResearcherSummary researcher,
+
+        /** What it was filed against, with the company that runs it. */
+        ProgramSummary program,
+
         String title,
+
+        /**
+         * The opening of {@link #vulnerabilityInformation} on one line, for a
+         * queue that has no room for the whole thing. Derived, not stored.
+         */
+        String summary,
+
         String vulnerabilityInformation,
         String impact,
         String stepsToReproduce,
@@ -52,10 +79,25 @@ public record ReportResponse(
 
         AssetSummary asset,
         ReportState state,
+
+        /**
+         * Whether the program pays. Read from the program rather than stored on
+         * the report, so a program that changes how it engages does not leave a
+         * queue full of findings claiming otherwise.
+         */
+        EngagementType type,
+
         DisclosureStatus disclosureStatus,
         UUID duplicateOfId,
         UUID triagedBy,
         DisputeSummary dispute,
+
+        /**
+         * Whether a severity dispute is open on this report right now — not
+         * whether one was ever raised. A queue colours a row on this, and a
+         * finding whose disagreement was settled last week is not in dispute.
+         */
+        boolean isDisputed,
         List<AttachmentSummary> attachments,
         List<RewardSummary> rewards,
         List<RetestSummary> retestHistory,
@@ -76,6 +118,48 @@ public record ReportResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
+
+    /**
+     * The researcher who filed it, as a triager needs to weigh it.
+     *
+     * <p>The counters are context for a human — a first report from a new
+     * account reads differently from the twenty-fourth valid one — and not a
+     * score anything acts on.
+     *
+     * <p>{@code email} is here because a company that owes a payout, or needs
+     * to ask a question off-platform, has no other way to reach the person.
+     * Everybody who can read this response can already read the report itself:
+     * the reporter, the company's members holding VIEW_REPORTS, and platform
+     * administrators. It goes no further than that.
+     */
+    public record ResearcherSummary(
+            UUID id,
+            String username,
+            String fullName,
+            String email,
+            String avatarUrl,
+            int reputation,
+            int totalReports,
+            int validReports,
+            String country
+    ) {
+    }
+
+    /**
+     * @param organizationName    null on a report whose organization row has
+     *                            since been deleted. The report outlives it,
+     *                            and a triage queue that dropped those rows
+     *                            would hide exactly the findings nobody owns
+     */
+    public record ProgramSummary(
+            UUID id,
+            String name,
+            String handle,
+            UUID organizationId,
+            String organizationName,
+            String organizationLogoUrl
+    ) {
+    }
 
     public record WeaknessSummary(
             UUID id,

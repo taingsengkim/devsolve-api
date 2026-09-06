@@ -23,6 +23,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.invitation.ProgramInvitationService;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponseAssembler;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RequestRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.SubmitRetestRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.TriageReportRequest;
@@ -108,6 +109,9 @@ class ReportRetestWorkflowTest {
     private CompanyIdentityService companyIdentityService;
     @Mock
     private ReportMapper reportMapper;
+
+    @Mock
+    private ReportResponseAssembler reportResponseAssembler;
     @Mock
     private FollowNotificationService followNotificationService;
     @Mock
@@ -1035,6 +1039,7 @@ class ReportRetestWorkflowTest {
                 programInvitationService,
                 companyIdentityService,
                 reportMapper,
+                reportResponseAssembler,
                 followNotificationService,
                 attachmentValidator,
                 objectStorageService,

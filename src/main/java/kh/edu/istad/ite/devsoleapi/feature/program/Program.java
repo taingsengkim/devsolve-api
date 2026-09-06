@@ -24,6 +24,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -35,6 +36,10 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "programs")
+// A report queue now renders its program's name and handle, so a page of
+// twenty reports dereferences twenty lazy proxies. Batched, that is one select
+// rather than twenty.
+@BatchSize(size = 50)
 @Getter
 @Setter
 @NoArgsConstructor

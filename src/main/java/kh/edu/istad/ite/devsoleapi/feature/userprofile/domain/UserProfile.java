@@ -17,6 +17,9 @@ import java.util.List;
 
 @Entity
 @Table(name = "user_profiles")
+// A report queue now renders its reporter's handle, avatar and counters, so a
+// page of twenty dereferences twenty lazy proxies. Batched, that is one select.
+@BatchSize(size = 50)
 @Getter
 @Setter
 public class UserProfile extends BasedEntity {

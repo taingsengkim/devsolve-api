@@ -6,7 +6,7 @@ import kh.edu.istad.ite.devsoleapi.feature.problem.ProblemService;
 import kh.edu.istad.ite.devsoleapi.feature.problem.dto.ProblemResponse;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
 import kh.edu.istad.ite.devsoleapi.feature.reports.ReportRepository;
-import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportMapper;
+import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponseAssembler;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportResponse;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.DisclosureStatus;
 import kh.edu.istad.ite.devsoleapi.feature.reports.enums.ReportState;
@@ -37,7 +37,7 @@ public class UserPortfolioServiceImpl implements UserPortfolioService {
     private final SolutionService solutionService;
     private final ShowCasesService showCasesService;
     private final ReportRepository reportRepository;
-    private final ReportMapper reportMapper;
+    private final ReportResponseAssembler reportResponseAssembler;
 
     @Override
     @Transactional(readOnly = true)
@@ -126,7 +126,7 @@ public class UserPortfolioServiceImpl implements UserPortfolioService {
                         DisclosureStatus.DISCLOSED,
                         pageable
                 )
-                .map(reportMapper::toResponse);
+                .map(reportResponseAssembler::one);
     }
 
 }
