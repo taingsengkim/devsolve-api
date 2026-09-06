@@ -61,7 +61,7 @@ are over values that are not columns of the flag table at all.
     "authorName": "Spider Kim",
     "authorAvatarUrl": "https://…",
     "contentStatus": "PUBLISHED",
-    "createdAt": "2026-08-14T08:15:00",
+    "createdAt": "2026-08-14T08:15:00Z",
     "thumbnailUrl": null,
     "directUrl": "/community/problems/a1445d37-…"
   },
@@ -71,7 +71,7 @@ are over values that are not columns of the flag table at all.
   "reviewedBy": null,
   "reviewedAt": null,
   "resolutionNote": null,
-  "createdAt": "2026-08-14T07:52:34.168"
+  "createdAt": "2026-08-14T07:52:34.168Z"
 }
 ```
 
@@ -131,8 +131,8 @@ flat queue; `sort` defaults to `MOST_REPORTED` here.
   "pendingCount": 8,
   "reasons": ["SPAM", "OFF_TOPIC"],
   "automated": true,
-  "firstReportedAt": "2026-08-14T07:52:34.168",
-  "lastReportedAt": "2026-08-15T09:03:11.900",
+  "firstReportedAt": "2026-08-14T07:52:34.168Z",
+  "lastReportedAt": "2026-08-15T09:03:11.900Z",
   "latestFlagId": "2ec0114a-…"
 }
 ```
