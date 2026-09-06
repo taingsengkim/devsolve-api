@@ -933,18 +933,47 @@ public class ProgramServiceImpl implements ProgramService {
         if (isPubliclyAccessible(program)) {
             return true;
         }
-        // Everything except the visibility rule still has to hold: an invitation
-        // is not a way into a deleted, paused or unapproved program.
-        boolean liveButPrivate = program.getDeletedAt() == null
+        // Everything except the visibility rule still has to hold. This is the
+        // public detail route, and an invitation — or a staff badge — is not a
+        // way to read a deleted, paused or unapproved program through it.
+        // Unpublished work is reached through the management endpoints.
+        boolean liveButGated = program.getDeletedAt() == null
                 && program.getState() == ProgramState.ACTIVE
                 && program.getSubmissionState() == SubmissionState.APPROVED
-                && program.getVisibility() == Visibility.PRIVATE;
+                && program.getVisibility().isInvitationGated();
+        if (!liveButGated) {
+            return false;
+        }
 
-        return liveButPrivate
-                && programInvitationService.canView(
-                        program,
-                        currentUserIdOrNull()
-                );
+        UUID viewerId = currentUserIdOrNull();
+        if (viewerId == null) {
+            // Nobody is asking, so nobody is on the guest list. A 404 rather
+            // than a 401: answering 401 tells an anonymous stranger that the
+            // ID they guessed is a real program.
+            return false;
+        }
+
+        // A platform administrator moderates these programs and answers for
+        // them; being unable to open one is how a report about it gets judged
+        // without its scope.
+        if (AuthUtils.hasRole(ADMIN_ROLE)) {
+            return true;
+        }
+
+        // The company's own staff. They have management endpoints for their
+        // programs, but a colleague following a link to their own live
+        // programme should not be told it does not exist. VIEW_PROGRAMS is the
+        // permission every role on a team holds by default, so this reads as
+        // "is on the team".
+        if (organizationAuthorization.hasPermission(
+                program.getOrganizationId(),
+                viewerId,
+                OrganizationPermission.VIEW_PROGRAMS
+        )) {
+            return true;
+        }
+
+        return programInvitationService.canView(program, viewerId);
     }
 
     private Program findProgramForManagement(

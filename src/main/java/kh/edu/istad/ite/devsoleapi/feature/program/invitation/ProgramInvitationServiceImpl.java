@@ -359,7 +359,7 @@ public class ProgramInvitationServiceImpl implements ProgramInvitationService {
     @Override
     @Transactional(readOnly = true)
     public boolean canView(Program program, UUID userId) {
-        if (program.getVisibility() != Visibility.PRIVATE) {
+        if (!program.getVisibility().isInvitationGated()) {
             return true;
         }
         if (userId == null) {

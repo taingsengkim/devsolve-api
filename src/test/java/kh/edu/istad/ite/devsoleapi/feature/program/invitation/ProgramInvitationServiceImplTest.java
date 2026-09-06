@@ -204,6 +204,45 @@ class ProgramInvitationServiceImplTest {
                 .findByProgram_IdAndResearcher_Id(any(), any());
     }
 
+    /**
+     * INVITE_ONLY is gated exactly like PRIVATE.
+     *
+     * <p>The first version of this tested {@code == PRIVATE} and left
+     * INVITE_ONLY out — which on the read path made those programs invisible to
+     * the researchers invited to them, and on the submission path let them
+     * through to the company's general clearance: the one check a program that
+     * takes invitations exists in order not to use.
+     */
+    @Test
+    void inviteOnlyIsGatedTheSameWayAsPrivate() {
+        Program program = privateProgram();
+        program.setVisibility(Visibility.INVITE_ONLY);
+        UUID stranger = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+
+        when(invitationRepository.findByProgram_IdAndResearcher_Id(
+                program.getId(),
+                stranger
+        )).thenReturn(Optional.empty());
+        when(invitationRepository.findByProgram_IdAndResearcher_Id(
+                program.getId(),
+                member
+        )).thenReturn(Optional.of(invitation(
+                program,
+                member,
+                ProgramInvitationStatus.ACCEPTED
+        )));
+
+        assertFalse(service.canView(program, stranger));
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service.requireAcceptedMember(program, stranger)
+        );
+
+        assertTrue(service.canView(program, member));
+        service.requireAcceptedMember(program, member);
+    }
+
     /** A public program is nobody's private business; the list is not consulted. */
     @Test
     void aPublicProgramNeedsNoInvitation() {

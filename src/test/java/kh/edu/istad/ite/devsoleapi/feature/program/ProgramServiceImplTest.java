@@ -1360,6 +1360,158 @@ class ProgramServiceImplTest {
         );
     }
 
+    /**
+     * The whole point of an invitation. A researcher who cannot read the scope,
+     * the bounty table and the rules of engagement has been invited to nothing.
+     */
+    @Test
+    void anInvitedResearcherCanReadAGatedProgram() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = gatedProgram(organization, Visibility.PRIVATE);
+        UUID researcherId = UUID.randomUUID();
+
+        authenticate(researcherId, "USER");
+        stubPublicDetail(organization, program);
+        when(programInvitationService.canView(program, researcherId))
+                .thenReturn(true);
+
+        var response = service(new ProgramMapper())
+                .getPublicProgramById(program.getId());
+
+        assertEquals(program.getId(), response.id());
+        assertEquals(1, response.assets().size());
+    }
+
+    /**
+     * INVITE_ONLY is a third visibility, and the first version of this feature
+     * tested {@code == PRIVATE} — which left these programs unreadable by the
+     * very researchers invited to them.
+     */
+    @Test
+    void anInviteOnlyProgramIsReadableByItsInvitees() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = gatedProgram(organization, Visibility.INVITE_ONLY);
+        UUID researcherId = UUID.randomUUID();
+
+        authenticate(researcherId, "USER");
+        stubPublicDetail(organization, program);
+        when(programInvitationService.canView(program, researcherId))
+                .thenReturn(true);
+
+        assertEquals(
+                program.getId(),
+                service(new ProgramMapper())
+                        .getPublicProgramById(program.getId())
+                        .id()
+        );
+    }
+
+    @Test
+    void anInviteOnlyProgramIsHiddenFromSomebodyWithNoInvitation() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = gatedProgram(organization, Visibility.INVITE_ONLY);
+        UUID stranger = UUID.randomUUID();
+
+        authenticate(stranger, "USER");
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(programInvitationService.canView(program, stranger))
+                .thenReturn(false);
+
+        assertThrows(
+                ResourceNotFoundException.class,
+                () -> service().getPublicProgramById(program.getId())
+        );
+    }
+
+    /**
+     * A platform administrator moderates these programs and answers for them.
+     * Being unable to open one is how a report about it gets judged without its
+     * scope.
+     */
+    @Test
+    void aPlatformAdminCanReadAGatedProgramWithoutAnInvitation() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = gatedProgram(organization, Visibility.INVITE_ONLY);
+
+        authenticate(UUID.randomUUID(), "ADMIN");
+        stubPublicDetail(organization, program);
+
+        assertEquals(
+                program.getId(),
+                service(new ProgramMapper())
+                        .getPublicProgramById(program.getId())
+                        .id()
+        );
+        // Never asked: an administrator is not on anybody's guest list.
+        verifyNoInteractions(programInvitationService);
+    }
+
+    /**
+     * The company's own staff. They have management endpoints, but a colleague
+     * following a link to their own live program should not be told it does not
+     * exist.
+     */
+    @Test
+    void aCompanyMemberCanReadTheirOwnGatedProgram() {
+        Organization organization = activeOwnedOrganization(UUID.randomUUID());
+        Program program = gatedProgram(organization, Visibility.PRIVATE);
+        UUID memberId = UUID.randomUUID();
+        UserProfile member = new UserProfile();
+        member.setId(memberId);
+
+        authenticate(memberId, "USER");
+        stubPublicDetail(organization, program);
+        when(organizationMemberRepository.findByOrganizationIdAndUserId(
+                organization.getId(),
+                memberId
+        // VIEWER, the lowest role there is: reading a program the caller's own
+        // company runs should not need more than being on the team.
+        )).thenReturn(Optional.of(new OrganizationMember(
+                organization,
+                member,
+                OrgRole.VIEWER
+        )));
+
+        assertEquals(
+                program.getId(),
+                service(new ProgramMapper())
+                        .getPublicProgramById(program.getId())
+                        .id()
+        );
+        verifyNoInteractions(programInvitationService);
+    }
+
+    private Program gatedProgram(
+            Organization organization,
+            Visibility visibility
+    ) {
+        Program program = validProgram(organization.getId());
+        program.setState(ProgramState.ACTIVE);
+        program.setSubmissionState(SubmissionState.APPROVED);
+        program.setVisibility(visibility);
+        return program;
+    }
+
+    /** What the detail cache reads once the gate has let the caller through. */
+    private void stubPublicDetail(
+            Organization organization,
+            Program program
+    ) {
+        when(programRepository.findById(program.getId()))
+                .thenReturn(Optional.of(program));
+        when(organizationRepository.findById(organization.getId()))
+                .thenReturn(Optional.of(organization));
+        when(programAssetRepository.findByProgramIdOrderByCreatedAtAsc(
+                program.getId()
+        )).thenReturn(List.of(program.getAssets().getFirst()));
+        when(programRepository.findPublicStatisticsByProgramId(
+                program.getId()
+        )).thenReturn(org.mockito.Mockito.mock(
+                ProgramRepository.PublicProgramStatistics.class
+        ));
+    }
+
     @Test
     void publicLookupDoesNotRevealUnapprovedPublicProgram() {
         Program program = validProgram(UUID.randomUUID());

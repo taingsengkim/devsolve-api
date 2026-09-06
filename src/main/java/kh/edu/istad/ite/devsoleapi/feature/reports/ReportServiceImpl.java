@@ -234,7 +234,7 @@ public class ReportServiceImpl implements ReportService {
         // clearance used to be the only check here, so anybody approved for one
         // public program could submit to every unannounced one whose ID they
         // could guess.
-        if (program.getVisibility() == Visibility.PRIVATE) {
+        if (program.getVisibility().isInvitationGated()) {
             programInvitationService.requireAcceptedMember(program, reporterId);
         } else {
             researcherAccessService.requireApprovedReporter(
