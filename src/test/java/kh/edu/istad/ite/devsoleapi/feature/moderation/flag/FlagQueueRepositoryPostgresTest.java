@@ -326,14 +326,22 @@ class FlagQueueRepositoryPostgresTest {
     }
 
     /**
-     * Search reaches the reported writing, which lives in another table
-     * entirely — the whole reason the listing joins content at all.
+     * Search reaches the reported writing and the person who wrote it, both of
+     * which live in another table entirely — the whole reason the listing joins
+     * content at all. It reaches the reporter too.
+     *
+     * <p>The three people are deliberately distinct. One name matching both the
+     * author of one report and the reporter of another would match two rows,
+     * and a test that could not tell those apart would pass just as happily
+     * with half the predicate deleted.
      */
     @Test
     @Transactional
-    void searchMatchesTheReportedWritingAndTheAuthorWhoWroteIt() {
+    void searchMatchesTheReportedWritingItsAuthorAndItsReporter() {
         UserProfile author = persistedProfile("Ada Lovelace");
-        UserProfile other = persistedProfile("Someone Else");
+        UserProfile bystander = persistedProfile("Grace Hopper");
+        UserProfile reporter = persistedProfile("Alan Turing");
+        UserProfile otherReporter = persistedProfile("Katherine Johnson");
         Problem wanted = persistedProblem(
                 author,
                 "Flyway migration fails",
@@ -341,21 +349,33 @@ class FlagQueueRepositoryPostgresTest {
                 ProblemStatus.PUBLISHED
         );
         Problem ignored = persistedProblem(
-                other,
+                bystander,
                 "Unrelated question",
                 "Nothing to do with it",
                 ProblemStatus.PUBLISHED
         );
-        flag(other, FlaggableType.PROBLEM, wanted.getId(), FlagReason.SPAM);
-        flag(author, FlaggableType.PROBLEM, ignored.getId(), FlagReason.SPAM);
+        flag(reporter, FlaggableType.PROBLEM, wanted.getId(), FlagReason.SPAM);
+        flag(
+                otherReporter,
+                FlaggableType.PROBLEM,
+                ignored.getId(),
+                FlagReason.SPAM
+        );
 
+        // The reported writing.
         assertEquals(
                 wanted.getId(),
                 onlyRow(search(null, "%flyway%")).getFlaggableId()
         );
+        // Who wrote it — a column of another table entirely.
         assertEquals(
                 wanted.getId(),
                 onlyRow(search(null, "%lovelace%")).getFlaggableId()
+        );
+        // Who reported it.
+        assertEquals(
+                wanted.getId(),
+                onlyRow(search(null, "%turing%")).getFlaggableId()
         );
         assertEquals(0, search(null, "%nothing at all%").getTotalElements());
     }
@@ -381,19 +401,19 @@ class FlagQueueRepositoryPostgresTest {
                 ProblemStatus.PUBLISHED
         );
         flag(
-                persistedProfile("A"),
+                persistedProfile("First Reporter"),
                 FlaggableType.PROBLEM,
                 quiet.getId(),
                 FlagReason.SPAM
         );
         flag(
-                persistedProfile("B"),
+                persistedProfile("Second Reporter"),
                 FlaggableType.PROBLEM,
                 busy.getId(),
                 FlagReason.SPAM
         );
         flag(
-                persistedProfile("C"),
+                persistedProfile("Third Reporter"),
                 FlaggableType.PROBLEM,
                 busy.getId(),
                 FlagReason.SPAM
@@ -430,13 +450,13 @@ class FlagQueueRepositoryPostgresTest {
                 ProblemStatus.PUBLISHED
         );
         flag(
-                persistedProfile("A"),
+                persistedProfile("First Reporter"),
                 FlaggableType.PROBLEM,
                 problem.getId(),
                 FlagReason.SPAM
         );
         flag(
-                persistedProfile("B"),
+                persistedProfile("Second Reporter"),
                 FlaggableType.PROBLEM,
                 problem.getId(),
                 FlagReason.OFF_TOPIC
@@ -530,13 +550,13 @@ class FlagQueueRepositoryPostgresTest {
         );
         ShowCases showcase = persistedShowcase(author, ReviewStatus.APPROVED);
         flag(
-                persistedProfile("A"),
+                persistedProfile("First Reporter"),
                 FlaggableType.PROBLEM,
                 problem.getId(),
                 FlagReason.SPAM
         );
         flag(
-                persistedProfile("B"),
+                persistedProfile("Second Reporter"),
                 FlaggableType.SHOWCASE,
                 showcase.getId(),
                 FlagReason.SPAM
