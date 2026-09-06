@@ -28,6 +28,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.ProgramInvitationService;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAssetRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.dto.ProgramAssetRequestDto;
@@ -89,6 +90,9 @@ class ProgramServiceImplTest {
 
     @Mock
     private ProgramMapper programMapper;
+
+    @Mock
+    private ProgramInvitationService programInvitationService;
 
     @Mock
     private OrganizationRepository organizationRepository;
@@ -1796,7 +1800,8 @@ class ProgramServiceImplTest {
                         organizationRepository,
                         followRepository,
                         mapper
-                )
+                ),
+                programInvitationService
         );
     }
 

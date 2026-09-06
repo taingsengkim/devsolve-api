@@ -2860,3 +2860,45 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- Private programs keep their own guest list. Organization-level researcher
+-- clearance covers every program a company runs, which is the wrong shape for a
+-- program that is private from that company's own approved researchers too.
+DO $$
+BEGIN
+    IF to_regclass('public.programs') IS NOT NULL
+       AND to_regclass('public.user_profiles') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.program_invitations (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            program_id UUID NOT NULL
+                REFERENCES public.programs (id),
+            user_id UUID NOT NULL
+                REFERENCES public.user_profiles (id),
+            status VARCHAR(20) NOT NULL DEFAULT 'INVITED',
+            note TEXT,
+            invited_by UUID REFERENCES public.user_profiles (id),
+            invited_at TIMESTAMP,
+            responded_at TIMESTAMP,
+            revision INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP NOT NULL DEFAULT now(),
+            updated_at TIMESTAMP NOT NULL DEFAULT now(),
+            CONSTRAINT uq_program_invitations_program_user
+                UNIQUE (program_id, user_id)
+        );
+
+        -- The access check on every read of a private program. The unique
+        -- constraint above already indexes (program_id, user_id), so this adds
+        -- only what that cannot serve.
+
+        -- "Who is on this program?", the company's guest list.
+        CREATE INDEX IF NOT EXISTS idx_program_invitations_program_status
+            ON public.program_invitations (program_id, status);
+
+        -- "Which private programs am I on?", the researcher's only way to
+        -- find one.
+        CREATE INDEX IF NOT EXISTS idx_program_invitations_user_status
+            ON public.program_invitations (user_id, status);
+    END IF;
+END
+$$^^^

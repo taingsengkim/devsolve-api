@@ -35,6 +35,7 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.ProgramInvitationService;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAssetRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_reward.ProgramReward;
@@ -118,6 +119,7 @@ public class ProgramServiceImpl implements ProgramService {
     private final ApplicationEventPublisher eventPublisher;
     private final ProgramListingCache programListingCache;
     private final ProgramDetailCache programDetailCache;
+    private final ProgramInvitationService programInvitationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -188,13 +190,23 @@ public class ProgramServiceImpl implements ProgramService {
     public PublicProgramResponseDto getPublicProgramByHandle(String handle) {
         Program program = programRepository
                 .findByHandle(ProgramHandlePolicy.normalize(handle))
-                .filter(this::isPubliclyAccessible)
+                .filter(this::isReadableByCaller)
                 .orElseThrow(this::programNotFound);
         // Keyed by id, not by handle: one cached entry per program, so a write
         // has a single key to evict rather than one per way in.
         return programDetailCache.load(program.getId());
     }
 
+    /**
+     * Public programs only, deliberately.
+     *
+     * <p>A private program is read by the handful of researchers invited to it,
+     * where a view count measures nothing anybody acts on. Resolving the
+     * program first so a private one could be counted would also put a read in
+     * front of what is otherwise a single guarded UPDATE, on the hottest path
+     * the program feature has. Callers rendering a private program should not
+     * ask for a view count; this answers 404 if they do.
+     */
     @Override
     @Transactional
     public ProgramViewCountResponseDto incrementViewCount(UUID id) {
@@ -900,8 +912,39 @@ public class ProgramServiceImpl implements ProgramService {
 
     private Program findPublicProgramById(UUID id) {
         return programRepository.findById(id)
-                .filter(this::isPubliclyAccessible)
+                .filter(this::isReadableByCaller)
                 .orElseThrow(this::programNotFound);
+    }
+
+    /**
+     * A program the caller is allowed to open.
+     *
+     * <p>Every publicly listed one, plus a private one the caller has been
+     * invited to. An invitation is worth nothing if the invited researcher
+     * cannot read the scope and rules they are being asked to work under, so
+     * this opens at invitation rather than at acceptance — submitting is the
+     * step that waits for an answer.
+     *
+     * <p>Company staff do not come through here. They reach their own programs,
+     * private and unpublished alike, through the management paths, which check
+     * organization permissions instead.
+     */
+    private boolean isReadableByCaller(Program program) {
+        if (isPubliclyAccessible(program)) {
+            return true;
+        }
+        // Everything except the visibility rule still has to hold: an invitation
+        // is not a way into a deleted, paused or unapproved program.
+        boolean liveButPrivate = program.getDeletedAt() == null
+                && program.getState() == ProgramState.ACTIVE
+                && program.getSubmissionState() == SubmissionState.APPROVED
+                && program.getVisibility() == Visibility.PRIVATE;
+
+        return liveButPrivate
+                && programInvitationService.canView(
+                        program,
+                        currentUserIdOrNull()
+                );
     }
 
     private Program findProgramForManagement(
@@ -1302,6 +1345,28 @@ public class ProgramServiceImpl implements ProgramService {
                     "Authenticated user ID is not a valid UUID",
                     exception
             );
+        }
+    }
+
+    /**
+     * Who is asking, or null if nobody is.
+     *
+     * <p>The public program endpoints are reachable without a token, so the
+     * private-program check cannot demand one: an anonymous caller is simply
+     * not on any guest list, which is a 404 rather than a 401. Answering 401
+     * would also tell an anonymous stranger that the ID they tried exists.
+     */
+    private UUID currentUserIdOrNull() {
+        try {
+            String userId = AuthUtils.extractUserId();
+            return userId == null ? null : UUID.fromString(userId);
+        } catch (RuntimeException exception) {
+            // Broad on purpose. Asking who is calling must never be what
+            // decides the response: AuthUtils answers an unauthenticated
+            // caller with 401, and letting that escape would turn a private
+            // program's 404 into a 401 — which tells an anonymous stranger
+            // that the ID they guessed exists.
+            return null;
         }
     }
 

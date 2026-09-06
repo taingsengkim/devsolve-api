@@ -14,6 +14,8 @@ import kh.edu.istad.ite.devsoleapi.feature.organization.CompanyIdentityService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.OrganizationAuthorizationService;
 import kh.edu.istad.ite.devsoleapi.feature.organization.enums.OrganizationPermission;
 import kh.edu.istad.ite.devsoleapi.feature.organization.researcher.ResearcherAccessService;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.ProgramInvitationService;
 import kh.edu.istad.ite.devsoleapi.feature.program.Program;
 import kh.edu.istad.ite.devsoleapi.feature.program.ProgramRepository;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
@@ -178,6 +180,7 @@ public class ReportServiceImpl implements ReportService {
     private final UserProfileRepository userProfileRepository;
     private final OrganizationAuthorizationService organizationAuthorization;
     private final ResearcherAccessService researcherAccessService;
+    private final ProgramInvitationService programInvitationService;
     private final CompanyIdentityService companyIdentityService;
     private final ReportMapper reportMapper;
     private final FollowNotificationService followNotificationService;
@@ -219,13 +222,26 @@ public class ReportServiceImpl implements ReportService {
         UserProfile reporter = findUserProfile(reporterId);
         Program program = findReportableProgram(programId);
 
-        // Clearance is held against the organization, so it covers every
-        // program that organization runs. Checked here rather than at the
-        // controller because a draft being filed reaches this same method.
-        researcherAccessService.requireApprovedReporter(
-                program.getOrganizationId(),
-                reporterId
-        );
+        // Checked here rather than at the controller because a draft being
+        // filed reaches this same method.
+        //
+        // A private program answers to its own guest list and not to the
+        // company's general clearance. The two are deliberately exclusive: a
+        // researcher who has accepted a private invitation has been vetted for
+        // that program by the people who run it, and making them separately
+        // apply to the organization afterwards would mean the invitation
+        // granted nothing. In the other direction it closes a hole — company
+        // clearance used to be the only check here, so anybody approved for one
+        // public program could submit to every unannounced one whose ID they
+        // could guess.
+        if (program.getVisibility() == Visibility.PRIVATE) {
+            programInvitationService.requireAcceptedMember(program, reporterId);
+        } else {
+            researcherAccessService.requireApprovedReporter(
+                    program.getOrganizationId(),
+                    reporterId
+            );
+        }
 
         ProgramAsset asset = findReportableAsset(
                 program,

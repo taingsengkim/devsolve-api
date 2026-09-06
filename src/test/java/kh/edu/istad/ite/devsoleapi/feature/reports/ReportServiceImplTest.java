@@ -20,6 +20,8 @@ import kh.edu.istad.ite.devsoleapi.feature.program.enums.AssetType;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.ProgramState;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.program.enums.SubmissionState;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Visibility;
+import kh.edu.istad.ite.devsoleapi.feature.program.invitation.ProgramInvitationService;
 import kh.edu.istad.ite.devsoleapi.feature.program.program_asset.ProgramAsset;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
@@ -140,6 +142,9 @@ class ReportServiceImplTest {
 
     @Mock
     private ResearcherAccessService researcherAccessService;
+
+    @Mock
+    private ProgramInvitationService programInvitationService;
 
     @AfterEach
     void clearSecurityContext() {
@@ -1711,6 +1716,7 @@ class ReportServiceImplTest {
                         organizationMemberRepository
                 ),
                 researcherAccessService,
+                programInvitationService,
                 companyIdentityService,
                 reportMapper,
                 followNotificationService,
@@ -1814,6 +1820,11 @@ class ReportServiceImplTest {
         program.setOrganizationId(UUID.randomUUID());
         program.setState(ProgramState.ACTIVE);
         program.setSubmissionState(SubmissionState.APPROVED);
+        // Said out loud, because a Program defaults to PRIVATE and the two
+        // visibilities answer to different gates: a public program checks the
+        // company's researcher clearance, a private one checks its own guest
+        // list. Everything below is about the public path.
+        program.setVisibility(Visibility.PUBLIC);
         program.setOffersBounties(true);
 
         ProgramAsset asset = ProgramAsset.builder()
