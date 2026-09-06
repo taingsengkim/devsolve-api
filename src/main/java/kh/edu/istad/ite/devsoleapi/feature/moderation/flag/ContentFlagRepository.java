@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface ContentFlagRepository extends JpaRepository<ContentFlag, UUID> {
@@ -44,6 +45,17 @@ public interface ContentFlagRepository extends JpaRepository<ContentFlag, UUID> 
             UUID reporterId,
             FlaggableType flaggableType,
             UUID flaggableId
+    );
+
+    /**
+     * Every report on one piece of content in one state, for the admin who is
+     * settling all of them at once. See
+     * {@link ContentFlagService#resolveTargetFlags}.
+     */
+    List<ContentFlag> findByFlaggableTypeAndFlaggableIdAndStatus(
+            FlaggableType flaggableType,
+            UUID flaggableId,
+            FlagStatus status
     );
 
     /**

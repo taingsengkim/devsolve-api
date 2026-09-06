@@ -127,6 +127,14 @@ app:
     #   {base-url}{invitation-path}/{invitationToken}
     base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
     invitation-path: ${FRONTEND_INVITATION_PATH:/invitations}
+    # Where the moderation queue sends an admin to read what was reported.
+    # Relative to the site root — the frontend navigates these itself, so a
+    # base URL here would only bake the environment into the response. A route
+    # rename is a deployment setting rather than a release.
+    problem-path: ${FRONTEND_PROBLEM_PATH:/community/problems}
+    showcase-path: ${FRONTEND_SHOWCASE_PATH:/community/showcases}
+    program-path: ${FRONTEND_PROGRAM_PATH:/programs}
+    report-path: ${FRONTEND_REPORT_PATH:/reports}
   meilisearch:
     # Backs GET /api/v1/search. Off by default: the indexes are derived from
     # PostgreSQL and rebuildable at any time, so a deployment with no

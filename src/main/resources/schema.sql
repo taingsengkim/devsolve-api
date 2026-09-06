@@ -2846,3 +2846,17 @@ BEGIN
     END IF;
 END
 $$^^^
+
+
+-- The moderation queue counts every sibling report of the flag it is showing,
+-- and the grouped view collapses a whole target's reports into one card. Both
+-- look up (flaggable_type, flaggable_id) and neither can use
+-- idx_content_flags_source_target, whose leading column is the source.
+DO $$
+BEGIN
+    IF to_regclass('public.content_flags') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS idx_content_flags_target
+            ON public.content_flags (flaggable_type, flaggable_id);
+    END IF;
+END
+$$^^^

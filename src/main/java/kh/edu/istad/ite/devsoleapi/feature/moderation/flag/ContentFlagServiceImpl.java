@@ -3,9 +3,14 @@ package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 import org.springframework.transaction.annotation.Transactional;
 import kh.edu.istad.ite.devsoleapi.config.security.AuthUtils;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.action.ModerationTargetType;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.FlagQueueRepository.FlagRow;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.FlagQueueRepository.FlagTally;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagGroupResponse;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagQueueSummaryResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.ResolveFlagRequest;
+import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.TargetFlagActionResponse;
 import kh.edu.istad.ite.devsoleapi.feature.moderation.takedown.ContentTakedownService;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.domain.UserProfile;
 import kh.edu.istad.ite.devsoleapi.feature.userprofile.repository.UserProfileRepository;
@@ -19,6 +24,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 @Service
 @RequiredArgsConstructor
@@ -26,7 +34,9 @@ import java.util.UUID;
 public class ContentFlagServiceImpl implements ContentFlagService{
     private final UserProfileRepository userProfileRepository;
     private final ContentFlagRepository contentFlagRepository;
+    private final FlagQueueRepository flagQueueRepository;
     private final ContentFlagMapper contentFlagMapper;
+    private final FlagRowAssembler flagRowAssembler;
     private final ContentTakedownService contentTakedownService;
 
     @Override
@@ -68,10 +78,9 @@ public class ContentFlagServiceImpl implements ContentFlagService{
         flag.setStatus(FlagStatus.PENDING);
 
         ContentFlag savedFlag =
-                contentFlagRepository.save(flag);
+                contentFlagRepository.saveAndFlush(flag);
 
-        return contentFlagMapper
-                .mapContentFlagToFlagResponse(savedFlag);
+        return readFlag(savedFlag.getId(), false);
     }
 
     @Override
@@ -84,23 +93,21 @@ public class ContentFlagServiceImpl implements ContentFlagService{
         UUID reporterId = extractCurrentUserId();
         validatePagination(pageNumber, pageSize);
 
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(
-                        Sort.Direction.DESC,
-                        "createdAt"
+        // Reported through the same query the moderation queue uses, so a
+        // reporter's own list shows what they reported rather than an ID. What
+        // it does not show is how many other people reported the same thing —
+        // see FlagResponse.
+        return flagQueueRepository
+                .search(
+                        name(status),
+                        null,
+                        null,
+                        reporterId.toString(),
+                        null,
+                        FlagQueueSort.NEWEST.name(),
+                        page(pageNumber, pageSize)
                 )
-        );
-
-        return contentFlagRepository
-                .findMyFlags(
-                        reporterId,
-                        status,
-                        pageable
-                )
-                .map(contentFlagMapper
-                        ::mapContentFlagToFlagResponse);
+                .map(row -> flagRowAssembler.toResponse(row, false));
     }
 
     @Override
@@ -109,6 +116,8 @@ public class ContentFlagServiceImpl implements ContentFlagService{
             FlagStatus status,
             FlaggableType flaggableType,
             FlagReason reason,
+            String search,
+            FlagQueueSort sort,
             int pageNumber,
             int pageSize
     ) {
@@ -116,23 +125,100 @@ public class ContentFlagServiceImpl implements ContentFlagService{
 
         validatePagination(pageNumber, pageSize);
 
-        Pageable pageable = PageRequest.of(
-                pageNumber,
-                pageSize,
-                Sort.by(
-                        Sort.Direction.DESC,
-                        "createdAt"
+        return flagQueueRepository
+                .search(
+                        name(status),
+                        name(flaggableType),
+                        name(reason),
+                        null,
+                        searchPattern(search),
+                        sortOrDefault(sort).name(),
+                        page(pageNumber, pageSize)
                 )
-        );
+                .map(row -> flagRowAssembler.toResponse(row, true));
+    }
 
-        return contentFlagRepository
-                .searchAdminFlags(
-                        status,
-                        flaggableType,
-                        reason,
-                        pageable
+    @Override
+    @Transactional(readOnly = true)
+    public Page<FlagGroupResponse> getAdminFlagGroups(
+            FlagStatus status,
+            FlaggableType flaggableType,
+            FlagReason reason,
+            String search,
+            FlagQueueSort sort,
+            int pageNumber,
+            int pageSize
+    ) {
+        requireAdmin("Only ADMIN can view flags");
+
+        validatePagination(pageNumber, pageSize);
+
+        return flagQueueRepository
+                .searchGroups(
+                        name(status),
+                        name(flaggableType),
+                        name(reason),
+                        null,
+                        searchPattern(search),
+                        sortOrDefault(sort).name(),
+                        page(pageNumber, pageSize)
                 )
-                .map(contentFlagMapper::mapContentFlagToFlagResponse);
+                .map(flagRowAssembler::toGroup);
+    }
+
+    /**
+     * Every badge above the queue, from one pass over the flag table.
+     *
+     * <p>The breakdowns describe the open queue only; the three totals are of
+     * everything. See {@link FlagQueueSummaryResponse}.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public FlagQueueSummaryResponse getQueueSummary() {
+        requireAdmin("Only ADMIN can view flags");
+
+        Map<FlagReason, Long> byReason = new EnumMap<>(FlagReason.class);
+        Map<FlaggableType, Long> byType = new EnumMap<>(FlaggableType.class);
+        for (FlagReason reason : FlagReason.values()) {
+            byReason.put(reason, 0L);
+        }
+        for (FlaggableType type : FlaggableType.values()) {
+            byType.put(type, 0L);
+        }
+
+        long pending = 0;
+        long reviewed = 0;
+        long dismissed = 0;
+
+        for (FlagTally tally : flagQueueRepository.tally()) {
+            FlagStatus status = parseStatus(tally.getStatus());
+            if (status == null) {
+                // A status retired from the enum but still on old rows. It is
+                // not one of the three tabs, so it belongs in none of them.
+                continue;
+            }
+            switch (status) {
+                case PENDING -> {
+                    pending += tally.getTotal();
+                    countInto(byReason, tally.getReason(), tally.getTotal());
+                    countInto(
+                            byType,
+                            tally.getFlaggableType(),
+                            tally.getTotal()
+                    );
+                }
+                case REVIEWED -> reviewed += tally.getTotal();
+                case DISMISSED -> dismissed += tally.getTotal();
+            }
+        }
+
+        return new FlagQueueSummaryResponse(
+                pending,
+                reviewed,
+                dismissed,
+                Map.copyOf(byReason),
+                Map.copyOf(byType)
+        );
     }
 
     @Override
@@ -140,10 +226,7 @@ public class ContentFlagServiceImpl implements ContentFlagService{
     public FlagResponse getAdminFlagById(UUID id) {
         requireAdmin("Only ADMIN can view flags");
 
-        return contentFlagMapper
-                .mapContentFlagToFlagResponse(
-                        findFlag(id)
-                );
+        return readFlag(id, true);
     }
 
     @Override
@@ -163,11 +246,9 @@ public class ContentFlagServiceImpl implements ContentFlagService{
         flag.setReviewedBy(admin);
         flag.setReviewedAt(LocalDateTime.now());
 
-        ContentFlag savedFlag =
-                contentFlagRepository.save(flag);
+        contentFlagRepository.saveAndFlush(flag);
 
-        return contentFlagMapper
-                .mapContentFlagToFlagResponse(savedFlag);
+        return readFlag(id, true);
     }
 
     @Override
@@ -197,11 +278,113 @@ public class ContentFlagServiceImpl implements ContentFlagService{
             );
         }
 
-        ContentFlag savedFlag =
-                contentFlagRepository.save(flag);
+        contentFlagRepository.saveAndFlush(flag);
 
-        return contentFlagMapper
-                .mapContentFlagToFlagResponse(savedFlag);
+        // Re-read rather than map the entity, so the response carries the same
+        // resolved content the queue does — including, when the content has
+        // just been taken down, that it is gone.
+        return readFlag(id, true);
+    }
+
+    @Override
+    @Transactional
+    public TargetFlagActionResponse resolveTargetFlags(
+            FlaggableType flaggableType,
+            UUID flaggableId,
+            ResolveFlagRequest request
+    ) {
+        requireAdmin("Only ADMIN can resolve flags");
+
+        UserProfile admin = findAdmin(extractCurrentUserId());
+        String note = request.resolutionNote().trim();
+
+        List<ContentFlag> pending = closeAll(
+                flaggableType,
+                flaggableId,
+                FlagStatus.REVIEWED,
+                admin,
+                note
+        );
+
+        // Outside the loop, and unconditional: the content comes down once
+        // however many people reported it, and it comes down even when a
+        // colleague has already closed every report — an admin who ticked
+        // remove asked about the content, not about the paperwork.
+        if (request.removeContent()) {
+            contentTakedownService.takeDown(
+                    moderationTargetOf(flaggableType),
+                    flaggableId,
+                    note
+            );
+        }
+
+        return new TargetFlagActionResponse(
+                flaggableType,
+                flaggableId,
+                pending.size(),
+                request.removeContent()
+        );
+    }
+
+    @Override
+    @Transactional
+    public TargetFlagActionResponse dismissTargetFlags(
+            FlaggableType flaggableType,
+            UUID flaggableId
+    ) {
+        requireAdmin("Only ADMIN can dismiss flags");
+
+        UserProfile admin = findAdmin(extractCurrentUserId());
+
+        List<ContentFlag> pending = closeAll(
+                flaggableType,
+                flaggableId,
+                FlagStatus.DISMISSED,
+                admin,
+                null
+        );
+
+        return new TargetFlagActionResponse(
+                flaggableType,
+                flaggableId,
+                pending.size(),
+                false
+        );
+    }
+
+    /**
+     * Closes every open report on one piece of content.
+     *
+     * <p>An empty list is not an error. It means a colleague reached the same
+     * card first, which two people working one queue will do, and failing the
+     * request would only ask this admin to go and find out that nothing was
+     * wrong.
+     */
+    private List<ContentFlag> closeAll(
+            FlaggableType flaggableType,
+            UUID flaggableId,
+            FlagStatus decision,
+            UserProfile admin,
+            String note
+    ) {
+        List<ContentFlag> pending = contentFlagRepository
+                .findByFlaggableTypeAndFlaggableIdAndStatus(
+                        flaggableType,
+                        flaggableId,
+                        FlagStatus.PENDING
+                );
+
+        LocalDateTime reviewedAt = LocalDateTime.now();
+        for (ContentFlag flag : pending) {
+            flag.setStatus(decision);
+            flag.setReviewedBy(admin);
+            flag.setReviewedAt(reviewedAt);
+            if (note != null) {
+                flag.setResolutionNote(note);
+            }
+        }
+        contentFlagRepository.saveAll(pending);
+        return pending;
     }
 
     /**
@@ -229,6 +412,16 @@ public class ContentFlagServiceImpl implements ContentFlagService{
             case COMMENT -> ModerationTargetType.COMMENT;
             case PROGRAM -> ModerationTargetType.PROGRAM;
         };
+    }
+
+    private FlagResponse readFlag(UUID id, boolean withSiblingCounts) {
+        FlagRow row = flagQueueRepository
+                .findRow(id.toString())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Flag not found"
+                ));
+        return flagRowAssembler.toResponse(row, withSiblingCounts);
     }
 
     private ContentFlag findFlag(UUID id) {
@@ -281,6 +474,68 @@ public class ContentFlagServiceImpl implements ContentFlagService{
                     "Authenticated user ID is not a valid UUID",
                     exception
             );
+        }
+    }
+
+    /**
+     * Unsorted on purpose. The ordering is a parameter of the statement rather
+     * than something Spring appends, because two of the three orderings are
+     * over columns that only exist inside a lateral join — see
+     * {@link FlagQueueQueries}.
+     */
+    private Pageable page(int pageNumber, int pageSize) {
+        return PageRequest.of(pageNumber, pageSize, Sort.unsorted());
+    }
+
+    private FlagQueueSort sortOrDefault(FlagQueueSort sort) {
+        return sort == null ? FlagQueueSort.NEWEST : sort;
+    }
+
+    private String name(Enum<?> value) {
+        return value == null ? null : value.name();
+    }
+
+    /**
+     * The search term as an {@code ILIKE} pattern.
+     *
+     * <p>Wildcards in what the moderator typed are escaped rather than honoured.
+     * They would otherwise be a search language nobody documented — and a
+     * moderator searching for a literal {@code 100%} or {@code user_id} would
+     * get everything back and no way to tell why.
+     */
+    private String searchPattern(String search) {
+        if (search == null || search.isBlank()) {
+            return null;
+        }
+        String escaped = search.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        return "%" + escaped + "%";
+    }
+
+    private FlagStatus parseStatus(String name) {
+        try {
+            return FlagStatus.valueOf(name);
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            return null;
+        }
+    }
+
+    /**
+     * Adds a tallied row to its bucket, ignoring names the enum no longer has.
+     * An old row with a retired reason must not cost the whole summary.
+     */
+    private <E extends Enum<E>> void countInto(
+            Map<E, Long> counts,
+            String name,
+            long total
+    ) {
+        for (Map.Entry<E, Long> entry : counts.entrySet()) {
+            if (entry.getKey().name().equals(name)) {
+                counts.merge(entry.getKey(), total, Long::sum);
+                return;
+            }
         }
     }
 

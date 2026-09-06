@@ -1,10 +1,18 @@
 package kh.edu.istad.ite.devsoleapi.feature.moderation.flag;
 
 import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.CreateFlagRequest;
-import kh.edu.istad.ite.devsoleapi.feature.moderation.flag.dto.FlagResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
+/**
+ * The write side only.
+ *
+ * <p>A flag no longer maps to its response here. Every read goes through
+ * {@link FlagQueueRepository}, because the response carries the reported
+ * content — which lives in one of five tables that no association relates to a
+ * flag, and which a mapper over the entity cannot reach. One path rather than
+ * two: see {@link FlagRowAssembler}.
+ */
 @Mapper(componentModel = "spring")
 public abstract class ContentFlagMapper {
 
@@ -19,12 +27,5 @@ public abstract class ContentFlagMapper {
     @Mapping(target = "updatedAt", ignore = true)
     public abstract ContentFlag mapCreateFlagRequestToContentFlag(
             CreateFlagRequest request
-    );
-
-    @Mapping(target = "reporterId", source = "reporter.id")
-    @Mapping(target = "reporterName", source = "reporter.fullName")
-    @Mapping(target = "reviewedBy", source = "reviewedBy.id")
-    public abstract FlagResponse mapContentFlagToFlagResponse(
-            ContentFlag flag
     );
 }
