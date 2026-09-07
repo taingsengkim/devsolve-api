@@ -2902,3 +2902,71 @@ BEGIN
     END IF;
 END
 $$^^^
+
+-- A member's permissions. Never written here before, so the table's shape came
+-- from whichever ddl-auto run first saw the entity — and Hibernate writes a
+-- CHECK constraint for an @Enumerated(EnumType.STRING) column listing the enum
+-- constants that existed at that moment. "update" adds tables and columns and
+-- never revisits a constraint, so every permission added since is refused by a
+-- rule written before it existed.
+--
+-- That stays invisible until somebody is promoted to MANAGER, whose defaults
+-- are EnumSet.allOf: the one role that writes the newest values. The failure
+-- reads as "That change conflicts with data that already exists", which sounds
+-- like a duplicate and is really a stale rule.
+DO $$
+DECLARE
+    stale_constraint TEXT;
+BEGIN
+    IF to_regclass('public.organization_members') IS NOT NULL THEN
+        CREATE TABLE IF NOT EXISTS public.organization_member_permissions (
+            organization_member_id UUID NOT NULL
+                REFERENCES public.organization_members (id),
+            permission VARCHAR(50) NOT NULL,
+            CONSTRAINT pk_organization_member_permissions
+                PRIMARY KEY (organization_member_id, permission)
+        );
+    END IF;
+
+    -- Only on the first pass. Afterwards the named constraint below is the one
+    -- that exists, and re-validating the table on every boot buys nothing.
+    IF to_regclass('public.organization_member_permissions') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM pg_constraint
+           WHERE conname = 'ck_organization_member_permissions_permission'
+       ) THEN
+        -- Hibernate names its generated checks unpredictably, so drop by shape
+        -- rather than by name: every check on this table is one it wrote.
+        FOR stale_constraint IN
+            SELECT conname
+            FROM pg_constraint
+            WHERE conrelid =
+                    'public.organization_member_permissions'::regclass
+              AND contype = 'c'
+        LOOP
+            EXECUTE format(
+                'ALTER TABLE public.organization_member_permissions'
+                    || ' DROP CONSTRAINT %I',
+                stale_constraint
+            );
+        END LOOP;
+
+        ALTER TABLE public.organization_member_permissions
+            ADD CONSTRAINT ck_organization_member_permissions_permission
+            CHECK (permission IN (
+                'VIEW_PROGRAMS',
+                'CREATE_PROGRAM',
+                'EDIT_PROGRAM',
+                'MANAGE_PROGRAM_STATE',
+                'DELETE_PROGRAM',
+                'VIEW_REPORTS',
+                'TRIAGE_REPORTS',
+                'MANAGE_DISCLOSURE',
+                'AWARD_REWARDS',
+                'MANAGE_RESEARCHERS',
+                'MANAGE_MEMBERS'
+            ));
+    END IF;
+END
+$$^^^
