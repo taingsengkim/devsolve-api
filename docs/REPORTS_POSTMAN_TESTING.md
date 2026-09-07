@@ -343,6 +343,32 @@ pm.test("Hacker's report is listed", function () {
 });
 ```
 
+### 7.3b Filter that listing server-side
+
+The same three filters work on `/reports/mine`, `/reports` and
+`/programs/{programId}/reports`, and compose — a report has to satisfy all of
+them.
+
+```text
+GET {{baseUrl}}/reports/mine?status=TRIAGING&severity=HIGH&search=webhook
+Authorization: Bearer {{hackerToken}}
+```
+
+| Parameter  | Values                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------ |
+| `status`   | `NEW`, `TRIAGING`, `NEEDS_MORE_INFO`, `VALID_CONFIRMED`, `RETESTING`, `RESOLVED`, `REJECTED`, `DUPLICATE`. `state` is accepted as the same parameter and wins if both are sent |
+| `severity` | `NONE`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` — matched against the rating the row displays: the settled one, else triage's, else the reporter's claim |
+| `search`   | free text over the title, the finding itself, the program name and handle, and the `RPT-XXXXXXXX` reference |
+
+Names are the uppercase enum constants; the lower-case spellings in the
+database are not accepted, and an unknown one is a `400`. Blank or absent
+filters nothing.
+
+The severity filter is deliberately not the `severity` field alone. That field
+is null while triage and the reporter still disagree, so filtering on it would
+hide exactly the reports somebody is watching — see
+`ReportSpecification.withEffectiveSeverity`.
+
 ### 7.4 List reports as the Company
 
 ```text

@@ -91,16 +91,6 @@ public interface ReportRepository
         Double getAverageTriageDays();
     }
 
-    @EntityGraph(attributePaths = {
-            "program",
-            "reporter",
-            "weakness",
-            "asset",
-            "triagedBy",
-            "duplicateOf"
-    })
-    Page<Report> findByReporterId(UUID reporterId, Pageable pageable);
-
     /**
      * Feeds the sustained half of {@link ReportRateLimiter}. Counted across
      * every program, and across every state: a report withdrawn or rejected

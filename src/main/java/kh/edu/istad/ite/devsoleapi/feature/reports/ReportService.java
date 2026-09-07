@@ -1,5 +1,6 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
@@ -24,13 +25,28 @@ public interface ReportService {
 
     ReportResponse findById(UUID id);
 
+    /**
+     * @param severity matched against the report's effective severity — the
+     *                 settled rating, else triage's, else the reporter's claim.
+     *                 See {@link ReportSpecification#withEffectiveSeverity}
+     * @param search   free text over the title, the finding, the program, and
+     *                 the {@code RPT-} reference. Null or blank filters nothing
+     */
     Page<ReportResponse> findAccessible(
             UUID programId,
             ReportState state,
+            Severity severity,
+            String search,
             Pageable pageable
     );
 
-    Page<ReportResponse> findMine(Pageable pageable);
+    /** The caller's own reports, under the same filters. */
+    Page<ReportResponse> findMine(
+            ReportState state,
+            Severity severity,
+            String search,
+            Pageable pageable
+    );
 
     /**
      * How the report got to its current state, oldest entry first.

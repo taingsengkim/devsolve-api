@@ -353,12 +353,14 @@ public class ReportServiceImpl implements ReportService {
     public Page<ReportResponse> findAccessible(
             UUID programId,
             ReportState state,
+            Severity severity,
+            String search,
             Pageable pageable
     ) {
         UUID userId = currentUserId();
         Specification<Report> specification =
                 ReportSpecification.forProgram(programId)
-                        .and(ReportSpecification.withState(state));
+                        .and(filters(state, severity, search));
 
         if (!AuthUtils.hasRole(ADMIN_ROLE)) {
             Set<UUID> organizationIds =
@@ -392,18 +394,40 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ReportResponse> findMine(Pageable pageable) {
+    public Page<ReportResponse> findMine(
+            ReportState state,
+            Severity severity,
+            String search,
+            Pageable pageable
+    ) {
         requireRole(USER_ROLE);
         Pageable validatedPageable = PageableValidator.requireAllowedSort(
                 pageable,
                 REPORT_SORT_PROPERTIES
         );
         return reportResponseAssembler.page(
-                reportRepository.findByReporterId(
-                        currentUserId(),
+                reportRepository.findAll(
+                        ReportSpecification.submittedBy(currentUserId())
+                                .and(filters(state, severity, search)),
                         validatedPageable
                 )
         );
+    }
+
+    /**
+     * The filters both listings share. Every one of them is a no-op when its
+     * parameter is absent, so an unfiltered call is the same query it always
+     * was — and they compose the same way whether the caller is scoped to their
+     * own reports or to their organization's.
+     */
+    private Specification<Report> filters(
+            ReportState state,
+            Severity severity,
+            String search
+    ) {
+        return ReportSpecification.withState(state)
+                .and(ReportSpecification.withEffectiveSeverity(severity))
+                .and(ReportSpecification.matching(search));
     }
 
     @Override

@@ -161,6 +161,7 @@ public class ReportMapper {
                 program.getHandle(),
                 program.getOrganizationId(),
                 organization == null ? null : organization.getName(),
+                organization == null ? null : organization.getSlug(),
                 organization == null ? null : organization.getLogoUrl()
         );
     }

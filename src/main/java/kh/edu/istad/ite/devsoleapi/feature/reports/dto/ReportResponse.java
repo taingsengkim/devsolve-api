@@ -150,6 +150,10 @@ public record ReportResponse(
      *                            since been deleted. The report outlives it,
      *                            and a triage queue that dropped those rows
      *                            would hide exactly the findings nobody owns
+     * @param organizationSlug    what a link to the company profile is built
+     *                            from, and null on the same deleted row as the
+     *                            name. Carried so a queue can link a company
+     *                            without resolving the id to a slug per row
      */
     public record ProgramSummary(
             UUID id,
@@ -157,6 +161,7 @@ public record ReportResponse(
             String handle,
             UUID organizationId,
             String organizationName,
+            String organizationSlug,
             String organizationLogoUrl
     ) {
     }

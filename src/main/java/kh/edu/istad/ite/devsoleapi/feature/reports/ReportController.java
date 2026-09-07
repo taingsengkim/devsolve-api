@@ -1,6 +1,7 @@
 package kh.edu.istad.ite.devsoleapi.feature.reports;
 
 import jakarta.validation.Valid;
+import kh.edu.istad.ite.devsoleapi.feature.program.enums.Severity;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.CreateReportRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.RejectTriageSeverityRequest;
 import kh.edu.istad.ite.devsoleapi.feature.reports.dto.ReportActivityResponse;
@@ -57,6 +58,9 @@ public class ReportController {
     public Page<ReportResponse> findByProgram(
             @PathVariable UUID programId,
             @RequestParam(required = false) ReportState state,
+            @RequestParam(required = false) ReportState status,
+            @RequestParam(required = false) Severity severity,
+            @RequestParam(required = false) String search,
             @PageableDefault(
                     size = 20,
                     sort = "submittedAt",
@@ -67,7 +71,9 @@ public class ReportController {
     ) {
         return reportService.findAccessible(
                 programId,
-                state,
+                state == null ? status : state,
+                severity,
+                search,
                 pageable
         );
     }
@@ -76,6 +82,9 @@ public class ReportController {
     public Page<ReportResponse> findAccessible(
             @RequestParam(required = false) UUID programId,
             @RequestParam(required = false) ReportState state,
+            @RequestParam(required = false) ReportState status,
+            @RequestParam(required = false) Severity severity,
+            @RequestParam(required = false) String search,
             @PageableDefault(
                     size = 20,
                     sort = "submittedAt",
@@ -86,13 +95,33 @@ public class ReportController {
     ) {
         return reportService.findAccessible(
                 programId,
-                state,
+                state == null ? status : state,
+                severity,
+                search,
                 pageable
         );
     }
 
+    /**
+     * The caller's own reports.
+     *
+     * @param state    the report's workflow state. {@code status} is accepted
+     *                 as a second spelling of it, because that is what a
+     *                 finding's state is called everywhere it is shown to a
+     *                 person; {@code state} wins if both are sent
+     * @param severity matched against the rating the row actually displays —
+     *                 the settled one, else triage's, else the reporter's
+     *                 claim. Filtering the settled column alone would hide
+     *                 every finding still being argued over
+     * @param search   free text over the title, the finding itself, the
+     *                 program, and the {@code RPT-} reference
+     */
     @GetMapping("/reports/mine")
     public Page<ReportResponse> findMine(
+            @RequestParam(required = false) ReportState state,
+            @RequestParam(required = false) ReportState status,
+            @RequestParam(required = false) Severity severity,
+            @RequestParam(required = false) String search,
             @PageableDefault(
                     size = 20,
                     sort = "submittedAt",
@@ -101,7 +130,12 @@ public class ReportController {
             @ParameterObject
             Pageable pageable
     ) {
-        return reportService.findMine(pageable);
+        return reportService.findMine(
+                state == null ? status : state,
+                severity,
+                search,
+                pageable
+        );
     }
 
     @GetMapping("/reports/{id}")
